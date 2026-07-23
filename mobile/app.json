@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "WRBH Club",
+    "slug": "wrbh-club",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/logo.png",
+    "scheme": "wrbh",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1E3A8A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dz.wrbh.club"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#1E3A8A"
+      },
+      "package": "dz.wrbh.club",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "wrbh" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": ["expo-router", "expo-notifications"],
+    "extra": {
+      "apiUrl": "http://127.0.0.1:8000",
+      "eas": { "projectId": "replace-with-eas-project-id" }
+    }
+  }
+}

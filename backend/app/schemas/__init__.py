@@ -1,0 +1,289 @@
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+
+class ORMModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    user_id: int
+    full_name: str
+
+
+class UserCreate(BaseModel):
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    full_name: str
+    full_name_ar: Optional[str] = None
+    role: str
+    password: str = Field(min_length=6)
+    locale: str = "fr"
+
+
+class UserOut(ORMModel):
+    id: int
+    email: Optional[str]
+    phone: Optional[str]
+    full_name: str
+    full_name_ar: Optional[str]
+    role: str
+    is_active: bool
+    locale: str
+
+
+class LoginForm(BaseModel):
+    username: str  # email or phone
+    password: str
+
+
+class ClubOut(ORMModel):
+    id: int
+    name: str
+    name_ar: Optional[str]
+    acronym: str
+    phone: Optional[str]
+    whatsapp: Optional[str]
+    address: Optional[str]
+    logo_path: Optional[str]
+    primary_color: str
+    accent_color: str
+    facebook: Optional[str]
+    instagram: Optional[str]
+
+
+class SeasonOut(ORMModel):
+    id: int
+    name: str
+    starts_on: date
+    ends_on: date
+    is_current: bool
+    registration_open: bool
+
+
+class CategoryOut(ORMModel):
+    id: int
+    season_id: int
+    code: str
+    name: str
+    name_ar: Optional[str]
+    birth_year_min: int
+    birth_year_max: int
+    is_active: bool
+
+
+class TeamOut(ORMModel):
+    id: int
+    category_id: int
+    name: str
+    name_ar: Optional[str]
+    code: Optional[str]
+
+
+class AthleteCreate(BaseModel):
+    full_name: str
+    full_name_ar: Optional[str] = None
+    birth_date: Optional[date] = None
+    birth_place: Optional[str] = None
+    status: str = "Active"
+    license_number: Optional[str] = None
+    notes: Optional[str] = None
+    legacy_number: Optional[int] = None
+
+
+class AthleteOut(ORMModel):
+    id: int
+    legacy_number: Optional[int]
+    full_name: str
+    full_name_ar: Optional[str]
+    birth_date: Optional[date]
+    birth_place: Optional[str]
+    status: str
+    license_number: Optional[str]
+    notes: Optional[str]
+
+
+class RegistrationCreate(BaseModel):
+    athlete_id: Optional[int] = None
+    athlete: Optional[AthleteCreate] = None
+    season_id: int
+    category_id: Optional[int] = None
+    registered_on: Optional[date] = None
+    subscription_fee: Optional[Decimal] = None
+    source: str = "web"
+    parent_phone: Optional[str] = None
+    parent_name: Optional[str] = None
+    emergency_name: Optional[str] = None
+    emergency_phone: Optional[str] = None
+
+
+class RegistrationOut(ORMModel):
+    id: int
+    athlete_id: int
+    season_id: int
+    category_id: Optional[int]
+    registered_on: Optional[date]
+    status: str
+    source: str
+    subscription_fee: Optional[Decimal]
+
+
+class EventCreate(BaseModel):
+    season_id: Optional[int] = None
+    team_id: Optional[int] = None
+    venue_id: Optional[int] = None
+    event_type: str
+    title: str
+    title_ar: Optional[str] = None
+    description: Optional[str] = None
+    starts_at: datetime
+    ends_at: Optional[datetime] = None
+    recurrence_rule: Optional[str] = None
+    opponent: Optional[str] = None
+    home_away: Optional[str] = None
+    coach_id: Optional[int] = None
+
+
+class EventOut(ORMModel):
+    id: int
+    event_type: str
+    title: str
+    title_ar: Optional[str]
+    starts_at: datetime
+    ends_at: Optional[datetime]
+    team_id: Optional[int]
+    venue_id: Optional[int]
+    opponent: Optional[str]
+    home_away: Optional[str]
+    score_home: Optional[int]
+    score_away: Optional[int]
+    is_cancelled: bool
+    recurrence_rule: Optional[str]
+
+
+class ConvocationOut(ORMModel):
+    id: int
+    event_id: int
+    athlete_id: int
+    status: str
+    note: Optional[str]
+
+
+class AttendanceIn(BaseModel):
+    athlete_id: int
+    status: str
+    note: Optional[str] = None
+
+
+class PaymentCreate(BaseModel):
+    installment_id: Optional[int] = None
+    athlete_id: int
+    amount: Decimal
+    method: str = "cash"
+    paid_on: date
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class InstallmentOut(ORMModel):
+    id: int
+    athlete_id: int
+    season_id: int
+    label: str
+    label_ar: Optional[str]
+    due_date: Optional[date]
+    amount: Decimal
+    amount_paid: Decimal
+    status: str
+
+
+class LedgerCreate(BaseModel):
+    season_id: Optional[int] = None
+    entry_type: str
+    category: str
+    label: str
+    amount: Decimal
+    entry_date: date
+    counterparty: Optional[str] = None
+    place: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class LedgerOut(ORMModel):
+    id: int
+    entry_type: str
+    category: str
+    label: str
+    amount: Decimal
+    entry_date: date
+    counterparty: Optional[str]
+    place: Optional[str]
+
+
+class AnnouncementCreate(BaseModel):
+    title: str
+    title_ar: Optional[str] = None
+    body: str
+    body_ar: Optional[str] = None
+    audience: str = "all"
+    is_pinned: bool = False
+
+
+class AnnouncementOut(ORMModel):
+    id: int
+    title: str
+    title_ar: Optional[str]
+    body: str
+    body_ar: Optional[str]
+    audience: str
+    published_at: Optional[datetime]
+    is_pinned: bool
+
+
+class InventoryItemCreate(BaseModel):
+    name: str
+    sku: Optional[str] = None
+    quantity: int = 0
+    alert_threshold: int = 2
+    location: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class InventoryItemOut(ORMModel):
+    id: int
+    name: str
+    sku: Optional[str]
+    quantity: int
+    alert_threshold: int
+    location: Optional[str]
+
+
+class PushTokenIn(BaseModel):
+    token: str
+    platform: str = "unknown"
+
+
+class HealthOut(BaseModel):
+    status: str
+    app: str
+    environment: str
+    database: str
+    woken_at: datetime
+
+
+class MobileHomeOut(BaseModel):
+    role: str
+    full_name: str
+    club_name: str
+    club_name_ar: Optional[str]
+    children_count: int = 0
+    upcoming_events: list[EventOut] = []
+    pending_convocations: int = 0
+    unpaid_installments: int = 0
+    announcements: list[AnnouncementOut] = []

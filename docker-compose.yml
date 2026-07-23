@@ -1,0 +1,34 @@
+services:
+  api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://wrbh:wrbh@db:5432/wrbh
+      SECRET_KEY: change-me-in-production
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    volumes:
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: wrbh
+      POSTGRES_PASSWORD: wrbh
+      POSTGRES_DB: wrbh
+    ports:
+      - "5432:5432"
+    volumes:
+      - wrbh_pg:/var/lib/postgresql/data
+
+  web:
+    build: ./web
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  wrbh_pg:
