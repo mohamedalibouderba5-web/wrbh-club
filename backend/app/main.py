@@ -4,13 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import agenda, auth, club, finance, mobile
+from app.api import agenda, auth, club, finance, mobile, uploads
 from app.core.config import get_settings
 from app.core.database import Base, engine
 
 settings = get_settings()
 
-app = FastAPI(title=settings.app_name, version="1.0.0", docs_url="/api/docs", redoc_url="/api/redoc")
+app = FastAPI(title=settings.app_name, version="1.1.0", docs_url="/api/docs", redoc_url="/api/redoc")
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,6 +48,7 @@ app.include_router(agenda.comms_router, prefix="/api/v1")
 app.include_router(finance.router, prefix="/api/v1")
 app.include_router(finance.inv_router, prefix="/api/v1")
 app.include_router(mobile.router, prefix="/api/v1")
+app.include_router(uploads.router, prefix="/api/v1")
 
 
 @app.get("/")

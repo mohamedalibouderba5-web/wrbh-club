@@ -185,3 +185,215 @@ th { color: var(--muted); font-weight: 600; }
   .nav { display: flex; gap: 0.35rem; overflow-x: auto; }
   .nav a { white-space: nowrap; }
 }
+
+/* FR / AR */
+.lang-switch {
+  display: flex;
+  gap: 6px;
+  margin: 0.75rem 0 1rem;
+}
+.lang-switch button {
+  flex: 1;
+  padding: 0.35rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 700;
+}
+.sidebar .lang-switch button.active {
+  background: var(--yellow);
+  color: var(--blue-deep);
+  border-color: transparent;
+}
+.login-card .lang-switch button {
+  border-color: #d7deee;
+  color: var(--blue);
+}
+.login-card .lang-switch button.active {
+  background: var(--blue);
+  color: white;
+}
+html[dir="rtl"] th, html[dir="rtl"] td { text-align: right; }
+html[dir="rtl"] .field { text-align: right; }
+
+/* Photos */
+.photo-capture { display: grid; gap: 0.5rem; }
+.photo-preview, .photo-placeholder {
+  width: 140px;
+  height: 140px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(145deg, #1E3A8A, #0f1f4d);
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,0.7);
+  font-size: 0.85rem;
+}
+.photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+.photo-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.avatar.placeholder {
+  display: inline-grid;
+  place-items: center;
+  background: #dbe4f8;
+  color: var(--blue);
+  font-weight: 800;
+}
+
+/* Categories */
+.cat-chips { margin-bottom: 1rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0.5rem 0 0.75rem; }
+.chip {
+  border: 1px solid #d7deee;
+  background: #f7f9ff;
+  border-radius: 12px;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-weight: 700;
+  color: var(--blue);
+}
+.chip small { font-weight: 500; color: var(--muted); }
+.chip.active, .chip.status-Active { background: var(--blue); color: white; border-color: transparent; }
+.chip.status-Abandonne { background: #fee2e2; color: #b91c1c; }
+.affiche-mini {
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-top: 0.5rem;
+}
+
+/* Charts */
+.bar-chart { display: grid; gap: 0.65rem; }
+.bar-row { display: grid; grid-template-columns: 88px 1fr 64px; gap: 8px; align-items: center; }
+.bar-label { font-size: 0.85rem; color: var(--muted); }
+.bar-track { height: 12px; background: #eef2fb; border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; min-width: 4px; transition: width 0.4s ease; }
+.bar-val { text-align: right; font-size: 0.9rem; }
+
+/* Sessions eFootball-like */
+.session-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+.session-card {
+  display: flex;
+  gap: 0.75rem;
+  text-align: left;
+  border: none;
+  border-radius: 18px;
+  padding: 0.9rem;
+  cursor: pointer;
+  color: white;
+  background: linear-gradient(135deg, #1E3A8A 0%, #0b1738 55%, #1a2f6b 100%);
+  box-shadow: 0 10px 30px rgba(15, 31, 77, 0.25);
+  position: relative;
+  overflow: hidden;
+}
+.session-card::after {
+  content: "";
+  position: absolute;
+  inset: auto -20% -40% auto;
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle, rgba(245,197,24,0.35), transparent 70%);
+}
+.session-card.type-match { background: linear-gradient(135deg, #7c2d12, #1E3A8A); }
+.session-card.cancelled { opacity: 0.55; filter: grayscale(0.4); }
+.session-card.selected { outline: 3px solid var(--yellow); }
+.session-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(255,255,255,0.12);
+  font-size: 1.35rem;
+  flex-shrink: 0;
+}
+.session-body { position: relative; z-index: 1; }
+.session-meta { font-size: 0.8rem; opacity: 0.85; margin: 0.25rem 0; }
+.ar-line { font-family: "Noto Sans Arabic", sans-serif; opacity: 0.9; font-size: 0.9rem; }
+.session-panel-head { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 1rem; }
+.roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+.roster-card {
+  background: #f7f9ff;
+  border-radius: 14px;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.45rem;
+  justify-items: center;
+  text-align: center;
+  border: 2px solid transparent;
+}
+.roster-card img, .roster-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.roster-avatar {
+  display: grid;
+  place-items: center;
+  background: var(--blue);
+  color: white;
+  font-weight: 800;
+  font-size: 1.4rem;
+}
+.roster-card.att-present { border-color: #16a34a; background: #ecfdf5; }
+.roster-card.att-absent { border-color: #dc2626; background: #fef2f2; }
+.roster-card.att-late { border-color: #F5C518; background: #fffbeb; }
+.att-btns { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.att-btns button {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 8px;
+}
+.cancel-box {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #edf0f7;
+  display: grid;
+  gap: 0.5rem;
+}
+button.danger {
+  background: #dc2626;
+  color: white;
+}
+button.danger:hover { filter: brightness(1.05); }
+
+/* Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 31, 77, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 1rem;
+}
+.modal { width: min(420px, 100%); }
+.status-Abandonne { background: #fee2e2; color: #b91c1c; }
+.status-Active { background: #dcfce7; color: #166534; }
+
+@media (max-width: 900px) {
+  .session-board { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: 70px 1fr 48px; }
+}
+

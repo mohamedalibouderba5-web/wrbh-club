@@ -13,8 +13,8 @@ import { wakeServer } from "../src/api/client";
 
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [username, setUsername] = useState("parent@wrbh.local");
-  const [password, setPassword] = useState("parent123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [wakeMsg, setWakeMsg] = useState("");
@@ -47,19 +47,20 @@ export default function LoginScreen() {
       <Image source={require("../assets/logo.png")} style={styles.logo} />
       <Text style={styles.title}>WRBH Club</Text>
       <Text style={styles.ar}>الوداد الرياضي لبلدية حمادي</Text>
-      <Text style={styles.sub}>Parents · Coaches · Terrain</Text>
+      <Text style={styles.sub}>Connexion parent par téléphone ☎</Text>
 
       <TextInput
         style={styles.input}
-        placeholder="Email / téléphone"
+        placeholder="0555… / هاتف الولي"
         placeholderTextColor="#8a93a8"
         autoCapitalize="none"
+        keyboardType="phone-pad"
         value={username}
         onChangeText={setUsername}
       />
       <TextInput
         style={styles.input}
-        placeholder="Mot de passe"
+        placeholder="Mot de passe / كلمة المرور"
         placeholderTextColor="#8a93a8"
         secureTextEntry
         value={password}
@@ -68,8 +69,9 @@ export default function LoginScreen() {
       {!!error && <Text style={styles.error}>{error}</Text>}
 
       <Pressable style={styles.btn} onPress={onLogin} disabled={loading}>
-        {loading ? <ActivityIndicator color="#0f1f4d" /> : <Text style={styles.btnText}>Connexion</Text>}
+        {loading ? <ActivityIndicator color="#0f1f4d" /> : <Text style={styles.btnText}>Connexion / دخول</Text>}
       </Pressable>
+      <Text style={styles.hint}>Parents : téléphone enregistré à l'inscription. Staff : email.</Text>
       <Pressable style={styles.wake} onPress={onWake}>
         <Text style={styles.wakeText}>Actualiser / Réveiller le serveur</Text>
       </Pressable>
@@ -97,6 +99,7 @@ const styles = StyleSheet.create({
   title: { color: "white", fontSize: 28, fontWeight: "800", textAlign: "center" },
   ar: { color: "#F5C518", textAlign: "center", marginTop: 4, fontSize: 16 },
   sub: { color: "rgba(255,255,255,0.75)", textAlign: "center", marginVertical: 12 },
+  hint: { color: "rgba(255,255,255,0.55)", textAlign: "center", marginTop: 12, fontSize: 12 },
   input: {
     backgroundColor: "rgba(255,255,255,0.12)",
     borderRadius: 12,

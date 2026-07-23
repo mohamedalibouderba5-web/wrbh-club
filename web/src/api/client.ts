@@ -12,11 +12,18 @@ function authHeader(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export function mediaUrl(path?: string | null): string | undefined {
+  if (!path) return undefined;
+  if (path.startsWith("http")) return path;
+  return `${API_BASE}${path}`;
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      ...(options.body instanceof URLSearchParams ? {} : { "Content-Type": "application/json" }),
+      ...(options.body instanceof URLSearchParams || isForm ? {} : { "Content-Type": "application/json" }),
       ...authHeader(),
       ...(options.headers || {}),
     },
@@ -32,7 +39,18 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
           : "Erreur API";
     throw new Error(message);
   }
+  if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+export async function uploadPhoto(file: File, athleteId?: number, registrationId?: number) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const qs = new URLSearchParams();
+  if (athleteId) qs.set("athlete_id", String(athleteId));
+  if (registrationId) qs.set("registration_id", String(registrationId));
+  const q = qs.toString() ? `?${qs}` : "";
+  return api<{ path: string; url: string }>(`/api/v1/uploads/photo${q}`, { method: "POST", body: fd });
 }
 
 export async function login(username: string, password: string): Promise<TokenPayload> {

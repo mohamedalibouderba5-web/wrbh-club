@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
@@ -12,6 +11,7 @@ from app.core.roles import Role
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import Club, User
 from app.schemas import ClubOut, TokenOut, UserCreate, UserOut
+from app.services.parents import find_user_by_phone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -19,13 +19,13 @@ settings = get_settings()
 
 @router.post("/login", response_model=TokenOut)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = (
-        db.query(User)
-        .filter(or_(User.email == form.username, User.phone == form.username))
-        .first()
-    )
+    user = db.query(User).filter(User.email == form.username).first()
+    if not user:
+        user = find_user_by_phone(db, form.username)
     if not user or not verify_password(form.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Identifiants incorrects")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Compte désactivé")
     token = create_access_token(user.id, {"role": user.role})
     return TokenOut(
         access_token=token,

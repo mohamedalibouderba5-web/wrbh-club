@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.core.roles import Role
 from app.models import (
     Announcement,
+    Athlete,
     Attendance,
     Club,
     Convocation,
@@ -26,9 +27,12 @@ from app.schemas import (
     AnnouncementOut,
     AttendanceIn,
     ConvocationOut,
+    EventCancelIn,
     EventCreate,
     EventOut,
+    RosterAthleteOut,
 )
+from app.services.notify import notify_team_parents
 
 router = APIRouter(tags=["agenda"])
 
@@ -39,10 +43,13 @@ def list_events(
     to_dt: datetime | None = None,
     team_id: int | None = None,
     event_type: str | None = None,
+    include_cancelled: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    q = db.query(Event).filter(Event.is_cancelled.is_(False))
+    q = db.query(Event)
+    if not include_cancelled:
+        q = q.filter(Event.is_cancelled.is_(False))
     if from_dt:
         q = q.filter(Event.starts_at >= from_dt)
     if to_dt:
@@ -151,6 +158,80 @@ def respond_convocation(
     db.commit()
     db.refresh(conv)
     return conv
+
+
+@router.get("/events/{event_id}", response_model=EventOut)
+def get_event(event_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    return event
+
+
+@router.post("/events/{event_id}/cancel", response_model=EventOut)
+def cancel_event(
+    event_id: int,
+    payload: EventCancelIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+):
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    event.is_cancelled = True
+    reason = payload.reason or "Séance annulée"
+    if event.description:
+        event.description = f"{event.description}\n[Annulé] {reason}"
+    else:
+        event.description = f"[Annulé] {reason}"
+    notified = 0
+    if payload.notify and event.team_id:
+        when = event.starts_at.strftime("%d/%m/%Y %H:%M")
+        notified = notify_team_parents(
+            db,
+            event.team_id,
+            f"Séance annulée / إلغاء الحصة — {event.title}",
+            f"{when} — {reason}",
+            kind="cancel",
+        )
+    db.commit()
+    db.refresh(event)
+    event._notified = notified  # type: ignore[attr-defined]
+    return event
+
+
+@router.get("/events/{event_id}/roster", response_model=list[RosterAthleteOut])
+def event_roster(
+    event_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+):
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    if not event.team_id:
+        return []
+    memberships = (
+        db.query(TeamMembership)
+        .filter(TeamMembership.team_id == event.team_id, TeamMembership.is_active.is_(True))
+        .all()
+    )
+    out: list[RosterAthleteOut] = []
+    for m in memberships:
+        athlete = db.get(Athlete, m.athlete_id)
+        if not athlete or athlete.status != "Active":
+            continue
+        att = db.query(Attendance).filter_by(event_id=event_id, athlete_id=athlete.id).first()
+        out.append(
+            RosterAthleteOut(
+                athlete_id=athlete.id,
+                full_name=athlete.full_name,
+                photo_path=athlete.photo_path,
+                attendance_status=att.status if att else None,
+                jersey_number=m.jersey_number,
+            )
+        )
+    return sorted(out, key=lambda x: x.full_name)
 
 
 @router.post("/events/{event_id}/attendance")

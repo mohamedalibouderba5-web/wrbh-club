@@ -33,7 +33,7 @@
     },
     "plugins": ["expo-router", "expo-notifications"],
     "extra": {
-      "apiUrl": "http://127.0.0.1:8000",
+      "apiUrl": "https://wrbh-api.onrender.com",
       "eas": { "projectId": "replace-with-eas-project-id" }
     }
   }

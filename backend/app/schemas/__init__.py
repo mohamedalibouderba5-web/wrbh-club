@@ -95,6 +95,23 @@ class AthleteCreate(BaseModel):
     license_number: Optional[str] = None
     notes: Optional[str] = None
     legacy_number: Optional[int] = None
+    photo_path: Optional[str] = None
+    parent_phone: Optional[str] = None
+    parent_name: Optional[str] = None
+
+
+class AthleteUpdate(BaseModel):
+    full_name: Optional[str] = None
+    full_name_ar: Optional[str] = None
+    birth_date: Optional[date] = None
+    birth_place: Optional[str] = None
+    status: Optional[str] = None
+    license_number: Optional[str] = None
+    notes: Optional[str] = None
+    photo_path: Optional[str] = None
+    parent_phone: Optional[str] = None
+    parent_name: Optional[str] = None
+    confirm_status: bool = False
 
 
 class AthleteOut(ORMModel):
@@ -107,6 +124,8 @@ class AthleteOut(ORMModel):
     status: str
     license_number: Optional[str]
     notes: Optional[str]
+    photo_path: Optional[str] = None
+    parent_phone: Optional[str] = None
 
 
 class RegistrationCreate(BaseModel):
@@ -121,6 +140,8 @@ class RegistrationCreate(BaseModel):
     parent_name: Optional[str] = None
     emergency_name: Optional[str] = None
     emergency_phone: Optional[str] = None
+    photo_path: Optional[str] = None
+    parent_password: Optional[str] = None
 
 
 class RegistrationOut(ORMModel):
@@ -132,6 +153,12 @@ class RegistrationOut(ORMModel):
     status: str
     source: str
     subscription_fee: Optional[Decimal]
+    athlete_name: Optional[str] = None
+    athlete_photo: Optional[str] = None
+    category_code: Optional[str] = None
+    parent_phone: Optional[str] = None
+    parent_temp_password: Optional[str] = None
+    parent_created: Optional[bool] = None
 
 
 class EventCreate(BaseModel):
@@ -155,6 +182,7 @@ class EventOut(ORMModel):
     event_type: str
     title: str
     title_ar: Optional[str]
+    description: Optional[str] = None
     starts_at: datetime
     ends_at: Optional[datetime]
     team_id: Optional[int]
@@ -165,6 +193,20 @@ class EventOut(ORMModel):
     score_away: Optional[int]
     is_cancelled: bool
     recurrence_rule: Optional[str]
+    coach_id: Optional[int] = None
+
+
+class EventCancelIn(BaseModel):
+    reason: Optional[str] = None
+    notify: bool = True
+
+
+class RosterAthleteOut(BaseModel):
+    athlete_id: int
+    full_name: str
+    photo_path: Optional[str] = None
+    attendance_status: Optional[str] = None
+    jersey_number: Optional[int] = None
 
 
 class ConvocationOut(ORMModel):
