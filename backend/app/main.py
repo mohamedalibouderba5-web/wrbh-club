@@ -10,11 +10,23 @@ from app.core.database import Base, engine
 
 settings = get_settings()
 
-app = FastAPI(title=settings.app_name, version="1.1.0", docs_url="/api/docs", redoc_url="/api/redoc")
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment, traces_sample_rate=0.1)
+    except Exception:
+        pass
+
+app = FastAPI(title=settings.app_name, version="1.2.0", docs_url="/api/docs", redoc_url="/api/redoc")
+
+cors_origins = list(settings.cors_origin_list)
+if not settings.is_production:
+    cors_origins = list({*cors_origins, "*"})
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list + ["*"],
+    allow_origins=cors_origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -23,8 +35,6 @@ app.add_middleware(
 upload_dir = Path(settings.upload_dir)
 upload_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
-
-api = FastAPI()  # unused nested; keep flat mounts
 
 
 @app.on_event("startup")

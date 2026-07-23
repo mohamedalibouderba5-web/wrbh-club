@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     default_page_size: int = 50
     max_page_size: int = 200
     allow_test_cleanup: bool = False
+    sentry_dsn: str = ""
+    login_rate_limit: int = 20
+    login_rate_window_seconds: int = 60
 
     @property
     def is_production(self) -> bool:

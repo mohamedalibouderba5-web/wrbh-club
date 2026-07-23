@@ -24,6 +24,7 @@ from app.models import (
     Registration,
     Season,
     Team,
+    TeamCoach,
     TeamMembership,
     User,
 )
@@ -375,7 +376,12 @@ def cleanup_test_batch(
         )
     athletes = (
         db.query(Athlete)
-        .filter((Athlete.notes.contains(marker)) | (Athlete.full_name.contains("[TEST]")))
+        .filter(
+            (Athlete.notes.contains(marker))
+            | (Athlete.full_name.contains("[TEST]"))
+            | (Athlete.full_name.contains("[VERIFY]"))
+            | (Athlete.notes.contains("VERIFY"))
+        )
         .all()
     )
     ids = [a.id for a in athletes]
@@ -417,6 +423,75 @@ def cleanup_test_batch(
         "parents_deleted": len(parent_ids),
         "announcements_deleted": len(anns),
     }
+
+
+@router.post("/system/backfill-fees")
+def backfill_fees(
+    confirm: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN)),
+):
+    if not confirm:
+        raise HTTPException(400, "Ajoutez ?confirm=true")
+    regs = (
+        db.query(Registration)
+        .filter(Registration.status == "approved", Registration.subscription_fee.isnot(None))
+        .all()
+    )
+    created = 0
+    for reg in regs:
+        before = (
+            db.query(FeeInstallment)
+            .filter(FeeInstallment.registration_id == reg.id, FeeInstallment.label == "inscription")
+            .count()
+        )
+        ensure_subscription_installment(db, reg)
+        db.flush()
+        after = (
+            db.query(FeeInstallment)
+            .filter(FeeInstallment.registration_id == reg.id, FeeInstallment.label == "inscription")
+            .count()
+        )
+        if after > before:
+            created += 1
+    db.commit()
+    return {"registrations": len(regs), "installments_created": created}
+
+
+@router.post("/system/prune-old-teams")
+def prune_old_teams(
+    confirm: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN)),
+):
+    """Supprime les équipes liées à des catégories hors saison courante, sans memberships actives."""
+    if not confirm:
+        raise HTTPException(400, "Ajoutez ?confirm=true")
+    season = db.query(Season).filter(Season.is_current.is_(True)).first()
+    if not season:
+        raise HTTPException(400, "Aucune saison courante")
+    keep_cat_ids = {c.id for c in db.query(Category).filter(Category.season_id == season.id)}
+    deleted = []
+    kept = []
+    for team in db.query(Team).all():
+        if team.category_id in keep_cat_ids:
+            kept.append(team.id)
+            continue
+        active = (
+            db.query(TeamMembership)
+            .filter(TeamMembership.team_id == team.id, TeamMembership.is_active.is_(True))
+            .count()
+        )
+        if active:
+            kept.append(team.id)
+            continue
+        db.query(Event).filter(Event.team_id == team.id).update({Event.team_id: None}, synchronize_session=False)
+        db.query(TeamCoach).filter(TeamCoach.team_id == team.id).delete(synchronize_session=False)
+        db.query(TeamMembership).filter(TeamMembership.team_id == team.id).delete(synchronize_session=False)
+        deleted.append({"id": team.id, "name": team.name, "category_id": team.category_id})
+        db.delete(team)
+    db.commit()
+    return {"season": season.name, "deleted": deleted, "kept_count": len(kept)}
 
 
 reg_router = APIRouter(prefix="/registrations", tags=["registrations"])

@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+from collections import defaultdict
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -16,9 +18,28 @@ from app.services.parents import find_user_by_phone
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
+_login_hits: dict[str, list[float]] = defaultdict(list)
+
+
+def _rate_limit_login(request: Request) -> None:
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    window = settings.login_rate_window_seconds
+    limit = settings.login_rate_limit
+    hits = [t for t in _login_hits[ip] if now - t < window]
+    if len(hits) >= limit:
+        raise HTTPException(status_code=429, detail="Trop de tentatives de connexion. Réessayez plus tard.")
+    hits.append(now)
+    _login_hits[ip] = hits
+
 
 @router.post("/login", response_model=TokenOut)
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    request: Request,
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    _rate_limit_login(request)
     user = db.query(User).filter(User.email == form.username).first()
     if not user:
         user = find_user_by_phone(db, form.username)

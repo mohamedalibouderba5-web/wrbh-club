@@ -44,6 +44,8 @@ def list_events(
     team_id: int | None = None,
     event_type: str | None = None,
     include_cancelled: bool = False,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=300),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -75,7 +77,7 @@ def list_events(
         team_ids = {r[0] for r in db.query(TeamCoach.team_id).filter(TeamCoach.user_id == user.id)}
         q = q.filter(Event.team_id.in_(team_ids or {-1}))
 
-    return q.order_by(Event.starts_at).limit(300).all()
+    return q.order_by(Event.starts_at).offset(skip).limit(limit).all()
 
 
 @router.post("/events", response_model=EventOut)
@@ -290,12 +292,18 @@ def create_announcement(
 
 
 @comms_router.get("/notifications")
-def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_notifications(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     rows = (
         db.query(Notification)
         .filter(Notification.user_id == user.id)
         .order_by(Notification.id.desc())
-        .limit(50)
+        .offset(skip)
+        .limit(limit)
         .all()
     )
     return [

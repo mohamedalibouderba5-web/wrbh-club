@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,8 @@ def list_installments(
     athlete_id: int | None = None,
     season_id: int | None = None,
     status: str | None = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -50,7 +52,7 @@ def list_installments(
     if user.role == Role.PARENT:
         ids = {r[0] for r in db.query(ParentChild.athlete_id).filter(ParentChild.parent_id == user.id)}
         q = q.filter(FeeInstallment.athlete_id.in_(ids or {-1}))
-    return q.order_by(FeeInstallment.due_date.nulls_last()).limit(500).all()
+    return q.order_by(FeeInstallment.due_date.nulls_last()).offset(skip).limit(limit).all()
 
 
 @router.post("/payments")
@@ -88,13 +90,15 @@ def create_payment(
 @router.get("/ledger", response_model=list[LedgerOut])
 def list_ledger(
     entry_type: str | None = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
 ):
     q = db.query(LedgerEntry)
     if entry_type:
         q = q.filter(LedgerEntry.entry_type == entry_type)
-    return q.order_by(LedgerEntry.entry_date.desc()).limit(500).all()
+    return q.order_by(LedgerEntry.entry_date.desc()).offset(skip).limit(limit).all()
 
 
 @router.post("/ledger", response_model=LedgerOut)

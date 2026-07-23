@@ -23,4 +23,5 @@ dist/
 backend/mobile/
 backend/scripts/test_assets/last_test_report.json
 backend/scripts/test_assets/run_log.txt
+backend/.credentials.rotated
 

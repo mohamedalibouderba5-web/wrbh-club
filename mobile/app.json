@@ -34,7 +34,10 @@
     "plugins": ["expo-router", "expo-notifications"],
     "extra": {
       "apiUrl": "https://wrbh-api.onrender.com",
-      "eas": { "projectId": "replace-with-eas-project-id" }
+      "eas": {
+        "projectId": "replace-with-eas-project-id"
+      },
+      "_eas_setup": "Run: npx eas init  (Expo account) then paste the real projectId here and set EXPO_PUBLIC_API_URL"
     }
   }
 }

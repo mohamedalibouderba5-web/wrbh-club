@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -456,3 +457,16 @@ class AuditLog(Base):
     entity_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MediaObject(Base, TimestampMixin):
+    """Stockage durable des photos (survit aux redémarrages Render free)."""
+
+    __tablename__ = "media_objects"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    content_type: Mapped[str] = mapped_column(String(80), default="image/jpeg")
+    filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    byte_size: Mapped[int] = mapped_column(Integer, default=0)
+    kind: Mapped[str] = mapped_column(String(40), default="photo")

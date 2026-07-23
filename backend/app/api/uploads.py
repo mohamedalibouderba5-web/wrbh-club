@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import require_roles
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.roles import Role
-from app.models import Athlete, Attachment, Registration, User
+from app.models import Athlete, Attachment, MediaObject, Registration, User
+from app.services.media import media_public_path, store_photo_bytes
 
-router = APIRouter(prefix="/uploads", tags=["uploads"])
+router = APIRouter(tags=["uploads"])
 settings = get_settings()
 
 ALLOWED = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
 MAX_BYTES = 8 * 1024 * 1024
 
 
-def _save_upload(file: UploadFile, subdir: str) -> str:
+def _read_upload(file: UploadFile) -> tuple[bytes, str]:
     if file.content_type and file.content_type not in ALLOWED:
         raise HTTPException(400, "Format image non supporté (jpg/png/webp)")
     data = file.file.read(MAX_BYTES + 1)
@@ -27,18 +27,11 @@ def _save_upload(file: UploadFile, subdir: str) -> str:
         raise HTTPException(400, "Image trop volumineuse (max 8 Mo)")
     if not data:
         raise HTTPException(400, "Fichier vide")
-    ext = Path(file.filename or "photo.jpg").suffix.lower() or ".jpg"
-    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-        ext = ".jpg"
-    folder = Path(settings.upload_dir) / subdir
-    folder.mkdir(parents=True, exist_ok=True)
-    name = f"{uuid.uuid4().hex}{ext}"
-    path = folder / name
-    path.write_bytes(data)
-    return f"/uploads/{subdir}/{name}"
+    ctype = file.content_type or "image/jpeg"
+    return data, ctype
 
 
-@router.post("/photo")
+@router.post("/uploads/photo")
 async def upload_photo(
     file: UploadFile = File(...),
     athlete_id: int | None = None,
@@ -46,7 +39,25 @@ async def upload_photo(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH, Role.PARENT)),
 ):
-    rel = _save_upload(file, "photos")
+    """Enregistre la photo en base (durable) + chemin /api/v1/media/{id}."""
+    data, ctype = _read_upload(file)
+    try:
+        media = store_photo_bytes(db, data, content_type=ctype, filename=file.filename)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    rel = media_public_path(media.id)
+
+    # Compat : aussi écrire sur disque local si possible (dev)
+    try:
+        ext = Path(file.filename or "photo.jpg").suffix.lower() or ".jpg"
+        if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+            ext = ".jpg"
+        folder = Path(settings.upload_dir) / "photos"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{media.id}{ext}").write_bytes(data)
+    except Exception:
+        pass
+
     if athlete_id:
         athlete = db.get(Athlete, athlete_id)
         if not athlete:
@@ -70,4 +81,17 @@ async def upload_photo(
         )
     )
     db.commit()
-    return {"path": rel, "url": rel}
+    return {"path": rel, "url": rel, "media_id": media.id, "storage": "database"}
+
+
+@router.get("/media/{media_id}")
+def get_media(media_id: str, db: Session = Depends(get_db)):
+    """Public : sert les photos stockées en base (CDN alternatif simple)."""
+    row = db.get(MediaObject, media_id)
+    if not row:
+        raise HTTPException(404, "Média introuvable")
+    return Response(
+        content=row.data,
+        media_type=row.content_type or "image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
