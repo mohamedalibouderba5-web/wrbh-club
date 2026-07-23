@@ -16,6 +16,7 @@ from app.models import (
     EmergencyContact,
     Event,
     FeeInstallment,
+    Notification,
     ParentChild,
     Payment,
     Registration,
@@ -327,11 +328,18 @@ def cleanup_test_batch(
     # test parent users by phone prefix 069911
     parents = db.query(User).filter(User.role == Role.PARENT, User.phone.like("069911%")).all()
     parent_ids = [p.id for p in parents]
+    if parent_ids:
+        db.query(Notification).filter(Notification.user_id.in_(parent_ids)).delete(synchronize_session=False)
+        db.query(ParentChild).filter(ParentChild.parent_id.in_(parent_ids)).delete(synchronize_session=False)
     for p in parents:
         db.delete(p)
     anns = db.query(Announcement).filter(Announcement.title.contains(marker)).all()
     for a in anns:
         db.delete(a)
+    # staff notifications created by the test batch (cancel / status)
+    db.query(Notification).filter(Notification.title.contains(marker) | Notification.body.contains(marker)).delete(
+        synchronize_session=False
+    )
     db.commit()
     return {
         "marker": marker,
