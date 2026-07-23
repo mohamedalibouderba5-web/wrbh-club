@@ -560,6 +560,60 @@ html[dir="rtl"] .field { text-align: right; }
   font-weight: 800;
 }
 
+.offline-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 0.65rem 1rem;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+  font-size: 0.92rem;
+}
+.offline-banner.offline {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+}
+.offline-banner.pending {
+  background: #eff6ff;
+  color: #1e3a8a;
+  border: 1px solid #93c5fd;
+}
+.offline-banner button {
+  background: var(--blue);
+  color: white;
+  border: none;
+  font-weight: 700;
+  padding: 0.4rem 0.85rem;
+  border-radius: 8px;
+}
+.offline-pending-box {
+  background: #f8fafc;
+  border: 1px dashed #94a3b8;
+  border-radius: 12px;
+  padding: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.offline-pending-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.offline-pending-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.88rem;
+}
+.badge.status-pending { background: #fef3c7; color: #92400e; }
+.badge.status-syncing { background: #dbeafe; color: #1e40af; }
+.badge.status-error { background: #fee2e2; color: #b91c1c; }
+
 /* Photos */
 .photo-capture { display: grid; gap: 0.5rem; }
 .photo-preview, .photo-placeholder {

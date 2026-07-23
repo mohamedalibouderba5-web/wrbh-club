@@ -1,29 +1,68 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import { health, prefetchHotPaths, wakeServer } from "../api/client";
 import { useI18n } from "../i18n";
 import { useAppUpdate } from "../pwa";
+import { countPendingRegistrations } from "../offline/registrationQueue";
+import { startOfflineSyncListeners, syncPendingRegistrations } from "../offline/sync";
 
 export function AppLayout() {
   const { fullName, role, logout } = useAuth();
   const { t, lang, setLang } = useI18n();
   const [wakeMsg, setWakeMsg] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncBusy, setSyncBusy] = useState(false);
   const location = useLocation();
   const { updateReady, checking, checkForUpdate, applyUpdate } = useAppUpdate();
+
+  const refreshPendingCount = useCallback(async () => {
+    try {
+      setPendingCount(await countPendingRegistrations());
+    } catch {
+      setPendingCount(0);
+    }
+  }, []);
 
   useEffect(() => {
     setMenuOpen(false);
   }, [location.pathname]);
 
-  // Garde l'API éveillée + précharge les listes critiques
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+
+  useEffect(() => {
+    void refreshPendingCount();
+    const stop = startOfflineSyncListeners();
+    const onQueue = () => void refreshPendingCount();
+    window.addEventListener("wrbh:offline-queue", onQueue);
+    window.addEventListener("wrbh:offline-synced", onQueue);
+    return () => {
+      stop();
+      window.removeEventListener("wrbh:offline-queue", onQueue);
+      window.removeEventListener("wrbh:offline-synced", onQueue);
+    };
+  }, [refreshPendingCount]);
+
   useEffect(() => {
     let cancelled = false;
     const ping = () => {
       if (!cancelled) {
         wakeServer()
-          .then(() => prefetchHotPaths())
+          .then(() => {
+            prefetchHotPaths();
+            void syncPendingRegistrations();
+          })
           .catch(() => undefined);
       }
     };
@@ -64,9 +103,22 @@ export function AppLayout() {
       const h = await health();
       setWakeMsg(`OK — ${h.environment || "?"} · ${h.time}`);
       window.dispatchEvent(new CustomEvent("wrbh:server-awake"));
+      const r = await syncPendingRegistrations();
+      if (r.synced) setWakeMsg((m) => `${m} · sync ${r.synced}`);
       await checkForUpdate();
     } catch {
       setWakeMsg("Échec — réessayez");
+    }
+  }
+
+  async function onSyncBanner() {
+    setSyncBusy(true);
+    try {
+      await wakeServer().catch(() => undefined);
+      await syncPendingRegistrations();
+      await refreshPendingCount();
+    } finally {
+      setSyncBusy(false);
     }
   }
 
@@ -137,6 +189,20 @@ export function AppLayout() {
               <button type="button" onClick={applyUpdate}>
                 {t("updateNow")}
               </button>
+            </div>
+          )}
+          {(!online || pendingCount > 0) && (
+            <div className={`offline-banner ${online ? "pending" : "offline"}`}>
+              <span>
+                {!online
+                  ? "Hors ligne — les inscriptions sont sauvegardées sur cet appareil"
+                  : `${pendingCount} inscription(s) en attente de synchronisation`}
+              </span>
+              {pendingCount > 0 && online && (
+                <button type="button" disabled={syncBusy} onClick={() => void onSyncBanner()}>
+                  {syncBusy ? "…" : "Synchroniser"}
+                </button>
+              )}
             </div>
           )}
           <Outlet />

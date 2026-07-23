@@ -1,8 +1,16 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { api, apiGetFast, formatDateFr, isDzMobile, loadAllSettled, mediaUrl } from "../api/client";
+import { api, apiGetFast, formatDateFr, isDzMobile, loadAllSettled, mediaUrl, uploadPhoto } from "../api/client";
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { useI18n } from "../i18n";
+import {
+  enqueueRegistration,
+  isNetworkError,
+  listPendingRegistrations,
+  type PendingRegistration,
+  type RegPayload,
+} from "../offline/registrationQueue";
+import { syncPendingRegistrations } from "../offline/sync";
 
 type Season = { id: number; name: string; is_current: boolean };
 type Category = {
@@ -38,12 +46,16 @@ export function RegistrationsPage() {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [regs, setRegs] = useState<Reg[]>([]);
+  const [pending, setPending] = useState<PendingRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [listCategoryId, setListCategoryId] = useState<number | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [form, setForm] = useState({
     full_name: "",
     birth_date: "",
@@ -64,6 +76,40 @@ export function RegistrationsPage() {
 
   const selectedCat = seasonCats.find((c) => c.id === form.category_id);
 
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+
+  const refreshPending = useCallback(async () => {
+    try {
+      setPending(await listPendingRegistrations());
+    } catch {
+      setPending([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshPending();
+    const onQueue = () => void refreshPending();
+    const onSynced = () => {
+      void refreshPending();
+      window.dispatchEvent(new CustomEvent("wrbh:regs-refresh"));
+    };
+    window.addEventListener("wrbh:offline-queue", onQueue);
+    window.addEventListener("wrbh:offline-synced", onSynced);
+    return () => {
+      window.removeEventListener("wrbh:offline-queue", onQueue);
+      window.removeEventListener("wrbh:offline-synced", onSynced);
+    };
+  }, [refreshPending]);
+
   const loadRegs = useCallback(
     async (opts?: { quiet?: boolean }) => {
       if (!opts?.quiet) setListLoading(true);
@@ -83,8 +129,9 @@ export function RegistrationsPage() {
         });
         setRegs(r);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur");
-        setRegs([]);
+        if (!isNetworkError(err)) {
+          setError(err instanceof Error ? err.message : "Erreur");
+        }
       } finally {
         setListLoading(false);
         setLoading(false);
@@ -92,6 +139,12 @@ export function RegistrationsPage() {
     },
     [listCategoryId, form.season_id],
   );
+
+  useEffect(() => {
+    const onRefresh = () => void loadRegs({ quiet: true });
+    window.addEventListener("wrbh:regs-refresh", onRefresh);
+    return () => window.removeEventListener("wrbh:regs-refresh", onRefresh);
+  }, [loadRegs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,7 +162,7 @@ export function RegistrationsPage() {
         if (current) setForm((f) => ({ ...f, season_id: f.season_id || current.id }));
       }
       if (c) setCats(c);
-      if (errors.length) setError(errors.join(" · "));
+      if (errors.length && !s && !c) setError(errors.join(" · "));
     })();
     return () => {
       cancelled = true;
@@ -120,6 +173,52 @@ export function RegistrationsPage() {
     if (!form.season_id && !seasons.length) return;
     loadRegs();
   }, [loadRegs, form.season_id, seasons.length]);
+
+  function clearFormKeepSeason() {
+    if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    setForm((f) => ({
+      ...f,
+      full_name: "",
+      birth_date: "",
+      birth_place: "",
+      parent_phone: "",
+      parent_name: "",
+      photo_path: "",
+      blood_type: "",
+    }));
+  }
+
+  function buildPayload(): RegPayload {
+    return {
+      season_id: form.season_id,
+      category_id: form.category_id || null,
+      subscription_fee: Number(form.subscription_fee),
+      source: "web",
+      parent_phone: form.parent_phone,
+      parent_name: form.parent_name || null,
+      photo_path: form.photo_path || null,
+      athlete: {
+        full_name: form.full_name,
+        birth_date: form.birth_date,
+        birth_place: form.birth_place || null,
+        photo_path: form.photo_path || null,
+        blood_type: form.blood_type || null,
+      },
+    };
+  }
+
+  async function saveOffline(payload: RegPayload) {
+    if (!localStorage.getItem("wrbh_token")) {
+      setError("Connectez-vous une fois en ligne avant d’inscrire hors réseau.");
+      return;
+    }
+    await enqueueRegistration(payload, photoFile);
+    setMsg("Enregistré hors ligne — sync dès le retour du Net — محفوظ محلياً");
+    clearFormKeepSeason();
+    await refreshPending();
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -137,6 +236,10 @@ export function RegistrationsPage() {
       setError("Choisissez une catégorie (U7 / U9 / U11 / U13)");
       return;
     }
+    if (!form.season_id) {
+      setError("Saison introuvable — reconnectez-vous en ligne une fois.");
+      return;
+    }
     const year = Number(form.birth_date.slice(0, 4));
     if (selectedCat && (year < selectedCat.birth_year_min || year > selectedCat.birth_year_max)) {
       setError(
@@ -145,25 +248,33 @@ export function RegistrationsPage() {
       return;
     }
     setSaving(true);
+    const payload = buildPayload();
+
+    if (!online) {
+      try {
+        await saveOffline({ ...payload, source: "web-offline" });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur stockage local");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     try {
+      let photoPath = form.photo_path || null;
+      if (photoFile && !photoPath) {
+        const up = await uploadPhoto(photoFile);
+        photoPath = up.path;
+      }
+      const body = {
+        ...payload,
+        photo_path: photoPath,
+        athlete: { ...payload.athlete, photo_path: photoPath },
+      };
       const res = await api<Reg>("/api/v1/registrations", {
         method: "POST",
-        body: JSON.stringify({
-          season_id: form.season_id,
-          category_id: form.category_id || null,
-          subscription_fee: Number(form.subscription_fee),
-          source: "web",
-          parent_phone: form.parent_phone,
-          parent_name: form.parent_name || null,
-          photo_path: form.photo_path || null,
-          athlete: {
-            full_name: form.full_name,
-            birth_date: form.birth_date,
-            birth_place: form.birth_place || null,
-            photo_path: form.photo_path || null,
-            blood_type: form.blood_type || null,
-          },
-        }),
+        body: JSON.stringify(body),
       });
       let info = "Inscription enregistrée — التسجيل محفوظ";
       if (res.parent_created && res.parent_temp_password) {
@@ -172,23 +283,21 @@ export function RegistrationsPage() {
         info += ` · Parent lié: ${res.parent_phone}`;
       }
       setMsg(info);
-      setForm((f) => ({
-        ...f,
-        full_name: "",
-        birth_date: "",
-        birth_place: "",
-        parent_phone: "",
-        parent_name: "",
-        photo_path: "",
-        blood_type: "",
-      }));
-      // Affichage immédiat sans recharger saisons/catégories
+      clearFormKeepSeason();
       if (!listCategoryId || listCategoryId === res.category_id) {
         setRegs((prev) => [res, ...prev.filter((x) => x.id !== res.id)].slice(0, PAGE));
       }
       loadRegs({ quiet: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
+      if (isNetworkError(err)) {
+        try {
+          await saveOffline({ ...payload, source: "web-offline" });
+        } catch (e2) {
+          setError(e2 instanceof Error ? e2.message : "Erreur stockage local");
+        }
+      } else {
+        setError(err instanceof Error ? err.message : "Erreur");
+      }
     } finally {
       setSaving(false);
     }
@@ -203,10 +312,31 @@ export function RegistrationsPage() {
     }
   }
 
+  async function onSyncNow() {
+    setMsg("");
+    const r = await syncPendingRegistrations();
+    await refreshPending();
+    if (r.synced) {
+      setMsg(`${r.synced} inscription(s) synchronisée(s)`);
+      loadRegs({ quiet: true });
+    } else if (r.failed) {
+      setError(`${r.failed} échec(s) de sync — voir la file locale`);
+    } else if (!navigator.onLine) {
+      setError("Toujours hors ligne");
+    } else if (r.remaining === 0) {
+      setMsg("Rien à synchroniser");
+    }
+  }
+
   return (
     <div className="grid" style={{ gridTemplateColumns: "1.1fr 1fr", gap: "1rem" }}>
       <form className="card" onSubmit={onSubmit}>
         <h3 style={{ marginTop: 0 }}>{t("newRegistration")}</h3>
+        {!online && (
+          <p className="muted" style={{ marginTop: 0 }}>
+            Mode hors ligne — l’inscription sera synchronisée plus tard.
+          </p>
+        )}
         <div className="cat-chips">
           <strong>{t("categories2627")}</strong>
           <div className="chips">
@@ -224,6 +354,9 @@ export function RegistrationsPage() {
               </button>
             ))}
           </div>
+          {!seasonCats.length && (
+            <p className="muted">Catégories indisponibles — connectez-vous une fois en ligne.</p>
+          )}
           <img
             src="/affiche.jpg"
             alt="Affiche inscriptions 2026/2027"
@@ -235,7 +368,21 @@ export function RegistrationsPage() {
           />
         </div>
         <div className="form-split">
-          <PhotoCapture value={form.photo_path} onUploaded={(p) => setForm({ ...form, photo_path: p })} />
+          <PhotoCapture
+            value={form.photo_path}
+            previewUrl={photoPreview}
+            onUploaded={(p) => {
+              setForm({ ...form, photo_path: p });
+              setPhotoFile(null);
+              if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
+              setPhotoPreview(null);
+            }}
+            onLocalFile={(file, preview) => {
+              setPhotoFile(file);
+              setPhotoPreview(preview);
+              setForm({ ...form, photo_path: "" });
+            }}
+          />
           <div>
             <div className="field">
               <label>Nom et prénom / الاسم واللقب</label>
@@ -319,6 +466,32 @@ export function RegistrationsPage() {
             {t("retry")}
           </button>
         </div>
+
+        {pending.length > 0 && (
+          <div className="offline-pending-box">
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <strong>
+                {pending.length} en attente de sync / بانتظار المزامنة
+              </strong>
+              <button type="button" className="accent" onClick={() => void onSyncNow()}>
+                Synchroniser
+              </button>
+            </div>
+            <ul className="offline-pending-list">
+              {pending.map((p) => (
+                <li key={p.localId}>
+                  <span>
+                    {p.payload.athlete.full_name} · {p.payload.parent_phone}
+                  </span>
+                  <span className={`badge status-${p.status}`}>
+                    {p.status === "error" ? p.lastError || "erreur" : p.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="cat-chips">
           <strong>{t("filterCategory")}</strong>
           <div className="chips">
