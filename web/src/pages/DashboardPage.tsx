@@ -54,7 +54,7 @@ export function DashboardPage() {
     setLoading(true);
     setError("");
     const { data, errors } = await loadAllSettled<[unknown[], Dash, ClubStats]>([
-      () => api<unknown[]>("/api/v1/events"),
+      () => api<unknown[]>("/api/v1/events?limit=20"),
       () => api<Dash>("/api/v1/dashboard"),
       () => api<ClubStats>("/api/v1/stats/club"),
     ]);

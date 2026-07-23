@@ -67,6 +67,7 @@ const dict = {
     filterCategory: "Filtrer par catégorie",
     allCategories: "Toutes",
     saving: "Enregistrement…",
+    loadMore: "Charger plus",
   },
   ar: {
     brand: "نادي الوداد",
@@ -132,6 +133,7 @@ const dict = {
     filterCategory: "تصفية حسب الفئة",
     allCategories: "الكل",
     saving: "جاري الحفظ…",
+    loadMore: "تحميل المزيد",
   },
 } as const;
 

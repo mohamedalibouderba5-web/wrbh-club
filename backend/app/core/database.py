@@ -7,8 +7,22 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+connect_args: dict = {}
+engine_kwargs: dict = {"pool_pre_ping": True}
+
+if settings.database_url.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+else:
+    # Aiven / Postgres distant : garder un petit pool chaud
+    engine_kwargs.update(
+        {
+            "pool_size": 5,
+            "max_overflow": 5,
+            "pool_recycle": 280,
+        }
+    )
+
+engine = create_engine(settings.database_url, connect_args=connect_args, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

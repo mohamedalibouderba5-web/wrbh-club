@@ -30,7 +30,7 @@ type Reg = {
   registered_on?: string;
 };
 
-const PAGE = 50;
+const PAGE = 40;
 const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export function RegistrationsPage() {

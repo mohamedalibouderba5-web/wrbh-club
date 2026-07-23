@@ -1,8 +1,9 @@
 from datetime import date
+from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import extract
-from sqlalchemy.orm import Session
+from sqlalchemy import extract, func
+from sqlalchemy.orm import Session, load_only
 
 from app.api.deps import get_current_user, require_roles
 from app.core.config import get_settings
@@ -49,6 +50,9 @@ TEST_MARKER = "TEST-WRBH-BATCH"
 settings = get_settings()
 
 router = APIRouter(tags=["structure"])
+
+_STATS_CACHE: dict = {"ts": 0.0, "payload": None}
+_STATS_TTL_SEC = 20.0
 
 
 @router.get("/seasons", response_model=list[SeasonOut])
@@ -97,54 +101,54 @@ def list_teams(
 
 @router.get("/stats/club")
 def club_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Stats rapides : agrégats SQL + cache court (20 s)."""
+    now = monotonic()
+    cached = _STATS_CACHE.get("payload")
+    if cached is not None and now - float(_STATS_CACHE["ts"]) < _STATS_TTL_SEC:
+        return cached
+
     season = db.query(Season).filter(Season.is_current.is_(True)).first()
-    athletes = db.query(Athlete).all()
-    active = sum(1 for a in athletes if a.status == "Active")
-    left = sum(1 for a in athletes if a.status in {"Abandonne", "Left", "Inactif"})
-    by_status: dict[str, int] = {}
-    for a in athletes:
-        by_status[a.status] = by_status.get(a.status, 0) + 1
 
-    cats = []
-    classified_ids: set[int] = set()
+    athletes_total = db.query(func.count(Athlete.id)).scalar() or 0
+    athletes_active = (
+        db.query(func.count(Athlete.id)).filter(Athlete.status == "Active").scalar() or 0
+    )
+    athletes_left = (
+        db.query(func.count(Athlete.id))
+        .filter(Athlete.status.in_(["Abandonne", "Left", "Inactif"]))
+        .scalar()
+        or 0
+    )
+    by_status = {
+        status: int(count)
+        for status, count in db.query(Athlete.status, func.count(Athlete.id)).group_by(Athlete.status).all()
+    }
+    missing_birth = (
+        db.query(func.count(Athlete.id)).filter(Athlete.birth_date.is_(None)).scalar() or 0
+    )
+
+    # Une seule lecture légère (id, status, année) pour classer par catégories
+    light = db.query(Athlete.id, Athlete.status, Athlete.birth_date).all()
+    cats_out = []
+    classified_active: set[int] = set()
     if season:
-        for cat in db.query(Category).filter(Category.season_id == season.id).order_by(Category.birth_year_min):
-            # Comptage principal : année de naissance dans la bande catégorie (Excel + inscriptions)
-            birth_q = (
-                db.query(Athlete.id)
-                .filter(
-                    Athlete.birth_date.isnot(None),
-                    extract("year", Athlete.birth_date) >= cat.birth_year_min,
-                    extract("year", Athlete.birth_date) <= cat.birth_year_max,
-                )
-            )
-            birth_ids = {r[0] for r in birth_q.all()}
-            classified_ids |= birth_ids
-            birth_count = len(birth_ids)
-
-            team_ids = [t.id for t in db.query(Team).filter(Team.category_id == cat.id)]
-            membership_count = 0
-            if team_ids:
-                membership_count = (
-                    db.query(TeamMembership.athlete_id)
-                    .filter(
-                        TeamMembership.team_id.in_(team_ids),
-                        TeamMembership.season_id == season.id,
-                        TeamMembership.is_active.is_(True),
-                    )
-                    .distinct()
-                    .count()
-                )
-            reg_count = (
-                db.query(Registration)
-                .filter(
-                    Registration.season_id == season.id,
-                    Registration.category_id == cat.id,
-                    Registration.status == "approved",
-                )
-                .count()
-            )
-            cats.append(
+        cat_rows = (
+            db.query(Category)
+            .filter(Category.season_id == season.id)
+            .order_by(Category.birth_year_min)
+            .all()
+        )
+        for cat in cat_rows:
+            birth_count = 0
+            for aid, status, bdate in light:
+                if bdate is None:
+                    continue
+                y = bdate.year
+                if cat.birth_year_min <= y <= cat.birth_year_max:
+                    birth_count += 1
+                    if status == "Active":
+                        classified_active.add(aid)
+            cats_out.append(
                 {
                     "code": cat.code,
                     "name": cat.name,
@@ -152,32 +156,34 @@ def club_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user
                     "birth_years": f"{cat.birth_year_min}-{cat.birth_year_max}",
                     "members": birth_count,
                     "by_birth_year": birth_count,
-                    "by_membership": membership_count,
-                    "by_registration": reg_count,
+                    "by_membership": 0,
+                    "by_registration": 0,
                 }
             )
 
     unclassified = sum(
         1
-        for a in athletes
-        if a.birth_date is not None and a.id not in classified_ids and a.status == "Active"
+        for aid, status, bdate in light
+        if status == "Active" and bdate is not None and aid not in classified_active
     )
-    missing_birth = sum(1 for a in athletes if a.birth_date is None)
 
-    regs_pending = db.query(Registration).filter(Registration.status == "pending").count()
-    parents = db.query(User).filter(User.role == Role.PARENT).count()
-    return {
+    regs_pending = db.query(func.count(Registration.id)).filter(Registration.status == "pending").scalar() or 0
+    parents = db.query(func.count(User.id)).filter(User.role == Role.PARENT).scalar() or 0
+    payload = {
         "season": season.name if season else None,
-        "athletes_total": len(athletes),
-        "athletes_active": active,
-        "athletes_left": left,
+        "athletes_total": int(athletes_total),
+        "athletes_active": int(athletes_active),
+        "athletes_left": int(athletes_left),
         "by_status": by_status,
-        "categories": cats,
+        "categories": cats_out,
         "unclassified_active": unclassified,
-        "missing_birth_date": missing_birth,
-        "registrations_pending": regs_pending,
-        "parents_count": parents,
+        "missing_birth_date": int(missing_birth),
+        "registrations_pending": int(regs_pending),
+        "parents_count": int(parents),
     }
+    _STATS_CACHE["ts"] = now
+    _STATS_CACHE["payload"] = payload
+    return payload
 
 
 athletes_router = APIRouter(prefix="/athletes", tags=["athletes"])
@@ -197,15 +203,21 @@ def _athlete_parent_phone(db: Session, athlete_id: int) -> str | None:
     return parent.phone if parent else None
 
 
+_MISSING = object()
+
+
 def _to_athlete_out(
     db: Session,
     athlete: Athlete,
     *,
-    parent_phone: str | None = None,
+    parent_phone: str | None | object = _MISSING,
     category_id: int | None = None,
     category_code: str | None = None,
 ) -> AthleteOut:
-    phone = parent_phone if parent_phone is not None else _athlete_parent_phone(db, athlete.id)
+    # Important : si parent_phone vient du bulk (même None), ne pas retomber en N+1
+    phone = (
+        _athlete_parent_phone(db, athlete.id) if parent_phone is _MISSING else parent_phone  # type: ignore[arg-type]
+    )
     return AthleteOut(
         id=athlete.id,
         legacy_number=athlete.legacy_number,
@@ -218,30 +230,31 @@ def _to_athlete_out(
         notes=athlete.notes,
         photo_path=athlete.photo_path,
         blood_type=getattr(athlete, "blood_type", None),
-        parent_phone=phone,
+        parent_phone=phone,  # type: ignore[arg-type]
         category_id=category_id,
         category_code=category_code,
     )
 
 
-def _bulk_athlete_categories(db: Session, athlete_ids: list[int]) -> dict[int, tuple[int | None, str | None]]:
-    """Dernière inscription (saison courante si possible) → (category_id, code)."""
-    if not athlete_ids:
-        return {}
-    current = db.query(Season).filter(Season.is_current.is_(True)).first()
-    q = db.query(Registration).filter(Registration.athlete_id.in_(athlete_ids))
-    if current:
-        q = q.filter(Registration.season_id == current.id)
-    regs = q.order_by(Registration.id.desc()).all()
-    out: dict[int, tuple[int | None, str | None]] = {}
-    cat_ids = {r.category_id for r in regs if r.category_id}
-    cats = {c.id: c for c in db.query(Category).filter(Category.id.in_(cat_ids)).all()} if cat_ids else {}
-    for reg in regs:
-        if reg.athlete_id in out:
-            continue
-        cat = cats.get(reg.category_id) if reg.category_id else None
-        out[reg.athlete_id] = (reg.category_id, cat.code if cat else None)
-    return out
+def _category_map_for_season(db: Session, season_id: int | None) -> list[Category]:
+    q = db.query(Category)
+    if season_id:
+        q = q.filter(Category.season_id == season_id)
+    else:
+        current = db.query(Season).filter(Season.is_current.is_(True)).first()
+        if current:
+            q = q.filter(Category.season_id == current.id)
+    return q.order_by(Category.birth_year_min).all()
+
+
+def _cat_for_birth(cats: list[Category], birth) -> tuple[int | None, str | None]:
+    if not birth:
+        return None, None
+    year = birth.year if hasattr(birth, "year") else int(str(birth)[:4])
+    for c in cats:
+        if c.birth_year_min <= year <= c.birth_year_max:
+            return c.id, c.code
+    return None, None
 
 
 @athletes_router.get("", response_model=list[AthleteOut])
@@ -251,11 +264,25 @@ def list_athletes(
     category_id: int | None = None,
     season_id: int | None = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(40, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = db.query(Athlete)
+    query = db.query(Athlete).options(
+        load_only(
+            Athlete.id,
+            Athlete.legacy_number,
+            Athlete.full_name,
+            Athlete.full_name_ar,
+            Athlete.birth_date,
+            Athlete.birth_place,
+            Athlete.status,
+            Athlete.license_number,
+            Athlete.notes,
+            Athlete.photo_path,
+            Athlete.blood_type,
+        )
+    )
     if user.role == Role.PARENT:
         ids = _parent_athlete_ids(db, user)
         query = query.filter(Athlete.id.in_(ids or {-1}))
@@ -264,35 +291,44 @@ def list_athletes(
     if q:
         like = f"%{q}%"
         query = query.filter(Athlete.full_name.ilike(like))
+
+    season = season_id
+    if not season:
+        current = db.query(Season).filter(Season.is_current.is_(True)).first()
+        season = current.id if current else None
+    cats = _category_map_for_season(db, season)
+
     if category_id:
-        season = season_id
-        if not season:
-            current = db.query(Season).filter(Season.is_current.is_(True)).first()
-            season = current.id if current else None
-        subq = db.query(Registration.athlete_id).filter(
-            Registration.category_id == category_id,
-            Registration.status.in_(["approved", "pending"]),
-        )
-        if season:
-            subq = subq.filter(Registration.season_id == season)
-        query = query.filter(Athlete.id.in_(subq))
+        cat = next((c for c in cats if c.id == category_id), None) or db.get(Category, category_id)
+        if cat:
+            # Filtre rapide par année de naissance (évite sous-requête inscriptions lourde)
+            query = query.filter(
+                Athlete.birth_date.isnot(None),
+                extract("year", Athlete.birth_date) >= cat.birth_year_min,
+                extract("year", Athlete.birth_date) <= cat.birth_year_max,
+            )
+        else:
+            query = query.filter(Athlete.id == -1)
+
     limit = min(limit, settings.max_page_size)
     rows = query.order_by(Athlete.full_name).offset(skip).limit(limit).all()
     if not rows:
         return []
     ids = [a.id for a in rows]
     phones = _bulk_parent_phones(db, ids)
-    cats = _bulk_athlete_categories(db, ids)
-    return [
-        _to_athlete_out(
-            db,
-            a,
-            parent_phone=phones.get(a.id),
-            category_id=cats.get(a.id, (None, None))[0],
-            category_code=cats.get(a.id, (None, None))[1],
+    out = []
+    for a in rows:
+        cid, ccode = _cat_for_birth(cats, a.birth_date)
+        out.append(
+            _to_athlete_out(
+                db,
+                a,
+                parent_phone=phones.get(a.id),
+                category_id=cid,
+                category_code=ccode,
+            )
         )
-        for a in rows
-    ]
+    return out
 
 
 @athletes_router.post("", response_model=AthleteOut)

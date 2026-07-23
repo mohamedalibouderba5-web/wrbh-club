@@ -17,6 +17,25 @@ export function AppLayout() {
     setMenuOpen(false);
   }, [location.pathname]);
 
+  // Garde l'API Render éveillée (évite les cold starts de 10–30 s)
+  useEffect(() => {
+    let cancelled = false;
+    const ping = () => {
+      if (!cancelled) wakeServer().catch(() => undefined);
+    };
+    ping();
+    const id = window.setInterval(ping, 4 * 60 * 1000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") ping();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+
   const links = [
     { to: "/", label: t("dashboard"), short: lang === "ar" ? "رئيسية" : "Accueil" },
     { to: "/athletes", label: t("athletes"), short: lang === "ar" ? "لاعبون" : "Joueurs" },

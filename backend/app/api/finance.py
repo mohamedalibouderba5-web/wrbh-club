@@ -120,6 +120,7 @@ def finance_dashboard(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
 ):
+    # Moins d'allers-retours : agrégats ciblés
     due = db.query(func.coalesce(func.sum(FeeInstallment.amount - FeeInstallment.amount_paid), 0)).filter(
         FeeInstallment.status.in_(["due", "partial", "overdue"])
     ).scalar()
@@ -131,7 +132,9 @@ def finance_dashboard(
         LedgerEntry.entry_type == "expense"
     ).scalar()
     payroll = db.query(func.coalesce(func.sum(CoachPayroll.amount), 0)).scalar()
-    overdue_count = db.query(FeeInstallment).filter(FeeInstallment.status == "overdue").count()
+    overdue_count = (
+        db.query(func.count(FeeInstallment.id)).filter(FeeInstallment.status == "overdue").scalar() or 0
+    )
     return {
         "currency": "DZD",
         "cotisations_due": float(due or 0),
@@ -139,7 +142,7 @@ def finance_dashboard(
         "ledger_income": float(income or 0),
         "ledger_expense": float(expense or 0),
         "coach_payroll_total": float(payroll or 0),
-        "overdue_count": overdue_count,
+        "overdue_count": int(overdue_count),
     }
 
 

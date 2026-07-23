@@ -16,6 +16,12 @@ def _ensure_schema() -> None:
     """Add columns create_all cannot alter on existing Postgres tables."""
     stmts = [
         "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS blood_type VARCHAR(8)",
+        "CREATE INDEX IF NOT EXISTS ix_athletes_full_name ON athletes (full_name)",
+        "CREATE INDEX IF NOT EXISTS ix_athletes_status ON athletes (status)",
+        "CREATE INDEX IF NOT EXISTS ix_athletes_birth_date ON athletes (birth_date)",
+        "CREATE INDEX IF NOT EXISTS ix_parent_children_athlete ON parent_children (athlete_id)",
+        "CREATE INDEX IF NOT EXISTS ix_registrations_athlete_season ON registrations (athlete_id, season_id)",
+        "CREATE INDEX IF NOT EXISTS ix_emergency_contacts_athlete ON emergency_contacts (athlete_id)",
     ]
     with engine.begin() as conn:
         for sql in stmts:
@@ -23,10 +29,11 @@ def _ensure_schema() -> None:
                 conn.execute(text(sql))
             except Exception:
                 # SQLite older builds may lack IF NOT EXISTS for columns
-                try:
-                    conn.execute(text("ALTER TABLE athletes ADD COLUMN blood_type VARCHAR(8)"))
-                except Exception:
-                    pass
+                if "ADD COLUMN" in sql and "blood_type" in sql:
+                    try:
+                        conn.execute(text("ALTER TABLE athletes ADD COLUMN blood_type VARCHAR(8)"))
+                    except Exception:
+                        pass
 
 if settings.sentry_dsn:
     try:

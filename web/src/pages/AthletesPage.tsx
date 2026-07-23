@@ -26,7 +26,7 @@ type Athlete = {
   category_code?: string;
 };
 
-const PAGE = 100;
+const PAGE = 40;
 const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export function AthletesPage() {
@@ -40,6 +40,8 @@ export function AthletesPage() {
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     full_name: "",
@@ -64,26 +66,38 @@ export function AthletesPage() {
     api<Category[]>("/api/v1/categories").then(setCats).catch(() => setCats([]));
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams({ limit: String(PAGE) });
-      if (qDebounced) params.set("q", qDebounced);
-      if (statusFilter) params.set("status", statusFilter);
-      if (categoryId) params.set("category_id", String(categoryId));
-      const data = await api<Athlete[]>(`/api/v1/athletes?${params}`);
-      setRows(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [qDebounced, statusFilter, categoryId]);
+  const load = useCallback(
+    async (opts?: { append?: boolean; offset?: number }) => {
+      const append = !!opts?.append;
+      const offset = opts?.offset ?? 0;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      setError("");
+      try {
+        const params = new URLSearchParams({
+          limit: String(PAGE),
+          skip: String(offset),
+        });
+        if (qDebounced) params.set("q", qDebounced);
+        if (statusFilter) params.set("status", statusFilter);
+        if (categoryId) params.set("category_id", String(categoryId));
+        const data = await api<Athlete[]>(`/api/v1/athletes?${params}`);
+        setRows((prev) => (append ? [...prev, ...data] : data));
+        setHasMore(data.length >= PAGE);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur");
+        if (!append) setRows([]);
+        setHasMore(false);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [qDebounced, statusFilter, categoryId],
+  );
 
   useEffect(() => {
-    load();
+    load({ offset: 0 });
   }, [load]);
 
   async function onCreate(e: FormEvent) {
@@ -122,7 +136,7 @@ export function AthletesPage() {
         photo_path: "",
         blood_type: "",
       });
-      load();
+      load({ offset: 0 });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -146,7 +160,7 @@ export function AthletesPage() {
       });
       setEditId(null);
       setMsg("Statut mis à jour + notification parents");
-      load();
+      load({ offset: 0 });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     }
@@ -254,7 +268,7 @@ export function AthletesPage() {
             <option value="Abandonne">Abandonne</option>
             <option value="Inactif">Inactif</option>
           </select>
-          <button type="button" className="secondary" onClick={() => load()}>
+          <button type="button" className="secondary" onClick={() => load({ offset: 0 })}>
             {t("retry")}
           </button>
         </div>
@@ -327,6 +341,18 @@ export function AthletesPage() {
             ))}
           </tbody>
         </table>
+        {hasMore && (
+          <div style={{ marginTop: 12, textAlign: "center" }}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={loadingMore}
+              onClick={() => load({ append: true, offset: rows.length })}
+            >
+              {loadingMore ? t("loading") : t("loadMore")}
+            </button>
+          </div>
+        )}
       </div>
 
       {editId && (
