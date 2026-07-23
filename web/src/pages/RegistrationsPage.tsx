@@ -20,6 +20,7 @@ type Reg = {
   athlete_name?: string;
   athlete_photo?: string;
   category_code?: string;
+  category_id?: number;
   parent_phone?: string;
   parent_temp_password?: string;
   parent_created?: boolean;
@@ -38,8 +39,11 @@ export function RegistrationsPage() {
   const [cats, setCats] = useState<Category[]>([]);
   const [regs, setRegs] = useState<Reg[]>([]);
   const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
+  const [listCategoryId, setListCategoryId] = useState<number | null>(null);
   const [form, setForm] = useState({
     full_name: "",
     birth_date: "",
@@ -53,36 +57,61 @@ export function RegistrationsPage() {
     blood_type: "",
   });
 
-  const seasonCats = useMemo(
-    () => cats.filter((c) => !form.season_id || (c as Category & { season_id?: number }).season_id === undefined || true),
-    [cats, form.season_id],
-  );
+  const seasonCats = useMemo(() => {
+    if (!form.season_id) return cats;
+    return cats.filter((c) => !c.season_id || c.season_id === form.season_id);
+  }, [cats, form.season_id]);
 
   const selectedCat = seasonCats.find((c) => c.id === form.category_id);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    const { data, errors } = await loadAllSettled<[Season[], Category[], Reg[]]>([
-      () => api<Season[]>("/api/v1/seasons"),
-      () => api<Category[]>("/api/v1/categories"),
-      () => api<Reg[]>(`/api/v1/registrations?limit=${PAGE}`),
-    ]);
-    const [s, c, r] = data;
-    if (s) {
-      setSeasons(s);
-      const current = s.find((x) => x.is_current) || s[0];
-      if (current) setForm((f) => ({ ...f, season_id: f.season_id || current.id }));
-    }
-    if (c) setCats(c);
-    if (r) setRegs(r);
-    if (errors.length) setError(errors.join(" · "));
-    setLoading(false);
+  const loadRegs = useCallback(
+    async (opts?: { quiet?: boolean }) => {
+      if (!opts?.quiet) setListLoading(true);
+      setError("");
+      try {
+        const params = new URLSearchParams({ limit: String(PAGE) });
+        if (listCategoryId) params.set("category_id", String(listCategoryId));
+        if (form.season_id) params.set("season_id", String(form.season_id));
+        const r = await api<Reg[]>(`/api/v1/registrations?${params}`);
+        setRegs(r);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur");
+        setRegs([]);
+      } finally {
+        setListLoading(false);
+        setLoading(false);
+      }
+    },
+    [listCategoryId, form.season_id],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, errors } = await loadAllSettled<[Season[], Category[]]>([
+        () => api<Season[]>("/api/v1/seasons"),
+        () => api<Category[]>("/api/v1/categories"),
+      ]);
+      if (cancelled) return;
+      const [s, c] = data;
+      if (s) {
+        setSeasons(s);
+        const current = s.find((x) => x.is_current) || s[0];
+        if (current) setForm((f) => ({ ...f, season_id: f.season_id || current.id }));
+      }
+      if (c) setCats(c);
+      if (errors.length) setError(errors.join(" · "));
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (!form.season_id && !seasons.length) return;
+    loadRegs();
+  }, [loadRegs, form.season_id, seasons.length]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -96,6 +125,10 @@ export function RegistrationsPage() {
       setError("Téléphone DZ invalide (05/06/07 + 8 chiffres)");
       return;
     }
+    if (!form.category_id) {
+      setError("Choisissez une catégorie (U7 / U9 / U11 / U13)");
+      return;
+    }
     const year = Number(form.birth_date.slice(0, 4));
     if (selectedCat && (year < selectedCat.birth_year_min || year > selectedCat.birth_year_max)) {
       setError(
@@ -103,6 +136,7 @@ export function RegistrationsPage() {
       );
       return;
     }
+    setSaving(true);
     try {
       const res = await api<Reg>("/api/v1/registrations", {
         method: "POST",
@@ -140,16 +174,22 @@ export function RegistrationsPage() {
         photo_path: "",
         blood_type: "",
       }));
-      refresh();
+      // Affichage immédiat sans recharger saisons/catégories
+      if (!listCategoryId || listCategoryId === res.category_id) {
+        setRegs((prev) => [res, ...prev.filter((x) => x.id !== res.id)].slice(0, PAGE));
+      }
+      loadRegs({ quiet: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setSaving(false);
     }
   }
 
   async function approve(id: number) {
     try {
-      await api(`/api/v1/registrations/${id}/approve`, { method: "POST" });
-      refresh();
+      const updated = await api<Reg>(`/api/v1/registrations/${id}/approve`, { method: "POST" });
+      setRegs((prev) => prev.map((r) => (r.id === id ? { ...r, ...updated } : r)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     }
@@ -180,6 +220,7 @@ export function RegistrationsPage() {
             src="/affiche.jpg"
             alt="Affiche inscriptions 2026/2027"
             className="affiche-mini"
+            loading="lazy"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = "none";
             }}
@@ -256,24 +297,51 @@ export function RegistrationsPage() {
             onChange={(e) => setForm({ ...form, subscription_fee: e.target.value })}
           />
         </div>
-        <button type="submit">{t("save")}</button>
+        <button type="submit" disabled={saving}>
+          {saving ? t("saving") : t("save")}
+        </button>
         {msg && <p style={{ color: "var(--ok)" }}>{msg}</p>}
         {error && <p style={{ color: "var(--danger, #dc2626)" }}>{error}</p>}
       </form>
 
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <h3 style={{ marginTop: 0 }}>{t("files")}</h3>
-          <button type="button" className="secondary" onClick={() => refresh()}>
+          <button type="button" className="secondary" onClick={() => loadRegs()}>
             {t("retry")}
           </button>
         </div>
-        {loading && <p className="muted">{t("loading")}</p>}
-        {!loading && !regs.length && !error && <p className="muted">{t("empty")}</p>}
+        <div className="cat-chips">
+          <strong>{t("filterCategory")}</strong>
+          <div className="chips">
+            <button
+              type="button"
+              className={`chip ${listCategoryId === null ? "active" : ""}`}
+              onClick={() => setListCategoryId(null)}
+            >
+              {t("allCategories")}
+            </button>
+            {seasonCats.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`chip ${listCategoryId === c.id ? "active" : ""}`}
+                onClick={() => setListCategoryId(c.id)}
+              >
+                {c.code}
+                <small>
+                  {c.birth_year_min}-{c.birth_year_max}
+                </small>
+              </button>
+            ))}
+          </div>
+        </div>
+        {(loading || listLoading) && <p className="muted">{t("loading")}</p>}
+        {!loading && !listLoading && !regs.length && !error && <p className="muted">{t("empty")}</p>}
         {error && !regs.length && (
           <p style={{ color: "var(--danger, #dc2626)" }}>
             {error}{" "}
-            <button type="button" onClick={() => refresh()}>
+            <button type="button" onClick={() => loadRegs()}>
               {t("retry")}
             </button>
           </p>
@@ -298,6 +366,8 @@ export function RegistrationsPage() {
                       className="avatar"
                       src={mediaUrl(r.athlete_photo)}
                       alt=""
+                      loading="lazy"
+                      decoding="async"
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = "none";
                       }}

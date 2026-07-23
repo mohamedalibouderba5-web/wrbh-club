@@ -28,7 +28,15 @@ async function parseError(res: Response): Promise<string> {
   return "Erreur API";
 }
 
-export async function api<T>(path: string, options: RequestInit = {}, retries = 1): Promise<T> {
+class HttpError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
+/** retries = tentatives réseau uniquement (pas sur erreur HTTP 4xx/5xx). */
+export async function api<T>(path: string, options: RequestInit = {}, retries = 0): Promise<T> {
   const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -42,12 +50,13 @@ export async function api<T>(path: string, options: RequestInit = {}, retries = 
         },
       });
       if (!res.ok) {
-        throw new Error(await parseError(res));
+        // Ne pas réessayer / réveiller le serveur : la validation doit être immédiate
+        throw new HttpError(await parseError(res));
       }
       if (res.status === 204) return undefined as T;
       const ct = res.headers.get("content-type") || "";
       if (!ct.includes("application/json")) {
-        throw new Error(
+        throw new HttpError(
           API_BASE
             ? "Réponse non-JSON de l'API"
             : "VITE_API_URL manquant : les appels tombent sur le site statique. Configurer l'URL API.",
@@ -56,13 +65,14 @@ export async function api<T>(path: string, options: RequestInit = {}, retries = 
       return res.json();
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e));
+      if (e instanceof HttpError) throw e;
       if (attempt < retries) {
         try {
           await wakeServer();
         } catch {
           /* ignore */
         }
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 800));
         continue;
       }
     }

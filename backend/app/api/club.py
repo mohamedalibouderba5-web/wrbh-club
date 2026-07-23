@@ -197,7 +197,15 @@ def _athlete_parent_phone(db: Session, athlete_id: int) -> str | None:
     return parent.phone if parent else None
 
 
-def _to_athlete_out(db: Session, athlete: Athlete) -> AthleteOut:
+def _to_athlete_out(
+    db: Session,
+    athlete: Athlete,
+    *,
+    parent_phone: str | None = None,
+    category_id: int | None = None,
+    category_code: str | None = None,
+) -> AthleteOut:
+    phone = parent_phone if parent_phone is not None else _athlete_parent_phone(db, athlete.id)
     return AthleteOut(
         id=athlete.id,
         legacy_number=athlete.legacy_number,
@@ -210,14 +218,38 @@ def _to_athlete_out(db: Session, athlete: Athlete) -> AthleteOut:
         notes=athlete.notes,
         photo_path=athlete.photo_path,
         blood_type=getattr(athlete, "blood_type", None),
-        parent_phone=_athlete_parent_phone(db, athlete.id),
+        parent_phone=phone,
+        category_id=category_id,
+        category_code=category_code,
     )
+
+
+def _bulk_athlete_categories(db: Session, athlete_ids: list[int]) -> dict[int, tuple[int | None, str | None]]:
+    """Dernière inscription (saison courante si possible) → (category_id, code)."""
+    if not athlete_ids:
+        return {}
+    current = db.query(Season).filter(Season.is_current.is_(True)).first()
+    q = db.query(Registration).filter(Registration.athlete_id.in_(athlete_ids))
+    if current:
+        q = q.filter(Registration.season_id == current.id)
+    regs = q.order_by(Registration.id.desc()).all()
+    out: dict[int, tuple[int | None, str | None]] = {}
+    cat_ids = {r.category_id for r in regs if r.category_id}
+    cats = {c.id: c for c in db.query(Category).filter(Category.id.in_(cat_ids)).all()} if cat_ids else {}
+    for reg in regs:
+        if reg.athlete_id in out:
+            continue
+        cat = cats.get(reg.category_id) if reg.category_id else None
+        out[reg.athlete_id] = (reg.category_id, cat.code if cat else None)
+    return out
 
 
 @athletes_router.get("", response_model=list[AthleteOut])
 def list_athletes(
     q: str | None = None,
     status: str | None = Query(None, alias="status"),
+    category_id: int | None = None,
+    season_id: int | None = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -232,9 +264,35 @@ def list_athletes(
     if q:
         like = f"%{q}%"
         query = query.filter(Athlete.full_name.ilike(like))
+    if category_id:
+        season = season_id
+        if not season:
+            current = db.query(Season).filter(Season.is_current.is_(True)).first()
+            season = current.id if current else None
+        subq = db.query(Registration.athlete_id).filter(
+            Registration.category_id == category_id,
+            Registration.status.in_(["approved", "pending"]),
+        )
+        if season:
+            subq = subq.filter(Registration.season_id == season)
+        query = query.filter(Athlete.id.in_(subq))
     limit = min(limit, settings.max_page_size)
     rows = query.order_by(Athlete.full_name).offset(skip).limit(limit).all()
-    return [_to_athlete_out(db, a) for a in rows]
+    if not rows:
+        return []
+    ids = [a.id for a in rows]
+    phones = _bulk_parent_phones(db, ids)
+    cats = _bulk_athlete_categories(db, ids)
+    return [
+        _to_athlete_out(
+            db,
+            a,
+            parent_phone=phones.get(a.id),
+            category_id=cats.get(a.id, (None, None))[0],
+            category_code=cats.get(a.id, (None, None))[1],
+        )
+        for a in rows
+    ]
 
 
 @athletes_router.post("", response_model=AthleteOut)
@@ -578,6 +636,7 @@ def _bulk_parent_phones(db: Session, athlete_ids: list[int]) -> dict[int, str | 
 def list_registrations(
     season_id: int | None = None,
     status: str | None = None,
+    category_id: int | None = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -588,6 +647,8 @@ def list_registrations(
         q = q.filter(Registration.season_id == season_id)
     if status:
         q = q.filter(Registration.status == status)
+    if category_id:
+        q = q.filter(Registration.category_id == category_id)
     if user.role == Role.PARENT:
         ids = _parent_athlete_ids(db, user)
         q = q.filter(Registration.athlete_id.in_(ids or {-1}))

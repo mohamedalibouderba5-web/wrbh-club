@@ -64,6 +64,9 @@ const dict = {
     checkingUpdate: "Vérification…",
     bloodType: "Groupe sanguin",
     call: "Appeler",
+    filterCategory: "Filtrer par catégorie",
+    allCategories: "Toutes",
+    saving: "Enregistrement…",
   },
   ar: {
     brand: "نادي الوداد",
@@ -126,6 +129,9 @@ const dict = {
     checkingUpdate: "جاري التحقق…",
     bloodType: "فصيلة الدم",
     call: "اتصال",
+    filterCategory: "تصفية حسب الفئة",
+    allCategories: "الكل",
+    saving: "جاري الحفظ…",
   },
 } as const;
 

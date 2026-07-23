@@ -4,6 +4,13 @@ import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { useI18n } from "../i18n";
 
+type Category = {
+  id: number;
+  code: string;
+  birth_year_min: number;
+  birth_year_max: number;
+};
+
 type Athlete = {
   id: number;
   legacy_number?: number;
@@ -15,6 +22,8 @@ type Athlete = {
   photo_path?: string;
   parent_phone?: string;
   blood_type?: string;
+  category_id?: number;
+  category_code?: string;
 };
 
 const PAGE = 100;
@@ -23,11 +32,15 @@ const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 export function AthletesPage() {
   const { t } = useI18n();
   const [rows, setRows] = useState<Athlete[]>([]);
+  const [cats, setCats] = useState<Category[]>([]);
   const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [categoryId, setCategoryId] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     full_name: "",
     birth_date: "",
@@ -42,25 +55,32 @@ export function AthletesPage() {
   const [editNote, setEditNote] = useState("");
   const [editBlood, setEditBlood] = useState("");
 
-  const load = useCallback(
-    async (search = q) => {
-      setLoading(true);
-      setError("");
-      try {
-        const params = new URLSearchParams({ limit: String(PAGE) });
-        if (search) params.set("q", search);
-        if (statusFilter) params.set("status", statusFilter);
-        const data = await api<Athlete[]>(`/api/v1/athletes?${params}`);
-        setRows(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur");
-        setRows([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [q, statusFilter],
-  );
+  useEffect(() => {
+    const id = window.setTimeout(() => setQDebounced(q.trim()), 280);
+    return () => window.clearTimeout(id);
+  }, [q]);
+
+  useEffect(() => {
+    api<Category[]>("/api/v1/categories").then(setCats).catch(() => setCats([]));
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ limit: String(PAGE) });
+      if (qDebounced) params.set("q", qDebounced);
+      if (statusFilter) params.set("status", statusFilter);
+      if (categoryId) params.set("category_id", String(categoryId));
+      const data = await api<Athlete[]>(`/api/v1/athletes?${params}`);
+      setRows(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [qDebounced, statusFilter, categoryId]);
 
   useEffect(() => {
     load();
@@ -78,6 +98,7 @@ export function AthletesPage() {
       setError("Téléphone DZ invalide (05/06/07…)");
       return;
     }
+    setSaving(true);
     try {
       await api("/api/v1/athletes", {
         method: "POST",
@@ -104,6 +125,8 @@ export function AthletesPage() {
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -183,7 +206,9 @@ export function AthletesPage() {
               <label>Nom parent / اسم الولي</label>
               <input value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
             </div>
-            <button type="submit">{t("save")}</button>
+            <button type="submit" disabled={saving}>
+              {saving ? t("saving") : t("save")}
+            </button>
           </div>
         </div>
         {msg && <p style={{ color: "var(--ok)" }}>{msg}</p>}
@@ -191,6 +216,31 @@ export function AthletesPage() {
       </form>
 
       <div className="card">
+        <div className="cat-chips" style={{ marginBottom: 12 }}>
+          <strong>{t("filterCategory")}</strong>
+          <div className="chips">
+            <button
+              type="button"
+              className={`chip ${categoryId === null ? "active" : ""}`}
+              onClick={() => setCategoryId(null)}
+            >
+              {t("allCategories")}
+            </button>
+            {cats.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`chip ${categoryId === c.id ? "active" : ""}`}
+                onClick={() => setCategoryId(c.id)}
+              >
+                {c.code}
+                <small>
+                  {c.birth_year_min}-{c.birth_year_max}
+                </small>
+              </button>
+            ))}
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <input
             placeholder={t("searchName")}
@@ -204,9 +254,6 @@ export function AthletesPage() {
             <option value="Abandonne">Abandonne</option>
             <option value="Inactif">Inactif</option>
           </select>
-          <button type="button" onClick={() => load()}>
-            {t("filter")}
-          </button>
           <button type="button" className="secondary" onClick={() => load()}>
             {t("retry")}
           </button>
@@ -219,6 +266,7 @@ export function AthletesPage() {
               <th>Photo</th>
               <th>#</th>
               <th>Nom / الاسم</th>
+              <th>Cat.</th>
               <th>{t("bloodType")}</th>
               <th>Parent ☎</th>
               <th>Naissance</th>
@@ -235,6 +283,8 @@ export function AthletesPage() {
                       className="avatar"
                       src={mediaUrl(r.photo_path)}
                       alt=""
+                      loading="lazy"
+                      decoding="async"
                       onError={(e) => {
                         const el = e.target as HTMLImageElement;
                         el.style.display = "none";
@@ -250,6 +300,7 @@ export function AthletesPage() {
                 </td>
                 <td>{r.legacy_number ?? "—"}</td>
                 <td>{r.full_name}</td>
+                <td>{r.category_code || "—"}</td>
                 <td>{r.blood_type || "—"}</td>
                 <td>
                   <PhoneCell phone={r.parent_phone} />

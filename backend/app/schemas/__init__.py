@@ -134,6 +134,8 @@ class AthleteOut(ORMModel):
     photo_path: Optional[str] = None
     blood_type: Optional[str] = None
     parent_phone: Optional[str] = None
+    category_id: Optional[int] = None
+    category_code: Optional[str] = None
 
 
 class RegistrationCreate(BaseModel):

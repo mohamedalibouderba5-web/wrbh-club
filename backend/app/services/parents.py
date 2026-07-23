@@ -9,14 +9,13 @@ from app.services.phone import default_parent_password, normalize_phone, phone_l
 
 
 def find_user_by_phone(db: Session, phone: str) -> User | None:
-    for variant in phone_lookup_variants(phone):
-        user = db.query(User).filter(User.phone == variant).first()
-        if user:
-            return user
+    variants = [v for v in phone_lookup_variants(phone) if v]
     n = normalize_phone(phone)
-    if n:
-        return db.query(User).filter(User.phone == n).first()
-    return None
+    if n and n not in variants:
+        variants.append(n)
+    if not variants:
+        return None
+    return db.query(User).filter(User.phone.in_(variants)).first()
 
 
 def ensure_parent_account(
