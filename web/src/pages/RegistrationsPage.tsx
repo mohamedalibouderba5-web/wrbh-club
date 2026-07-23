@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { api, formatDateFr, isDzMobile, loadAllSettled, mediaUrl } from "../api/client";
+import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { useI18n } from "../i18n";
 
@@ -29,6 +30,7 @@ type Reg = {
 };
 
 const PAGE = 50;
+const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export function RegistrationsPage() {
   const { t } = useI18n();
@@ -48,6 +50,7 @@ export function RegistrationsPage() {
     parent_phone: "",
     parent_name: "",
     photo_path: "",
+    blood_type: "",
   });
 
   const seasonCats = useMemo(
@@ -116,6 +119,7 @@ export function RegistrationsPage() {
             birth_date: form.birth_date,
             birth_place: form.birth_place || null,
             photo_path: form.photo_path || null,
+            blood_type: form.blood_type || null,
           },
         }),
       });
@@ -134,6 +138,7 @@ export function RegistrationsPage() {
         parent_phone: "",
         parent_name: "",
         photo_path: "",
+        blood_type: "",
       }));
       refresh();
     } catch (err) {
@@ -180,7 +185,7 @@ export function RegistrationsPage() {
             }}
           />
         </div>
-        <div className="grid" style={{ gridTemplateColumns: "140px 1fr", gap: "1rem" }}>
+        <div className="form-split">
           <PhotoCapture value={form.photo_path} onUploaded={(p) => setForm({ ...form, photo_path: p })} />
           <div>
             <div className="field">
@@ -193,6 +198,7 @@ export function RegistrationsPage() {
                 type="date"
                 required
                 lang="fr-DZ"
+                className="ltr"
                 value={form.birth_date}
                 onChange={(e) => setForm({ ...form, birth_date: e.target.value })}
               />
@@ -202,14 +208,28 @@ export function RegistrationsPage() {
               <input value={form.birth_place} onChange={(e) => setForm({ ...form, birth_place: e.target.value })} />
             </div>
             <div className="field">
+              <label>{t("bloodType")}</label>
+              <select value={form.blood_type} onChange={(e) => setForm({ ...form, blood_type: e.target.value })}>
+                {BLOOD_TYPES.map((b) => (
+                  <option key={b || "none"} value={b}>
+                    {b || "—"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
               <label>{t("parentPhone")} *</label>
-              <input
-                required
-                placeholder="05XXXXXXXX"
-                inputMode="tel"
-                value={form.parent_phone}
-                onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
-              />
+              <div className="phone-row">
+                <input
+                  required
+                  placeholder="05XXXXXXXX"
+                  inputMode="tel"
+                  className="ltr"
+                  value={form.parent_phone}
+                  onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
+                />
+                <CallButton phone={form.parent_phone} />
+              </div>
             </div>
             <div className="field">
               <label>Nom parent / اسم الولي</label>
@@ -229,7 +249,12 @@ export function RegistrationsPage() {
         </div>
         <div className="field">
           <label>حقوق الاشتراك (DZD)</label>
-          <input value={form.subscription_fee} onChange={(e) => setForm({ ...form, subscription_fee: e.target.value })} />
+          <input
+            className="ltr"
+            inputMode="numeric"
+            value={form.subscription_fee}
+            onChange={(e) => setForm({ ...form, subscription_fee: e.target.value })}
+          />
         </div>
         <button type="submit">{t("save")}</button>
         {msg && <p style={{ color: "var(--ok)" }}>{msg}</p>}
@@ -290,7 +315,9 @@ export function RegistrationsPage() {
                   )}
                 </td>
                 <td>{r.category_code || "—"}</td>
-                <td>{r.parent_phone || "—"}</td>
+                <td>
+                  <PhoneCell phone={r.parent_phone} />
+                </td>
                 <td>
                   <span className="badge">{r.status}</span>
                 </td>

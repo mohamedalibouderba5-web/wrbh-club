@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, formatDateFr, isDzMobile, mediaUrl } from "../api/client";
+import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { useI18n } from "../i18n";
 
@@ -13,9 +14,11 @@ type Athlete = {
   notes?: string;
   photo_path?: string;
   parent_phone?: string;
+  blood_type?: string;
 };
 
 const PAGE = 100;
+const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export function AthletesPage() {
   const { t } = useI18n();
@@ -32,10 +35,12 @@ export function AthletesPage() {
     parent_phone: "",
     parent_name: "",
     photo_path: "",
+    blood_type: "",
   });
   const [editId, setEditId] = useState<number | null>(null);
   const [editStatus, setEditStatus] = useState("Active");
   const [editNote, setEditNote] = useState("");
+  const [editBlood, setEditBlood] = useState("");
 
   const load = useCallback(
     async (search = q) => {
@@ -81,12 +86,21 @@ export function AthletesPage() {
           birth_date: form.birth_date,
           birth_place: form.birth_place || null,
           photo_path: form.photo_path || null,
+          blood_type: form.blood_type || null,
           parent_phone: form.parent_phone,
           parent_name: form.parent_name || null,
         }),
       });
       setMsg("Joueur ajouté — حساب الولي مرتبط بالهاتف");
-      setForm({ full_name: "", birth_date: "", birth_place: "", parent_phone: "", parent_name: "", photo_path: "" });
+      setForm({
+        full_name: "",
+        birth_date: "",
+        birth_place: "",
+        parent_phone: "",
+        parent_name: "",
+        photo_path: "",
+        blood_type: "",
+      });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -103,6 +117,7 @@ export function AthletesPage() {
         body: JSON.stringify({
           status: editStatus,
           notes: editNote,
+          blood_type: editBlood || null,
           confirm_status: true,
         }),
       });
@@ -118,7 +133,7 @@ export function AthletesPage() {
     <div className="grid" style={{ gap: "1rem" }}>
       <form className="card" onSubmit={onCreate}>
         <h3 style={{ marginTop: 0 }}>{t("addPlayer")}</h3>
-        <div className="grid" style={{ gridTemplateColumns: "160px 1fr", gap: "1rem" }}>
+        <div className="form-split">
           <PhotoCapture value={form.photo_path} onUploaded={(p) => setForm({ ...form, photo_path: p })} />
           <div>
             <div className="field">
@@ -131,6 +146,7 @@ export function AthletesPage() {
                 type="date"
                 required
                 lang="fr-DZ"
+                className="ltr"
                 value={form.birth_date}
                 onChange={(e) => setForm({ ...form, birth_date: e.target.value })}
               />
@@ -140,14 +156,28 @@ export function AthletesPage() {
               <input value={form.birth_place} onChange={(e) => setForm({ ...form, birth_place: e.target.value })} />
             </div>
             <div className="field">
+              <label>{t("bloodType")}</label>
+              <select value={form.blood_type} onChange={(e) => setForm({ ...form, blood_type: e.target.value })}>
+                {BLOOD_TYPES.map((b) => (
+                  <option key={b || "none"} value={b}>
+                    {b || "—"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
               <label>{t("parentPhone")} *</label>
-              <input
-                required
-                placeholder="05XXXXXXXX"
-                inputMode="tel"
-                value={form.parent_phone}
-                onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
-              />
+              <div className="phone-row">
+                <input
+                  required
+                  placeholder="05XXXXXXXX"
+                  inputMode="tel"
+                  className="ltr"
+                  value={form.parent_phone}
+                  onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
+                />
+                <CallButton phone={form.parent_phone} />
+              </div>
             </div>
             <div className="field">
               <label>Nom parent / اسم الولي</label>
@@ -189,6 +219,7 @@ export function AthletesPage() {
               <th>Photo</th>
               <th>#</th>
               <th>Nom / الاسم</th>
+              <th>{t("bloodType")}</th>
               <th>Parent ☎</th>
               <th>Naissance</th>
               <th>{t("status")}</th>
@@ -219,7 +250,10 @@ export function AthletesPage() {
                 </td>
                 <td>{r.legacy_number ?? "—"}</td>
                 <td>{r.full_name}</td>
-                <td>{r.parent_phone || "—"}</td>
+                <td>{r.blood_type || "—"}</td>
+                <td>
+                  <PhoneCell phone={r.parent_phone} />
+                </td>
                 <td>{formatDateFr(r.birth_date)}</td>
                 <td>
                   <span className="badge">{r.status}</span>
@@ -232,6 +266,7 @@ export function AthletesPage() {
                       setEditId(r.id);
                       setEditStatus(r.status);
                       setEditNote(r.notes || "");
+                      setEditBlood(r.blood_type || "");
                     }}
                   >
                     {t("status")}
@@ -254,6 +289,16 @@ export function AthletesPage() {
               <option value="Active">Active</option>
               <option value="Abandonne">Abandonne</option>
               <option value="Inactif">Inactif</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>{t("bloodType")}</label>
+            <select value={editBlood} onChange={(e) => setEditBlood(e.target.value)}>
+              {BLOOD_TYPES.map((b) => (
+                <option key={b || "none"} value={b}>
+                  {b || "—"}
+                </option>
+              ))}
             </select>
           </div>
           <div className="field">

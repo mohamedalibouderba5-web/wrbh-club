@@ -58,6 +58,12 @@ const dict = {
     missingBirth: "Sans date de naissance",
     financeStaffOnly: "Données finance réservées au staff.",
     statusBreakdown: "Répartition des statuts",
+    updateAvailable: "Nouvelle version de l'app disponible",
+    updateNow: "Mettre à jour",
+    checkUpdate: "Vérifier les mises à jour",
+    checkingUpdate: "Vérification…",
+    bloodType: "Groupe sanguin",
+    call: "Appeler",
   },
   ar: {
     brand: "نادي الوداد",
@@ -114,6 +120,12 @@ const dict = {
     missingBirth: "بدون تاريخ ميلاد",
     financeStaffOnly: "البيانات المالية مخصصة للطاقم.",
     statusBreakdown: "توزيع الحالات",
+    updateAvailable: "يتوفر تحديث جديد للتطبيق",
+    updateNow: "تحديث الآن",
+    checkUpdate: "التحقق من التحديثات",
+    checkingUpdate: "جاري التحقق…",
+    bloodType: "فصيلة الدم",
+    call: "اتصال",
   },
 } as const;
 

@@ -101,6 +101,7 @@ class AthleteCreate(BaseModel):
     notes: Optional[str] = None
     legacy_number: Optional[int] = None
     photo_path: Optional[str] = None
+    blood_type: Optional[str] = None
     parent_phone: Optional[str] = None
     parent_name: Optional[str] = None
 
@@ -114,6 +115,7 @@ class AthleteUpdate(BaseModel):
     license_number: Optional[str] = None
     notes: Optional[str] = None
     photo_path: Optional[str] = None
+    blood_type: Optional[str] = None
     parent_phone: Optional[str] = None
     parent_name: Optional[str] = None
     confirm_status: bool = False
@@ -130,6 +132,7 @@ class AthleteOut(ORMModel):
     license_number: Optional[str]
     notes: Optional[str]
     photo_path: Optional[str] = None
+    blood_type: Optional[str] = None
     parent_phone: Optional[str] = None
 
 
@@ -324,12 +327,24 @@ class HealthOut(BaseModel):
     woken_at: datetime
 
 
+class MobileChildOut(BaseModel):
+    id: int
+    full_name: str
+    birth_date: Optional[date] = None
+    status: str
+    legacy_number: Optional[int] = None
+    blood_type: Optional[str] = None
+    photo_path: Optional[str] = None
+    category_code: Optional[str] = None
+
+
 class MobileHomeOut(BaseModel):
     role: str
     full_name: str
     club_name: str
     club_name_ar: Optional[str]
     children_count: int = 0
+    children: list[MobileChildOut] = []
     upcoming_events: list[EventOut] = []
     pending_convocations: int = 0
     unpaid_installments: int = 0

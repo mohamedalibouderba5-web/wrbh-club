@@ -132,6 +132,7 @@ class Athlete(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(30), default="Active")  # Active / Abandonne
     license_number: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     photo_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    blood_type: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)  # A+ A- B+ B- AB+ AB- O+ O-
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 

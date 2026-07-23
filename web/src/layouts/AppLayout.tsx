@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import { health, wakeServer } from "../api/client";
 import { useI18n } from "../i18n";
+import { useAppUpdate } from "../pwa";
 
 export function AppLayout() {
   const { fullName, role, logout } = useAuth();
@@ -10,6 +11,7 @@ export function AppLayout() {
   const [wakeMsg, setWakeMsg] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
+  const { updateReady, checking, checkForUpdate, applyUpdate } = useAppUpdate();
 
   useEffect(() => {
     setMenuOpen(false);
@@ -26,13 +28,7 @@ export function AppLayout() {
     { to: "/download", label: t("download"), short: lang === "ar" ? "تطبيق" : "App" },
   ];
 
-  const bottom = [
-    links[0],
-    links[1],
-    links[2],
-    links[3],
-    links[7],
-  ];
+  const bottom = [links[0], links[1], links[2], links[3], links[7]];
 
   async function onWake() {
     setWakeMsg("…");
@@ -40,8 +36,8 @@ export function AppLayout() {
       await wakeServer();
       const h = await health();
       setWakeMsg(`OK — ${h.environment || "?"} · ${h.time}`);
-      // Notifie les pages d'actualiser après réveil
       window.dispatchEvent(new CustomEvent("wrbh:server-awake"));
+      await checkForUpdate();
     } catch {
       setWakeMsg("Échec — réessayez");
     }
@@ -63,8 +59,12 @@ export function AppLayout() {
           </button>
         </div>
         <div className="lang-switch">
-          <button type="button" className={lang === "fr" ? "active" : ""} onClick={() => setLang("fr")}>FR</button>
-          <button type="button" className={lang === "ar" ? "active" : ""} onClick={() => setLang("ar")}>عربي</button>
+          <button type="button" className={lang === "fr" ? "active" : ""} onClick={() => setLang("fr")}>
+            FR
+          </button>
+          <button type="button" className={lang === "ar" ? "active" : ""} onClick={() => setLang("ar")}>
+            عربي
+          </button>
         </div>
         <nav className="nav">
           {links.map((l) => (
@@ -75,7 +75,12 @@ export function AppLayout() {
         </nav>
         <div className="sidebar-user">
           <div>{fullName}</div>
-          <div className="badge" style={{ marginTop: 6 }}>{role}</div>
+          <div className="badge" style={{ marginTop: 6 }}>
+            {role}
+          </div>
+          <button className="secondary" style={{ marginTop: 12, width: "100%" }} onClick={() => checkForUpdate()}>
+            {checking ? t("checkingUpdate") : t("checkUpdate")}
+          </button>
           <button className="secondary" style={{ marginTop: 12, width: "100%" }} onClick={logout}>
             {t("logout")}
           </button>
@@ -92,11 +97,21 @@ export function AppLayout() {
             <div className="topbar-sub">{t("season")}</div>
           </div>
           <div className="wake-bar">
-            <button className="accent wake-btn" onClick={onWake}>{t("wake")}</button>
+            <button className="accent wake-btn" onClick={onWake}>
+              {t("wake")}
+            </button>
             {wakeMsg && <span className="wake-msg">{wakeMsg}</span>}
           </div>
         </div>
         <div className="page-content">
+          {updateReady && (
+            <div className="update-banner">
+              <span>{t("updateAvailable")}</span>
+              <button type="button" onClick={applyUpdate}>
+                {t("updateNow")}
+              </button>
+            </div>
+          )}
           <Outlet />
         </div>
       </main>

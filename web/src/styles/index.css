@@ -483,6 +483,83 @@ html[dir="rtl"] .install-steps { text-align: right; padding-left: 0; padding-rig
 html[dir="rtl"] th, html[dir="rtl"] td { text-align: right; }
 html[dir="rtl"] .field { text-align: right; }
 
+/* Empêche le décalage caret / saisie en mode AR (chiffres, dates, téléphone) */
+.field input[type="tel"],
+.field input[type="date"],
+.field input[type="number"],
+.field input[inputmode="tel"],
+.field input[inputmode="numeric"],
+.field input.ltr,
+.phone-row input {
+  direction: ltr !important;
+  text-align: left !important;
+  unicode-bidi: isolate;
+}
+
+/* Grilles formulaires stables (pas de décalage à la saisie) */
+.form-split {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+.form-split > * { min-width: 0; }
+@media (max-width: 700px) {
+  .form-split { grid-template-columns: 1fr; }
+}
+
+.phone-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.phone-row input { flex: 1; }
+.call-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #16a34a;
+  color: white !important;
+  text-decoration: none;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.call-btn:hover { filter: brightness(1.05); }
+.call-btn.inline {
+  width: 32px;
+  height: 32px;
+  font-size: 0.95rem;
+  border-radius: 8px;
+}
+.phone-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.update-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  background: linear-gradient(90deg, #1E3A8A, #2563eb);
+  color: white;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+}
+.update-banner button {
+  background: var(--yellow);
+  color: var(--blue-deep);
+  border: none;
+  font-weight: 800;
+}
+
 /* Photos */
 .photo-capture { display: grid; gap: 0.5rem; }
 .photo-preview, .photo-placeholder {

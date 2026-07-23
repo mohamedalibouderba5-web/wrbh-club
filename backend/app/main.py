@@ -3,12 +3,30 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.api import agenda, auth, club, finance, mobile, uploads
 from app.core.config import get_settings
 from app.core.database import Base, engine
 
 settings = get_settings()
+
+
+def _ensure_schema() -> None:
+    """Add columns create_all cannot alter on existing Postgres tables."""
+    stmts = [
+        "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS blood_type VARCHAR(8)",
+    ]
+    with engine.begin() as conn:
+        for sql in stmts:
+            try:
+                conn.execute(text(sql))
+            except Exception:
+                # SQLite older builds may lack IF NOT EXISTS for columns
+                try:
+                    conn.execute(text("ALTER TABLE athletes ADD COLUMN blood_type VARCHAR(8)"))
+                except Exception:
+                    pass
 
 if settings.sentry_dsn:
     try:
@@ -40,6 +58,7 @@ app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    _ensure_schema()
 
 
 @app.get("/health")

@@ -39,6 +39,7 @@ from app.schemas import (
     TeamOut,
 )
 from app.services.age import validate_category_for_birth, validate_club_age
+from app.services.blood import validate_blood_type
 from app.services.fees import ensure_subscription_installment
 from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
@@ -208,6 +209,7 @@ def _to_athlete_out(db: Session, athlete: Athlete) -> AthleteOut:
         license_number=athlete.license_number,
         notes=athlete.notes,
         photo_path=athlete.photo_path,
+        blood_type=getattr(athlete, "blood_type", None),
         parent_phone=_athlete_parent_phone(db, athlete.id),
     )
 
@@ -245,10 +247,14 @@ def create_athlete(
         validate_club_age(payload.birth_date, required=True)
         if payload.parent_phone:
             validate_dz_mobile(payload.parent_phone, required=True)
+        if payload.blood_type is not None:
+            payload.blood_type = validate_blood_type(payload.blood_type)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
     data = payload.model_dump(exclude={"parent_phone", "parent_name"})
+    if "blood_type" in data:
+        data["blood_type"] = validate_blood_type(data.get("blood_type"))
     athlete = Athlete(**data)
     db.add(athlete)
     db.flush()
@@ -313,6 +319,8 @@ def update_athlete(
             validate_club_age(birth, required=True)
         if payload.parent_phone:
             validate_dz_mobile(payload.parent_phone, required=True)
+        if "blood_type" in data:
+            data["blood_type"] = validate_blood_type(data.get("blood_type"))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -618,11 +626,15 @@ def create_registration(
         try:
             validate_club_age(payload.athlete.birth_date, required=True)
             validate_category_for_birth(payload.athlete.birth_date, cat)
+            if payload.athlete.blood_type is not None:
+                payload.athlete.blood_type = validate_blood_type(payload.athlete.blood_type)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         athlete_data = payload.athlete.model_dump(exclude={"parent_phone", "parent_name"})
         if payload.photo_path:
             athlete_data["photo_path"] = payload.photo_path
+        if "blood_type" in athlete_data:
+            athlete_data["blood_type"] = validate_blood_type(athlete_data.get("blood_type"))
         athlete = Athlete(**athlete_data)
         db.add(athlete)
         db.flush()
