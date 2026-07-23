@@ -8,10 +8,16 @@ from app.core.database import get_db
 from app.core.roles import Role
 from app.core.security import hash_password
 from app.models import (
+    Announcement,
     Athlete,
+    Attendance,
     Category,
+    Convocation,
     EmergencyContact,
+    Event,
+    FeeInstallment,
     ParentChild,
+    Payment,
     Registration,
     Season,
     Team,
@@ -31,6 +37,8 @@ from app.schemas import (
 from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
 from app.services.phone import normalize_phone
+
+TEST_MARKER = "TEST-WRBH-BATCH"
 
 router = APIRouter(tags=["structure"])
 
@@ -270,6 +278,69 @@ def update_athlete(
     db.commit()
     db.refresh(athlete)
     return _to_athlete_out(db, athlete)
+
+
+@athletes_router.delete("/{athlete_id}")
+def delete_athlete(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+):
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        raise HTTPException(404, "Athlète introuvable")
+    # cascade-ish cleanup of related rows
+    for model in (Attendance, Convocation, FeeInstallment, Payment, TeamMembership, ParentChild, EmergencyContact, Registration):
+        db.query(model).filter(getattr(model, "athlete_id") == athlete_id).delete(synchronize_session=False)
+    db.delete(athlete)
+    db.commit()
+    return {"deleted": athlete_id}
+
+
+@router.post("/system/cleanup-tests")
+def cleanup_test_batch(
+    marker: str = TEST_MARKER,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN)),
+):
+    """Supprime tous les athlètes/données marqués pour tests (notes ou nom contenant le marker)."""
+    athletes = (
+        db.query(Athlete)
+        .filter((Athlete.notes.contains(marker)) | (Athlete.full_name.contains("[TEST]")))
+        .all()
+    )
+    ids = [a.id for a in athletes]
+    deleted_events = 0
+    # events titled with marker
+    events = db.query(Event).filter(Event.title.contains(marker)).all()
+    for ev in events:
+        db.query(Attendance).filter(Attendance.event_id == ev.id).delete(synchronize_session=False)
+        db.query(Convocation).filter(Convocation.event_id == ev.id).delete(synchronize_session=False)
+        db.delete(ev)
+        deleted_events += 1
+    for athlete_id in ids:
+        for model in (Attendance, Convocation, FeeInstallment, Payment, TeamMembership, ParentChild, EmergencyContact, Registration):
+            db.query(model).filter(getattr(model, "athlete_id") == athlete_id).delete(synchronize_session=False)
+        ath = db.get(Athlete, athlete_id)
+        if ath:
+            db.delete(ath)
+    # test parent users by phone prefix 069911
+    parents = db.query(User).filter(User.role == Role.PARENT, User.phone.like("069911%")).all()
+    parent_ids = [p.id for p in parents]
+    for p in parents:
+        db.delete(p)
+    anns = db.query(Announcement).filter(Announcement.title.contains(marker)).all()
+    for a in anns:
+        db.delete(a)
+    db.commit()
+    return {
+        "marker": marker,
+        "athletes_deleted": len(ids),
+        "athlete_ids": ids,
+        "events_deleted": deleted_events,
+        "parents_deleted": len(parent_ids),
+        "announcements_deleted": len(anns),
+    }
 
 
 reg_router = APIRouter(prefix="/registrations", tags=["registrations"])
