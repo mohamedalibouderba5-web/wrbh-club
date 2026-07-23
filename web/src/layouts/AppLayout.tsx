@@ -1,5 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import { health, wakeServer } from "../api/client";
 import { useI18n } from "../i18n";
@@ -8,16 +8,30 @@ export function AppLayout() {
   const { fullName, role, logout } = useAuth();
   const { t, lang, setLang } = useI18n();
   const [wakeMsg, setWakeMsg] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
 
   const links = [
-    { to: "/", label: t("dashboard") },
-    { to: "/athletes", label: `${t("athletes")} / اللاعبون` },
-    { to: "/registrations", label: t("registrations") },
-    { to: "/agenda", label: t("agenda") },
-    { to: "/finance", label: t("finance") },
-    { to: "/inventory", label: t("inventory") },
-    { to: "/announcements", label: t("announcements") },
-    { to: "/download", label: t("download") },
+    { to: "/", label: t("dashboard"), short: lang === "ar" ? "رئيسية" : "Accueil" },
+    { to: "/athletes", label: `${t("athletes")} / اللاعبون`, short: lang === "ar" ? "لاعبون" : "Joueurs" },
+    { to: "/registrations", label: t("registrations"), short: lang === "ar" ? "تسجيل" : "Inscript." },
+    { to: "/agenda", label: t("agenda"), short: lang === "ar" ? "جدول" : "Agenda" },
+    { to: "/finance", label: t("finance"), short: lang === "ar" ? "مالية" : "Finance" },
+    { to: "/inventory", label: t("inventory"), short: lang === "ar" ? "عتاد" : "Matériel" },
+    { to: "/announcements", label: t("announcements"), short: lang === "ar" ? "إعلان" : "Annonces" },
+    { to: "/download", label: t("download"), short: lang === "ar" ? "تطبيق" : "App" },
+  ];
+
+  const bottom = [
+    links[0],
+    links[1],
+    links[2],
+    links[3],
+    links[7],
   ];
 
   async function onWake() {
@@ -32,7 +46,9 @@ export function AppLayout() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${menuOpen ? "menu-open" : ""}`}>
+      {menuOpen && <button type="button" className="drawer-backdrop" aria-label="Close" onClick={() => setMenuOpen(false)} />}
+
       <aside className="sidebar">
         <div className="brand">
           <img src="/logo.png" alt="WRBH" />
@@ -40,6 +56,9 @@ export function AppLayout() {
             <h1>{t("brand")}</h1>
             <small>الوداد الرياضي لبلدية حمادي</small>
           </div>
+          <button type="button" className="drawer-close" onClick={() => setMenuOpen(false)} aria-label="Fermer">
+            ✕
+          </button>
         </div>
         <div className="lang-switch">
           <button type="button" className={lang === "fr" ? "active" : ""} onClick={() => setLang("fr")}>FR</button>
@@ -52,7 +71,7 @@ export function AppLayout() {
             </NavLink>
           ))}
         </nav>
-        <div style={{ marginTop: "auto", fontSize: "0.85rem", opacity: 0.85 }}>
+        <div className="sidebar-user">
           <div>{fullName}</div>
           <div className="badge" style={{ marginTop: 6 }}>{role}</div>
           <button className="secondary" style={{ marginTop: 12, width: "100%" }} onClick={logout}>
@@ -60,19 +79,33 @@ export function AppLayout() {
           </button>
         </div>
       </aside>
+
       <main className="main">
         <div className="topbar">
-          <div>
+          <button type="button" className="menu-btn" onClick={() => setMenuOpen(true)} aria-label="Menu">
+            ☰
+          </button>
+          <div className="topbar-titles">
             <h2 style={{ margin: 0 }}>{t("manage")}</h2>
-            <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{t("season")}</div>
+            <div className="topbar-sub">{t("season")}</div>
           </div>
           <div className="wake-bar">
-            <button className="accent" onClick={onWake}>{t("wake")}</button>
-            {wakeMsg && <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{wakeMsg}</span>}
+            <button className="accent wake-btn" onClick={onWake}>{t("wake")}</button>
+            {wakeMsg && <span className="wake-msg">{wakeMsg}</span>}
           </div>
         </div>
-        <Outlet />
+        <div className="page-content">
+          <Outlet />
+        </div>
       </main>
+
+      <nav className="bottom-nav" aria-label="Navigation mobile">
+        {bottom.map((l) => (
+          <NavLink key={l.to} to={l.to} end={l.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
+            <span>{l.short}</span>
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }

@@ -1,14 +1,16 @@
 import { FormEvent, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { wakeServer } from "../api/client";
 import { useI18n } from "../i18n";
+import { useInstallPrompt } from "../pwa";
 
 export function LoginPage() {
   const { token, login } = useAuth();
   const { t, lang, setLang } = useI18n();
-  const [username, setUsername] = useState("admin@wrbh.local");
-  const [password, setPassword] = useState("admin123");
+  const { canInstall, installed, install } = useInstallPrompt();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -38,10 +40,31 @@ export function LoginPage() {
         <img src="/logo.png" alt="WRBH" />
         <h2>WRBH Club</h2>
         <div className="ar">الوداد الرياضي لبلدية حمادي</div>
-        <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Parents ☎ · Coaches · Staff</p>
+        <p className="login-hint">
+          {lang === "ar"
+            ? "أدخل رقم هاتف الولي ثم كلمة المرور"
+            : "Entrez le téléphone du parent, puis le mot de passe"}
+        </p>
+
+        {!installed && (
+          <button
+            type="button"
+            className="accent install-btn"
+            onClick={() => (canInstall ? install() : (window.location.href = "/install"))}
+          >
+            {lang === "ar" ? "📲 تثبيت التطبيق على الهاتف" : "📲 Installer l'app sur mon téléphone"}
+          </button>
+        )}
+
         <div className="field">
           <label>{t("loginPhone")}</label>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            inputMode="tel"
+            placeholder="0555…"
+          />
         </div>
         <div className="field">
           <label>{t("password")}</label>
@@ -51,6 +74,9 @@ export function LoginPage() {
         <button style={{ width: "100%", marginTop: 8 }} disabled={loading}>
           {loading ? "…" : t("signIn")}
         </button>
+        <Link to="/install" className="login-link">
+          {lang === "ar" ? "كيف أثبّت التطبيق ؟" : "Comment installer l'application ?"}
+        </Link>
       </form>
     </div>
   );

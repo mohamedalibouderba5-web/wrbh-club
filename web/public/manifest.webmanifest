@@ -1,0 +1,27 @@
+{
+  "name": "WRBH Club",
+  "short_name": "WRBH",
+  "description": "Application Widad Riadi Baladiat Hammadi — parents et coaches",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "/login",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1E3A8A",
+  "theme_color": "#1E3A8A",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
