@@ -1,9 +1,11 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import extract
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.roles import Role
 from app.core.security import hash_password
@@ -35,11 +37,14 @@ from app.schemas import (
     SeasonOut,
     TeamOut,
 )
+from app.services.age import validate_category_for_birth, validate_club_age
+from app.services.fees import ensure_subscription_installment
 from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
-from app.services.phone import normalize_phone
+from app.services.phone import normalize_phone, validate_dz_mobile
 
 TEST_MARKER = "TEST-WRBH-BATCH"
+settings = get_settings()
 
 router = APIRouter(tags=["structure"])
 
@@ -68,12 +73,23 @@ def list_categories(
 @router.get("/teams", response_model=list[TeamOut])
 def list_teams(
     category_id: int | None = None,
+    season_id: int | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    """Par défaut : équipes de la saison courante uniquement (évite les doublons inter-saisons)."""
     q = db.query(Team)
     if category_id:
         q = q.filter(Team.category_id == category_id)
+    else:
+        sid = season_id
+        if not sid:
+            cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+            sid = cur.id if cur else None
+        if sid:
+            cat_ids = [c.id for c in db.query(Category.id).filter(Category.season_id == sid)]
+            if cat_ids:
+                q = q.filter(Team.category_id.in_(cat_ids))
     return q.order_by(Team.name).all()
 
 
@@ -88,12 +104,26 @@ def club_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user
         by_status[a.status] = by_status.get(a.status, 0) + 1
 
     cats = []
+    classified_ids: set[int] = set()
     if season:
         for cat in db.query(Category).filter(Category.season_id == season.id).order_by(Category.birth_year_min):
+            # Comptage principal : année de naissance dans la bande catégorie (Excel + inscriptions)
+            birth_q = (
+                db.query(Athlete.id)
+                .filter(
+                    Athlete.birth_date.isnot(None),
+                    extract("year", Athlete.birth_date) >= cat.birth_year_min,
+                    extract("year", Athlete.birth_date) <= cat.birth_year_max,
+                )
+            )
+            birth_ids = {r[0] for r in birth_q.all()}
+            classified_ids |= birth_ids
+            birth_count = len(birth_ids)
+
             team_ids = [t.id for t in db.query(Team).filter(Team.category_id == cat.id)]
-            count = 0
+            membership_count = 0
             if team_ids:
-                count = (
+                membership_count = (
                     db.query(TeamMembership.athlete_id)
                     .filter(
                         TeamMembership.team_id.in_(team_ids),
@@ -103,7 +133,6 @@ def club_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user
                     .distinct()
                     .count()
                 )
-            # also count approved registrations in category
             reg_count = (
                 db.query(Registration)
                 .filter(
@@ -119,9 +148,19 @@ def club_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user
                     "name": cat.name,
                     "name_ar": cat.name_ar,
                     "birth_years": f"{cat.birth_year_min}-{cat.birth_year_max}",
-                    "members": max(count, reg_count),
+                    "members": birth_count,
+                    "by_birth_year": birth_count,
+                    "by_membership": membership_count,
+                    "by_registration": reg_count,
                 }
             )
+
+    unclassified = sum(
+        1
+        for a in athletes
+        if a.birth_date is not None and a.id not in classified_ids and a.status == "Active"
+    )
+    missing_birth = sum(1 for a in athletes if a.birth_date is None)
 
     regs_pending = db.query(Registration).filter(Registration.status == "pending").count()
     parents = db.query(User).filter(User.role == Role.PARENT).count()
@@ -132,6 +171,8 @@ def club_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user
         "athletes_left": left,
         "by_status": by_status,
         "categories": cats,
+        "unclassified_active": unclassified,
+        "missing_birth_date": missing_birth,
         "registrations_pending": regs_pending,
         "parents_count": parents,
     }
@@ -174,6 +215,8 @@ def _to_athlete_out(db: Session, athlete: Athlete) -> AthleteOut:
 def list_athletes(
     q: str | None = None,
     status: str | None = Query(None, alias="status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -186,7 +229,8 @@ def list_athletes(
     if q:
         like = f"%{q}%"
         query = query.filter(Athlete.full_name.ilike(like))
-    rows = query.order_by(Athlete.full_name).limit(500).all()
+    limit = min(limit, settings.max_page_size)
+    rows = query.order_by(Athlete.full_name).offset(skip).limit(limit).all()
     return [_to_athlete_out(db, a) for a in rows]
 
 
@@ -196,6 +240,13 @@ def create_athlete(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
 ):
+    try:
+        validate_club_age(payload.birth_date, required=True)
+        if payload.parent_phone:
+            validate_dz_mobile(payload.parent_phone, required=True)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     data = payload.model_dump(exclude={"parent_phone", "parent_name"})
     athlete = Athlete(**data)
     db.add(athlete)
@@ -255,6 +306,15 @@ def update_athlete(
         if new_status in {"Abandonne", "Left", "Inactif"} and not (payload.notes or athlete.notes):
             raise HTTPException(400, "Une note est obligatoire quand le joueur quitte le club.")
 
+    birth = data.get("birth_date", athlete.birth_date)
+    try:
+        if "birth_date" in data:
+            validate_club_age(birth, required=True)
+        if payload.parent_phone:
+            validate_dz_mobile(payload.parent_phone, required=True)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     for k, v in data.items():
         setattr(athlete, k, v)
 
@@ -301,10 +361,18 @@ def delete_athlete(
 @router.post("/system/cleanup-tests")
 def cleanup_test_batch(
     marker: str = TEST_MARKER,
+    confirm: bool = Query(False, description="Doit être true"),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN)),
 ):
-    """Supprime tous les athlètes/données marqués pour tests (notes ou nom contenant le marker)."""
+    """Supprime les données de test. En production : ALLOW_TEST_CLEANUP=true + confirm=true."""
+    if not confirm:
+        raise HTTPException(400, "Ajoutez ?confirm=true pour confirmer la purge des tests.")
+    if settings.is_production and not settings.allow_test_cleanup:
+        raise HTTPException(
+            403,
+            "Cleanup tests désactivé en production (définir ALLOW_TEST_CLEANUP=true si besoin).",
+        )
     athletes = (
         db.query(Athlete)
         .filter((Athlete.notes.contains(marker)) | (Athlete.full_name.contains("[TEST]")))
@@ -354,6 +422,33 @@ def cleanup_test_batch(
 reg_router = APIRouter(prefix="/registrations", tags=["registrations"])
 
 
+def _reg_out_from_maps(
+    reg: Registration,
+    athletes: dict[int, Athlete],
+    categories: dict[int, Category],
+    phones: dict[int, str | None],
+    parent_meta: dict | None = None,
+) -> RegistrationOut:
+    athlete = athletes.get(reg.athlete_id)
+    cat = categories.get(reg.category_id) if reg.category_id else None
+    return RegistrationOut(
+        id=reg.id,
+        athlete_id=reg.athlete_id,
+        season_id=reg.season_id,
+        category_id=reg.category_id,
+        registered_on=reg.registered_on,
+        status=reg.status,
+        source=reg.source,
+        subscription_fee=reg.subscription_fee,
+        athlete_name=athlete.full_name if athlete else None,
+        athlete_photo=athlete.photo_path if athlete else None,
+        category_code=cat.code if cat else None,
+        parent_phone=phones.get(reg.athlete_id),
+        parent_temp_password=(parent_meta or {}).get("temp_password"),
+        parent_created=(parent_meta or {}).get("created"),
+    )
+
+
 def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) -> RegistrationOut:
     athlete = db.get(Athlete, reg.athlete_id)
     cat = db.get(Category, reg.category_id) if reg.category_id else None
@@ -376,20 +471,55 @@ def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) ->
     )
 
 
+def _bulk_parent_phones(db: Session, athlete_ids: list[int]) -> dict[int, str | None]:
+    if not athlete_ids:
+        return {}
+    out: dict[int, str | None] = {aid: None for aid in athlete_ids}
+    links = db.query(ParentChild).filter(ParentChild.athlete_id.in_(athlete_ids)).all()
+    parent_ids = {l.parent_id for l in links}
+    parents = {u.id: u for u in db.query(User).filter(User.id.in_(parent_ids)).all()} if parent_ids else {}
+    for link in links:
+        parent = parents.get(link.parent_id)
+        if parent and parent.phone:
+            out[link.athlete_id] = parent.phone
+    missing = [aid for aid, phone in out.items() if not phone]
+    if missing:
+        ecs = db.query(EmergencyContact).filter(EmergencyContact.athlete_id.in_(missing)).all()
+        for ec in ecs:
+            if out.get(ec.athlete_id) is None:
+                out[ec.athlete_id] = ec.phone
+    return out
+
+
 @reg_router.get("", response_model=list[RegistrationOut])
 def list_registrations(
     season_id: int | None = None,
+    status: str | None = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
 ):
     q = db.query(Registration)
     if season_id:
         q = q.filter(Registration.season_id == season_id)
+    if status:
+        q = q.filter(Registration.status == status)
     if user.role == Role.PARENT:
         ids = _parent_athlete_ids(db, user)
         q = q.filter(Registration.athlete_id.in_(ids or {-1}))
-    rows = q.order_by(Registration.id.desc()).limit(500).all()
-    return [_reg_out(db, r) for r in rows]
+    limit = min(limit, settings.max_page_size)
+    rows = q.order_by(Registration.id.desc()).offset(skip).limit(limit).all()
+    if not rows:
+        return []
+    athlete_ids = list({r.athlete_id for r in rows})
+    cat_ids = list({r.category_id for r in rows if r.category_id})
+    athletes = {a.id: a for a in db.query(Athlete).filter(Athlete.id.in_(athlete_ids)).all()}
+    categories = (
+        {c.id: c for c in db.query(Category).filter(Category.id.in_(cat_ids)).all()} if cat_ids else {}
+    )
+    phones = _bulk_parent_phones(db, athlete_ids)
+    return [_reg_out_from_maps(r, athletes, categories, phones) for r in rows]
 
 
 @reg_router.post("", response_model=RegistrationOut)
@@ -400,7 +530,21 @@ def create_registration(
 ):
     athlete_id = payload.athlete_id
     parent_meta: dict = {}
+    birth = payload.athlete.birth_date if payload.athlete else None
+
+    category_id = payload.category_id
+    cat: Category | None = db.get(Category, category_id) if category_id else None
+    if category_id and not cat:
+        raise HTTPException(400, "Catégorie introuvable")
+    if cat and cat.season_id != payload.season_id:
+        raise HTTPException(400, "Catégorie hors saison sélectionnée")
+
     if payload.athlete:
+        try:
+            validate_club_age(payload.athlete.birth_date, required=True)
+            validate_category_for_birth(payload.athlete.birth_date, cat)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         athlete_data = payload.athlete.model_dump(exclude={"parent_phone", "parent_name"})
         if payload.photo_path:
             athlete_data["photo_path"] = payload.photo_path
@@ -408,20 +552,37 @@ def create_registration(
         db.add(athlete)
         db.flush()
         athlete_id = athlete.id
+        birth = athlete.birth_date
         if user.role == Role.PARENT:
             db.add(ParentChild(parent_id=user.id, athlete_id=athlete.id))
     if not athlete_id:
         raise HTTPException(400, "Athlète requis")
 
     athlete = db.get(Athlete, athlete_id)
-    if payload.photo_path and athlete:
+    if not athlete:
+        raise HTTPException(400, "Athlète introuvable")
+    birth = birth or athlete.birth_date
+
+    try:
+        validate_club_age(birth, required=True)
+        if cat:
+            validate_category_for_birth(birth, cat)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    if payload.photo_path:
         athlete.photo_path = payload.photo_path
 
     parent_phone = payload.parent_phone or (payload.athlete.parent_phone if payload.athlete else None)
     parent_name = payload.parent_name or (payload.athlete.parent_name if payload.athlete else None)
 
+    if parent_phone and user.role != Role.PARENT:
+        try:
+            validate_dz_mobile(parent_phone, required=True)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     if user.role == Role.PARENT:
-        # parent connecté : lier son compte (téléphone)
         if not db.query(ParentChild).filter_by(parent_id=user.id, athlete_id=athlete_id).first():
             db.add(ParentChild(parent_id=user.id, athlete_id=athlete_id))
     elif parent_phone:
@@ -438,9 +599,6 @@ def create_registration(
                 parent_meta["temp_password"] = payload.parent_password
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-    elif user.role == Role.PARENT and athlete_id not in _parent_athlete_ids(db, user):
-        if not db.query(ParentChild).filter_by(parent_id=user.id, athlete_id=athlete_id).first():
-            raise HTTPException(403, "Athlète non lié")
 
     if parent_phone or payload.emergency_phone:
         phone = normalize_phone(payload.emergency_phone or parent_phone or "") or (
@@ -455,20 +613,31 @@ def create_registration(
             )
         )
 
-    category_id = payload.category_id
-    if not category_id and payload.athlete and payload.athlete.birth_date:
-        year = payload.athlete.birth_date.year
-        cat = (
+    if not category_id and birth:
+        year = birth.year
+        auto = (
             db.query(Category)
             .filter(
                 Category.season_id == payload.season_id,
                 Category.birth_year_min <= year,
                 Category.birth_year_max >= year,
+                Category.is_active.is_(True),
             )
             .first()
         )
-        if cat:
-            category_id = cat.id
+        if auto:
+            category_id = auto.id
+            cat = auto
+        else:
+            raise HTTPException(
+                400,
+                f"Aucune catégorie pour l'année {year} sur cette saison. Vérifiez la date de naissance.",
+            )
+    elif category_id and birth:
+        try:
+            validate_category_for_birth(birth, cat)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     reg = Registration(
         athlete_id=athlete_id,
@@ -484,7 +653,9 @@ def create_registration(
 
     if category_id and reg.status == "approved":
         team = db.query(Team).filter(Team.category_id == category_id).first()
-        if team:
+        if team and not db.query(TeamMembership).filter_by(
+            team_id=team.id, athlete_id=athlete_id, season_id=payload.season_id
+        ).first():
             db.add(
                 TeamMembership(
                     team_id=team.id,
@@ -492,6 +663,7 @@ def create_registration(
                     season_id=payload.season_id,
                 )
             )
+        ensure_subscription_installment(db, reg)
 
     db.commit()
     db.refresh(reg)
@@ -507,6 +679,14 @@ def approve_registration(
     reg = db.get(Registration, reg_id)
     if not reg:
         raise HTTPException(404, "Inscription introuvable")
+    athlete = db.get(Athlete, reg.athlete_id)
+    cat = db.get(Category, reg.category_id) if reg.category_id else None
+    if athlete:
+        try:
+            validate_club_age(athlete.birth_date, required=True)
+            validate_category_for_birth(athlete.birth_date, cat)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     reg.status = "approved"
     if reg.category_id:
         team = db.query(Team).filter(Team.category_id == reg.category_id).first()
@@ -516,7 +696,7 @@ def approve_registration(
             db.add(
                 TeamMembership(team_id=team.id, athlete_id=reg.athlete_id, season_id=reg.season_id)
             )
-    athlete = db.get(Athlete, reg.athlete_id)
+    ensure_subscription_installment(db, reg)
     if athlete:
         notify_parents_of_athlete(
             db,

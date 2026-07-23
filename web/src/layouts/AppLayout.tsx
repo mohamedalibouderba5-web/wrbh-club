@@ -17,7 +17,7 @@ export function AppLayout() {
 
   const links = [
     { to: "/", label: t("dashboard"), short: lang === "ar" ? "رئيسية" : "Accueil" },
-    { to: "/athletes", label: `${t("athletes")} / اللاعبون`, short: lang === "ar" ? "لاعبون" : "Joueurs" },
+    { to: "/athletes", label: t("athletes"), short: lang === "ar" ? "لاعبون" : "Joueurs" },
     { to: "/registrations", label: t("registrations"), short: lang === "ar" ? "تسجيل" : "Inscript." },
     { to: "/agenda", label: t("agenda"), short: lang === "ar" ? "جدول" : "Agenda" },
     { to: "/finance", label: t("finance"), short: lang === "ar" ? "مالية" : "Finance" },
@@ -39,9 +39,11 @@ export function AppLayout() {
     try {
       await wakeServer();
       const h = await health();
-      setWakeMsg(`OK — ${h.time}`);
+      setWakeMsg(`OK — ${h.environment || "?"} · ${h.time}`);
+      // Notifie les pages d'actualiser après réveil
+      window.dispatchEvent(new CustomEvent("wrbh:server-awake"));
     } catch {
-      setWakeMsg("Échec");
+      setWakeMsg("Échec — réessayez");
     }
   }
 

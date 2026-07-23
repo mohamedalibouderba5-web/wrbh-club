@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 type Lang = "fr" | "ar";
 
@@ -27,8 +27,12 @@ const dict = {
     importPhoto: "Importer",
     status: "Statut",
     save: "Enregistrer",
+    cancel: "Annuler",
     categories2627: "Catégories 2026/2027 (affiche)",
     newRegistration: "Nouvelle inscription",
+    newAnnouncement: "Nouvelle annonce",
+    publish: "Publier",
+    audienceAll: "Tous",
     sessions: "Séances",
     attendance: "Présences",
     cancelSession: "Annuler la séance",
@@ -40,6 +44,20 @@ const dict = {
     parents: "Parents",
     active: "Actifs",
     left: "Partis",
+    loading: "Chargement…",
+    empty: "Aucune donnée",
+    retry: "Réessayer",
+    files: "Dossiers",
+    pendingRegs: "Inscriptions en attente",
+    overdueFees: "Retards cotisation",
+    searchName: "Rechercher nom…",
+    filter: "Filtrer",
+    allStatuses: "Tous les statuts",
+    statsGap: "Écart catégories",
+    unclassified: "Hors bandes U7–U13 (actifs)",
+    missingBirth: "Sans date de naissance",
+    financeStaffOnly: "Données finance réservées au staff.",
+    statusBreakdown: "Répartition des statuts",
   },
   ar: {
     brand: "نادي الوداد",
@@ -65,8 +83,12 @@ const dict = {
     importPhoto: "استيراد",
     status: "الحالة",
     save: "حفظ",
+    cancel: "إلغاء",
     categories2627: "فئات 2026/2027 (الملصق)",
     newRegistration: "تسجيل جديد",
+    newAnnouncement: "إعلان جديد",
+    publish: "نشر",
+    audienceAll: "الكل",
     sessions: "الحصص",
     attendance: "الحضور",
     cancelSession: "إلغاء الحصة",
@@ -78,6 +100,20 @@ const dict = {
     parents: "أولياء",
     active: "نشطون",
     left: "مغادرون",
+    loading: "جاري التحميل…",
+    empty: "لا توجد بيانات",
+    retry: "إعادة المحاولة",
+    files: "الملفات",
+    pendingRegs: "تسجيلات قيد الانتظار",
+    overdueFees: "متأخرات الاشتراك",
+    searchName: "بحث بالاسم…",
+    filter: "تصفية",
+    allStatuses: "كل الحالات",
+    statsGap: "فجوة الفئات",
+    unclassified: "خارج فئات U7–U13 (نشطون)",
+    missingBirth: "بدون تاريخ ميلاد",
+    financeStaffOnly: "البيانات المالية مخصصة للطاقم.",
+    statusBreakdown: "توزيع الحالات",
   },
 } as const;
 
@@ -92,16 +128,25 @@ type I18nCtx = {
 
 const Ctx = createContext<I18nCtx | null>(null);
 
+function applyDocumentLang(lang: Lang) {
+  document.documentElement.lang = lang === "ar" ? "ar" : "fr";
+  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+}
+
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>(() => (localStorage.getItem("wrbh_lang") as Lang) || "fr");
+
+  useEffect(() => {
+    applyDocumentLang(lang);
+  }, [lang]);
+
   const value = useMemo<I18nCtx>(
     () => ({
       lang,
       setLang: (l) => {
         localStorage.setItem("wrbh_lang", l);
         setLang(l);
-        document.documentElement.lang = l;
-        document.documentElement.dir = l === "ar" ? "rtl" : "ltr";
+        applyDocumentLang(l);
       },
       t: (key) => dict[lang][key] || dict.fr[key],
       dir: lang === "ar" ? "rtl" : "ltr",

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, loadAllSettled } from "../api/client";
 
 type Dash = {
   cotisations_due: number;
@@ -14,6 +14,8 @@ export function FinancePage() {
   const [dash, setDash] = useState<Dash | null>(null);
   const [ledger, setLedger] = useState<Ledger[]>([]);
   const [payroll, setPayroll] = useState<Payroll[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     entry_type: "expense",
     category: "transport",
@@ -25,14 +27,19 @@ export function FinancePage() {
   });
 
   async function load() {
-    const [d, l, p] = await Promise.all([
-      api<Dash>("/api/v1/dashboard"),
-      api<Ledger[]>("/api/v1/ledger"),
-      api<Payroll[]>("/api/v1/payroll").catch(() => []),
+    setLoading(true);
+    setError("");
+    const { data, errors } = await loadAllSettled<[Dash, Ledger[], Payroll[]]>([
+      () => api<Dash>("/api/v1/dashboard"),
+      () => api<Ledger[]>("/api/v1/ledger"),
+      () => api<Payroll[]>("/api/v1/payroll").catch(() => []),
     ]);
-    setDash(d);
-    setLedger(l);
-    setPayroll(p);
+    const [d, l, p] = data;
+    if (d) setDash(d);
+    if (l) setLedger(l);
+    if (p) setPayroll(p);
+    if (errors.length) setError(errors.join(" · "));
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -54,6 +61,15 @@ export function FinancePage() {
 
   return (
     <div className="grid" style={{ gap: "1rem" }}>
+      {loading && <p className="muted">Chargement…</p>}
+      {error && (
+        <p style={{ color: "#dc2626" }}>
+          {error}{" "}
+          <button type="button" onClick={() => load()}>
+            Réessayer
+          </button>
+        </p>
+      )}
       {dash && (
         <div className="grid stats">
           <div className="card stat"><strong>{dash.cotisations_paid.toLocaleString()} DZD</strong><span>Cotisations</span></div>

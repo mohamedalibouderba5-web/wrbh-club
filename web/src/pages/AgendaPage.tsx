@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, mediaUrl } from "../api/client";
+import { api, loadAllSettled, mediaUrl } from "../api/client";
 import { useI18n } from "../i18n";
 
 type EventRow = {
@@ -42,13 +42,21 @@ export function AgendaPage() {
   const [msg, setMsg] = useState("");
 
   async function load() {
-    const [e, tms] = await Promise.all([
-      api<EventRow[]>("/api/v1/events?include_cancelled=true"),
-      api<Team[]>("/api/v1/teams"),
-    ]);
-    setEvents(e);
-    setTeams(tms);
-    if (tms[0] && !form.team_id) setForm((f) => ({ ...f, team_id: tms[0].id }));
+    try {
+      const { data, errors } = await loadAllSettled<[EventRow[], Team[]]>([
+        () => api<EventRow[]>("/api/v1/events?include_cancelled=true"),
+        () => api<Team[]>("/api/v1/teams"),
+      ]);
+      const [e, tms] = data;
+      if (e) setEvents(e);
+      if (tms) {
+        setTeams(tms);
+        if (tms[0] && !form.team_id) setForm((f) => ({ ...f, team_id: tms[0].id }));
+      }
+      if (errors.length) setMsg(errors.join(" · "));
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Erreur chargement");
+    }
   }
 
   useEffect(() => {

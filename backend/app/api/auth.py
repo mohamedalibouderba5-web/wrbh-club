@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.core.roles import Role
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import Club, User
-from app.schemas import ClubOut, TokenOut, UserCreate, UserOut
+from app.schemas import ClubOut, PasswordChangeIn, TokenOut, UserCreate, UserOut
 from app.services.parents import find_user_by_phone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -38,6 +38,24 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.post("/change-password")
+def change_password(
+    payload: PasswordChangeIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(400, "Mot de passe actuel incorrect")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(400, "Le nouveau mot de passe doit être différent")
+    weak = {"admin123", "coach123", "parent123", "password", "12345678"}
+    if payload.new_password.lower() in weak:
+        raise HTTPException(400, "Mot de passe trop faible (interdit en production)")
+    user.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return {"ok": True, "message": "Mot de passe mis à jour"}
 
 
 @router.post("/users", response_model=UserOut)
@@ -90,12 +108,20 @@ _last_wake: datetime | None = None
 
 @system_router.get("/health")
 def health():
+    insecure = []
+    if settings.secret_key in {"dev-secret-change-me", "change-me", ""}:
+        insecure.append("weak_secret_key")
+    if settings.default_admin_password in {"admin123", "password", "123456"}:
+        insecure.append("default_admin_password_in_config")
+    if "*" in settings.cors_origin_list:
+        insecure.append("cors_wildcard")
     return {
         "status": "ok",
         "app": settings.app_name,
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,
+        "warnings": insecure,
     }
 
 

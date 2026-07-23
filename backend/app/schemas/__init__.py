@@ -43,6 +43,11 @@ class LoginForm(BaseModel):
     password: str
 
 
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
 class ClubOut(ORMModel):
     id: int
     name: str

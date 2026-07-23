@@ -15,6 +15,12 @@ services:
         sync: false
       - key: ENVIRONMENT
         value: production
+      - key: ALLOW_TEST_CLEANUP
+        value: "false"
+      - key: MIN_ATHLETE_AGE
+        value: "5"
+      - key: MAX_ATHLETE_AGE
+        value: "17"
       - key: PYTHONPATH
         value: /opt/render/project/src
 

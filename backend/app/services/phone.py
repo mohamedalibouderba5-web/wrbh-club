@@ -19,6 +19,18 @@ def normalize_phone(raw: str | None) -> str | None:
     return digits
 
 
+def validate_dz_mobile(raw: str | None, *, required: bool = False) -> str:
+    """Exige un mobile DZ 05/06/07 + 8 chiffres (10 au total)."""
+    if not raw or not str(raw).strip():
+        if required:
+            raise ValueError("Numéro de téléphone parent obligatoire.")
+        return ""
+    n = normalize_phone(raw)
+    if not n or len(n) != 10 or not n.startswith(("05", "06", "07")):
+        raise ValueError("Téléphone DZ invalide (ex. 05XXXXXXXX / 06XXXXXXXX / 07XXXXXXXX).")
+    return n
+
+
 def phone_lookup_variants(raw: str) -> list[str]:
     n = normalize_phone(raw)
     if not n:
