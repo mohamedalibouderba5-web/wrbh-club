@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
-import { health, wakeServer } from "../api/client";
+import { health, prefetchHotPaths, wakeServer } from "../api/client";
 import { useI18n } from "../i18n";
 import { useAppUpdate } from "../pwa";
 
@@ -17,16 +17,24 @@ export function AppLayout() {
     setMenuOpen(false);
   }, [location.pathname]);
 
-  // Garde l'API Render éveillée (évite les cold starts de 10–30 s)
+  // Garde l'API éveillée + précharge les listes critiques
   useEffect(() => {
     let cancelled = false;
     const ping = () => {
-      if (!cancelled) wakeServer().catch(() => undefined);
+      if (!cancelled) {
+        wakeServer()
+          .then(() => prefetchHotPaths())
+          .catch(() => undefined);
+      }
     };
     ping();
+    prefetchHotPaths();
     const id = window.setInterval(ping, 4 * 60 * 1000);
     const onVis = () => {
-      if (document.visibilityState === "visible") ping();
+      if (document.visibilityState === "visible") {
+        ping();
+        prefetchHotPaths();
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {

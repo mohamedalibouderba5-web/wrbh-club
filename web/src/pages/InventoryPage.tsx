@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, apiGetFast } from "../api/client";
 
 type Item = { id: number; name: string; quantity: number; alert_threshold: number; location?: string };
 
@@ -11,8 +11,8 @@ export function InventoryPage() {
 
   async function load() {
     const [i, a] = await Promise.all([
-      api<Item[]>("/api/v1/inventory/items"),
-      api<Item[]>("/api/v1/inventory/alerts").catch(() => []),
+      apiGetFast<Item[]>("/api/v1/inventory/items", { ttlMs: 45_000, onUpdate: setItems }),
+      apiGetFast<Item[]>("/api/v1/inventory/alerts", { ttlMs: 45_000, onUpdate: setAlerts }).catch(() => []),
     ]);
     setItems(i);
     setAlerts(a);

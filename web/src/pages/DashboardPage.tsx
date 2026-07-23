@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, loadAllSettled } from "../api/client";
+import { apiGetFast, invalidateApiCache } from "../api/client";
 import { useI18n } from "../i18n";
 
 type Dash = {
@@ -23,6 +23,12 @@ type ClubStats = {
   missing_birth_date?: number;
   categories: { code: string; name: string; name_ar?: string; birth_years: string; members: number }[];
   by_status: Record<string, number>;
+};
+
+type Bootstrap = {
+  stats: ClubStats;
+  events_count: number;
+  finance: Dash | null;
 };
 
 function BarChart({ items }: { items: { label: string; value: number; color?: string }[] }) {
@@ -50,26 +56,43 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    const { data, errors } = await loadAllSettled<[unknown[], Dash, ClubStats]>([
-      () => api<unknown[]>("/api/v1/events?limit=20"),
-      () => api<Dash>("/api/v1/dashboard"),
-      () => api<ClubStats>("/api/v1/stats/club"),
-    ]);
-    const [e, f, s] = data;
-    if (e) setEvents(e.length);
-    else setEvents(null);
-    setFinance(f);
-    setStats(s);
-    if (errors.length) setError(errors.join(" · "));
-    setLoading(false);
+  const apply = useCallback((b: Bootstrap) => {
+    setStats(b.stats);
+    setEvents(typeof b.events_count === "number" ? b.events_count : null);
+    setFinance(b.finance);
   }, []);
 
+  const refresh = useCallback(
+    async (force = false) => {
+      if (force) {
+        invalidateApiCache("/bootstrap");
+        setLoading(true);
+      } else if (!stats) {
+        setLoading(true);
+      }
+      setError("");
+      try {
+        const b = await apiGetFast<Bootstrap>("/api/v1/bootstrap", {
+          ttlMs: force ? 0 : 45_000,
+          onUpdate: (fresh) => {
+            apply(fresh);
+            setLoading(false);
+          },
+        });
+        apply(b);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [apply, stats],
+  );
+
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
+  }, []);
 
   const catBars =
     stats?.categories.map((c) => ({
@@ -94,7 +117,7 @@ export function DashboardPage() {
           {loading && <span className="muted">{t("loading")}</span>}
           {error && <span style={{ color: "var(--danger, #dc2626)" }}>{error}</span>}
         </div>
-        <button type="button" className="secondary" onClick={() => refresh()}>
+        <button type="button" className="secondary" onClick={() => void refresh(true)}>
           {t("retry")}
         </button>
       </div>
@@ -126,7 +149,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {(stats?.unclassified_active || stats?.missing_birth_date) ? (
+      {stats?.unclassified_active || stats?.missing_birth_date ? (
         <div className="card" style={{ borderColor: "#F5C518" }}>
           <strong>{t("statsGap")}</strong>
           <p className="muted" style={{ marginBottom: 0 }}>

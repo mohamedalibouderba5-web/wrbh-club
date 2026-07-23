@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, loadAllSettled } from "../api/client";
+import { api, apiGetFast, loadAllSettled } from "../api/client";
 
 type Dash = {
   cotisations_due: number;
@@ -30,9 +30,9 @@ export function FinancePage() {
     setLoading(true);
     setError("");
     const { data, errors } = await loadAllSettled<[Dash, Ledger[], Payroll[]]>([
-      () => api<Dash>("/api/v1/dashboard"),
-      () => api<Ledger[]>("/api/v1/ledger"),
-      () => api<Payroll[]>("/api/v1/payroll").catch(() => []),
+      () => apiGetFast<Dash>("/api/v1/dashboard", { ttlMs: 40_000 }),
+      () => apiGetFast<Ledger[]>("/api/v1/ledger", { ttlMs: 30_000 }),
+      () => apiGetFast<Payroll[]>("/api/v1/payroll", { ttlMs: 30_000 }).catch(() => []),
     ]);
     const [d, l, p] = data;
     if (d) setDash(d);

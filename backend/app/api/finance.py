@@ -28,6 +28,7 @@ from app.schemas import (
     LedgerOut,
     PaymentCreate,
 )
+from app.services.fast_cache import cache_delete_prefix, cache_get, cache_set
 
 router = APIRouter(tags=["finance"])
 
@@ -80,6 +81,8 @@ def create_payment(
     db.add(receipt)
     db.commit()
     db.refresh(payment)
+    cache_delete_prefix("finance:")
+    cache_delete_prefix("bootstrap:")
     return {
         "payment_id": payment.id,
         "receipt_number": receipt.number,
@@ -112,6 +115,8 @@ def create_ledger(
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    cache_delete_prefix("finance:")
+    cache_delete_prefix("bootstrap:")
     return entry
 
 
@@ -120,6 +125,9 @@ def finance_dashboard(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
 ):
+    cached = cache_get("finance:dashboard")
+    if cached is not None:
+        return cached
     # Moins d'allers-retours : agrégats ciblés
     due = db.query(func.coalesce(func.sum(FeeInstallment.amount - FeeInstallment.amount_paid), 0)).filter(
         FeeInstallment.status.in_(["due", "partial", "overdue"])
@@ -135,7 +143,7 @@ def finance_dashboard(
     overdue_count = (
         db.query(func.count(FeeInstallment.id)).filter(FeeInstallment.status == "overdue").scalar() or 0
     )
-    return {
+    payload = {
         "currency": "DZD",
         "cotisations_due": float(due or 0),
         "cotisations_paid": float(paid or 0),
@@ -144,6 +152,8 @@ def finance_dashboard(
         "coach_payroll_total": float(payroll or 0),
         "overdue_count": int(overdue_count),
     }
+    cache_set("finance:dashboard", payload, 40)
+    return payload
 
 
 @router.get("/payroll")
@@ -173,7 +183,13 @@ inv_router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 @inv_router.get("/items", response_model=list[InventoryItemOut])
 def list_items(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return db.query(InventoryItem).order_by(InventoryItem.name).all()
+    cached = cache_get("inventory:items")
+    if cached is not None:
+        return cached
+    rows = db.query(InventoryItem).order_by(InventoryItem.name).all()
+    out = [InventoryItemOut.model_validate(r) for r in rows]
+    cache_set("inventory:items", out, 45)
+    return out
 
 
 @inv_router.post("/items", response_model=InventoryItemOut)
@@ -187,6 +203,7 @@ def create_item(
     db.add(item)
     db.commit()
     db.refresh(item)
+    cache_delete_prefix("inventory:")
     return item
 
 
@@ -226,4 +243,5 @@ def assign_item(
     )
     db.add(asg)
     db.commit()
+    cache_delete_prefix("inventory:")
     return {"ok": True, "remaining": item.quantity}

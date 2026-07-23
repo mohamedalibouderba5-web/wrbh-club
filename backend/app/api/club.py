@@ -41,6 +41,7 @@ from app.schemas import (
 )
 from app.services.age import validate_category_for_birth, validate_club_age
 from app.services.blood import validate_blood_type
+from app.services.fast_cache import cache_delete_prefix, cache_get, cache_set
 from app.services.fees import ensure_subscription_installment
 from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
@@ -52,12 +53,28 @@ settings = get_settings()
 router = APIRouter(tags=["structure"])
 
 _STATS_CACHE: dict = {"ts": 0.0, "payload": None}
-_STATS_TTL_SEC = 20.0
+_STATS_TTL_SEC = 45.0
+
+
+def _bust_club_caches() -> None:
+    cache_delete_prefix("athletes:")
+    cache_delete_prefix("regs:")
+    cache_delete_prefix("bootstrap:")
+    cache_delete_prefix("categories:")
+    cache_delete_prefix("finance:")
+    _STATS_CACHE["payload"] = None
+    _STATS_CACHE["ts"] = 0.0
 
 
 @router.get("/seasons", response_model=list[SeasonOut])
 def list_seasons(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return db.query(Season).order_by(Season.starts_on.desc()).all()
+    cached = cache_get("seasons:all")
+    if cached is not None:
+        return cached
+    rows = db.query(Season).order_by(Season.starts_on.desc()).all()
+    out = [SeasonOut.model_validate(s) for s in rows]
+    cache_set("seasons:all", out, 120)
+    return out
 
 
 @router.get("/categories", response_model=list[CategoryOut])
@@ -66,6 +83,10 @@ def list_categories(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    key = f"categories:{season_id or 'current'}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
     q = db.query(Category)
     if season_id:
         q = q.filter(Category.season_id == season_id)
@@ -73,7 +94,42 @@ def list_categories(
         current = db.query(Season).filter(Season.is_current.is_(True)).first()
         if current:
             q = q.filter(Category.season_id == current.id)
-    return q.order_by(Category.birth_year_min).all()
+    rows = q.order_by(Category.birth_year_min).all()
+    out = [CategoryOut.model_validate(c) for c in rows]
+    cache_set(key, out, 120)
+    return out
+
+
+@router.get("/bootstrap")
+def bootstrap(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Un seul appel : saisons + catégories + stats + finance (si staff) + compte événements."""
+    key = f"bootstrap:{user.role}:{user.id}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
+    seasons = list_seasons(db, user)
+    categories = list_categories(None, db, user)
+    stats = club_stats(db, user)
+    events_count = db.query(func.count(Event.id)).filter(Event.is_cancelled.is_(False)).scalar() or 0
+    finance = None
+    if user.role in {Role.ADMIN, Role.DIRECTION, Role.STAFF}:
+        from app.api.finance import finance_dashboard
+
+        try:
+            finance = finance_dashboard(db, user)
+        except Exception:
+            finance = None
+
+    payload = {
+        "seasons": [s.model_dump() if hasattr(s, "model_dump") else s for s in seasons],
+        "categories": [c.model_dump() if hasattr(c, "model_dump") else c for c in categories],
+        "stats": stats,
+        "events_count": int(events_count),
+        "finance": finance,
+    }
+    cache_set(key, payload, 25)
+    return payload
 
 
 @router.get("/teams", response_model=list[TeamOut])
@@ -268,19 +324,48 @@ def list_athletes(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = db.query(Athlete).options(
-        load_only(
-            Athlete.id,
-            Athlete.legacy_number,
-            Athlete.full_name,
-            Athlete.full_name_ar,
-            Athlete.birth_date,
-            Athlete.birth_place,
-            Athlete.status,
-            Athlete.license_number,
-            Athlete.notes,
-            Athlete.photo_path,
-            Athlete.blood_type,
+    limit = min(limit, settings.max_page_size)
+    cache_key = f"athletes:{user.role}:{user.id}:{q}:{status}:{category_id}:{season_id}:{skip}:{limit}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    season = season_id
+    if not season:
+        current = db.query(Season).filter(Season.is_current.is_(True)).first()
+        season = current.id if current else None
+    cats = _category_map_for_season(db, season)
+
+    # Téléphones parents en une seule jointure (plus de requêtes N+1)
+    parent_phone_sq = (
+        db.query(ParentChild.athlete_id.label("aid"), func.max(User.phone).label("phone"))
+        .join(User, User.id == ParentChild.parent_id)
+        .group_by(ParentChild.athlete_id)
+        .subquery()
+    )
+    ec_phone_sq = (
+        db.query(EmergencyContact.athlete_id.label("aid"), func.max(EmergencyContact.phone).label("phone"))
+        .group_by(EmergencyContact.athlete_id)
+        .subquery()
+    )
+
+    query = (
+        db.query(Athlete, func.coalesce(parent_phone_sq.c.phone, ec_phone_sq.c.phone).label("parent_phone"))
+        .outerjoin(parent_phone_sq, parent_phone_sq.c.aid == Athlete.id)
+        .outerjoin(ec_phone_sq, ec_phone_sq.c.aid == Athlete.id)
+        .options(
+            load_only(
+                Athlete.id,
+                Athlete.legacy_number,
+                Athlete.full_name,
+                Athlete.full_name_ar,
+                Athlete.birth_date,
+                Athlete.birth_place,
+                Athlete.status,
+                Athlete.license_number,
+                Athlete.photo_path,
+                Athlete.blood_type,
+            )
         )
     )
     if user.role == Role.PARENT:
@@ -289,19 +374,10 @@ def list_athletes(
     if status:
         query = query.filter(Athlete.status == status)
     if q:
-        like = f"%{q}%"
-        query = query.filter(Athlete.full_name.ilike(like))
-
-    season = season_id
-    if not season:
-        current = db.query(Season).filter(Season.is_current.is_(True)).first()
-        season = current.id if current else None
-    cats = _category_map_for_season(db, season)
-
+        query = query.filter(Athlete.full_name.ilike(f"%{q}%"))
     if category_id:
         cat = next((c for c in cats if c.id == category_id), None) or db.get(Category, category_id)
         if cat:
-            # Filtre rapide par année de naissance (évite sous-requête inscriptions lourde)
             query = query.filter(
                 Athlete.birth_date.isnot(None),
                 extract("year", Athlete.birth_date) >= cat.birth_year_min,
@@ -310,24 +386,29 @@ def list_athletes(
         else:
             query = query.filter(Athlete.id == -1)
 
-    limit = min(limit, settings.max_page_size)
     rows = query.order_by(Athlete.full_name).offset(skip).limit(limit).all()
-    if not rows:
-        return []
-    ids = [a.id for a in rows]
-    phones = _bulk_parent_phones(db, ids)
-    out = []
-    for a in rows:
-        cid, ccode = _cat_for_birth(cats, a.birth_date)
+    out: list[AthleteOut] = []
+    for athlete, phone in rows:
+        cid, ccode = _cat_for_birth(cats, athlete.birth_date)
         out.append(
-            _to_athlete_out(
-                db,
-                a,
-                parent_phone=phones.get(a.id),
+            AthleteOut(
+                id=athlete.id,
+                legacy_number=athlete.legacy_number,
+                full_name=athlete.full_name,
+                full_name_ar=athlete.full_name_ar,
+                birth_date=athlete.birth_date,
+                birth_place=athlete.birth_place,
+                status=athlete.status,
+                license_number=athlete.license_number,
+                notes=None,
+                photo_path=athlete.photo_path,
+                blood_type=getattr(athlete, "blood_type", None),
+                parent_phone=phone,
                 category_id=cid,
                 category_code=ccode,
             )
         )
+    cache_set(cache_key, out, 30)
     return out
 
 
@@ -372,6 +453,7 @@ def create_athlete(
         )
     db.commit()
     db.refresh(athlete)
+    _bust_club_caches()
     return _to_athlete_out(db, athlete)
 
 
@@ -441,6 +523,7 @@ def update_athlete(
 
     db.commit()
     db.refresh(athlete)
+    _bust_club_caches()
     return _to_athlete_out(db, athlete)
 
 
@@ -458,6 +541,7 @@ def delete_athlete(
         db.query(model).filter(getattr(model, "athlete_id") == athlete_id).delete(synchronize_session=False)
     db.delete(athlete)
     db.commit()
+    _bust_club_caches()
     return {"deleted": athlete_id}
 
 
@@ -678,6 +762,12 @@ def list_registrations(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
 ):
+    limit = min(limit, settings.max_page_size)
+    cache_key = f"regs:{user.role}:{user.id}:{season_id}:{status}:{category_id}:{skip}:{limit}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     q = db.query(Registration)
     if season_id:
         q = q.filter(Registration.season_id == season_id)
@@ -688,9 +778,9 @@ def list_registrations(
     if user.role == Role.PARENT:
         ids = _parent_athlete_ids(db, user)
         q = q.filter(Registration.athlete_id.in_(ids or {-1}))
-    limit = min(limit, settings.max_page_size)
     rows = q.order_by(Registration.id.desc()).offset(skip).limit(limit).all()
     if not rows:
+        cache_set(cache_key, [], 25)
         return []
     athlete_ids = list({r.athlete_id for r in rows})
     cat_ids = list({r.category_id for r in rows if r.category_id})
@@ -699,7 +789,9 @@ def list_registrations(
         {c.id: c for c in db.query(Category).filter(Category.id.in_(cat_ids)).all()} if cat_ids else {}
     )
     phones = _bulk_parent_phones(db, athlete_ids)
-    return [_reg_out_from_maps(r, athletes, categories, phones) for r in rows]
+    out = [_reg_out_from_maps(r, athletes, categories, phones) for r in rows]
+    cache_set(cache_key, out, 25)
+    return out
 
 
 @reg_router.post("", response_model=RegistrationOut)
@@ -851,6 +943,7 @@ def create_registration(
 
     db.commit()
     db.refresh(reg)
+    _bust_club_caches()
     return _reg_out(db, reg, parent_meta)
 
 
@@ -891,4 +984,5 @@ def approve_registration(
         )
     db.commit()
     db.refresh(reg)
+    _bust_club_caches()
     return _reg_out(db, reg)

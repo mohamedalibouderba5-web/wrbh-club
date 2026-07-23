@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { api, formatDateFr, isDzMobile, loadAllSettled, mediaUrl } from "../api/client";
+import { api, apiGetFast, formatDateFr, isDzMobile, loadAllSettled, mediaUrl } from "../api/client";
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { useI18n } from "../i18n";
@@ -72,7 +72,15 @@ export function RegistrationsPage() {
         const params = new URLSearchParams({ limit: String(PAGE) });
         if (listCategoryId) params.set("category_id", String(listCategoryId));
         if (form.season_id) params.set("season_id", String(form.season_id));
-        const r = await api<Reg[]>(`/api/v1/registrations?${params}`);
+        const path = `/api/v1/registrations?${params}`;
+        const r = await apiGetFast<Reg[]>(path, {
+          ttlMs: 40_000,
+          onUpdate: (fresh) => {
+            setRegs(fresh);
+            setListLoading(false);
+            setLoading(false);
+          },
+        });
         setRegs(r);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur");
@@ -90,8 +98,8 @@ export function RegistrationsPage() {
     (async () => {
       setLoading(true);
       const { data, errors } = await loadAllSettled<[Season[], Category[]]>([
-        () => api<Season[]>("/api/v1/seasons"),
-        () => api<Category[]>("/api/v1/categories"),
+        () => apiGetFast<Season[]>("/api/v1/seasons", { ttlMs: 120_000 }),
+        () => apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 120_000 }),
       ]);
       if (cancelled) return;
       const [s, c] = data;

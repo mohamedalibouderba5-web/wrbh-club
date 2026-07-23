@@ -2,6 +2,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -28,12 +30,12 @@ def _ensure_schema() -> None:
             try:
                 conn.execute(text(sql))
             except Exception:
-                # SQLite older builds may lack IF NOT EXISTS for columns
                 if "ADD COLUMN" in sql and "blood_type" in sql:
                     try:
                         conn.execute(text("ALTER TABLE athletes ADD COLUMN blood_type VARCHAR(8)"))
                     except Exception:
                         pass
+
 
 if settings.sentry_dsn:
     try:
@@ -43,7 +45,13 @@ if settings.sentry_dsn:
     except Exception:
         pass
 
-app = FastAPI(title=settings.app_name, version="1.2.0", docs_url="/api/docs", redoc_url="/api/redoc")
+app = FastAPI(
+    title=settings.app_name,
+    version="1.4.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    default_response_class=ORJSONResponse,
+)
 
 # Origines web connues (prod) — toujours autorisées même si CORS_ORIGINS est mal configuré sur Render
 KNOWN_WEB_ORIGINS = (
@@ -56,9 +64,9 @@ KNOWN_WEB_ORIGINS = (
 
 cors_origins = list({*settings.cors_origin_list, *KNOWN_WEB_ORIGINS})
 if not settings.is_production:
-    # Dev : autoriser tout (y compris Expo web)
     cors_origins = list({*cors_origins, "*"})
 
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o for o in cors_origins if o != "*"] or ["*"],

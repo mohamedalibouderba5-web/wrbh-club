@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, formatDateFr, isDzMobile, mediaUrl } from "../api/client";
+import { api, apiGetFast, formatDateFr, isDzMobile, mediaUrl } from "../api/client";
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { useI18n } from "../i18n";
@@ -63,7 +63,12 @@ export function AthletesPage() {
   }, [q]);
 
   useEffect(() => {
-    api<Category[]>("/api/v1/categories").then(setCats).catch(() => setCats([]));
+    apiGetFast<Category[]>("/api/v1/categories", {
+      ttlMs: 120_000,
+      onUpdate: setCats,
+    })
+      .then(setCats)
+      .catch(() => setCats([]));
   }, []);
 
   const load = useCallback(
@@ -81,7 +86,17 @@ export function AthletesPage() {
         if (qDebounced) params.set("q", qDebounced);
         if (statusFilter) params.set("status", statusFilter);
         if (categoryId) params.set("category_id", String(categoryId));
-        const data = await api<Athlete[]>(`/api/v1/athletes?${params}`);
+        const path = `/api/v1/athletes?${params}`;
+        const data = append
+          ? await api<Athlete[]>(path)
+          : await apiGetFast<Athlete[]>(path, {
+              ttlMs: 40_000,
+              onUpdate: (fresh) => {
+                setRows(fresh);
+                setHasMore(fresh.length >= PAGE);
+                setLoading(false);
+              },
+            });
         setRows((prev) => (append ? [...prev, ...data] : data));
         setHasMore(data.length >= PAGE);
       } catch (err) {
