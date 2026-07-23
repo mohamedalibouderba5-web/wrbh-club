@@ -1,5 +1,9 @@
 ﻿.env
+.env.*
 backend/.env
+backend/.env.*
+!.env.example
+!backend/.env.example
 backend/wrbh.db
 **/__pycache__/
 **/.venv/
