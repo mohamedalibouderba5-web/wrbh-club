@@ -38,16 +38,28 @@ if settings.sentry_dsn:
 
 app = FastAPI(title=settings.app_name, version="1.2.0", docs_url="/api/docs", redoc_url="/api/redoc")
 
-cors_origins = list(settings.cors_origin_list)
+# Origines web connues (prod) — toujours autorisées même si CORS_ORIGINS est mal configuré sur Render
+KNOWN_WEB_ORIGINS = (
+    "https://wrbh-web.onrender.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+)
+
+cors_origins = list({*settings.cors_origin_list, *KNOWN_WEB_ORIGINS})
 if not settings.is_production:
+    # Dev : autoriser tout (y compris Expo web)
     cors_origins = list({*cors_origins, "*"})
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins or ["*"],
+    allow_origins=[o for o in cors_origins if o != "*"] or ["*"],
+    allow_origin_regex=r"https://.*\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 upload_dir = Path(settings.upload_dir)

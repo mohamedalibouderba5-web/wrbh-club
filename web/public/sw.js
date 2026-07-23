@@ -1,5 +1,5 @@
 /* Service worker WRBH — shell + mise à jour forcée */
-const CACHE = "wrbh-shell-v3";
+const CACHE = "wrbh-shell-v4";
 const SHELL = ["/", "/index.html", "/logo.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -25,6 +25,9 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
+
+  // Ne jamais intercepter l'API (autre origine) ni les uploads
+  if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api") || url.pathname.startsWith("/uploads")) return;
 
   event.respondWith(

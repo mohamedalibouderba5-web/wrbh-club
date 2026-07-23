@@ -53,15 +53,16 @@ export function DashboardPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
-    const { data, errors } = await loadAllSettled<[unknown[], Dash | null, ClubStats]>([
+    const { data, errors } = await loadAllSettled<[unknown[], Dash, ClubStats]>([
       () => api<unknown[]>("/api/v1/events"),
-      () => api<Dash>("/api/v1/dashboard").catch(() => null),
+      () => api<Dash>("/api/v1/dashboard"),
       () => api<ClubStats>("/api/v1/stats/club"),
     ]);
     const [e, f, s] = data;
     if (e) setEvents(e.length);
-    if (f !== undefined) setFinance(f);
-    if (s) setStats(s);
+    else setEvents(null);
+    setFinance(f);
+    setStats(s);
     if (errors.length) setError(errors.join(" · "));
     setLoading(false);
   }, []);
@@ -146,7 +147,7 @@ export function DashboardPage() {
           {financeBars.length ? (
             <BarChart items={financeBars} />
           ) : (
-            <p className="muted">{t("financeStaffOnly")}</p>
+            <p className="muted">{loading ? t("loading") : error ? error : t("financeStaffOnly")}</p>
           )}
         </div>
       </div>
