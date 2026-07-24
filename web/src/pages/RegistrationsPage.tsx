@@ -278,7 +278,7 @@ export function RegistrationsPage() {
       });
       let info = "Inscription enregistrée — التسجيل محفوظ";
       if (res.parent_created && res.parent_temp_password) {
-        info += ` · Compte parent ☎ ${res.parent_phone} / mdp: ${res.parent_temp_password}`;
+        info += ` · Compte parent créé ☎ ${res.parent_phone} — mdp temporaire (à noter, changement forcé au 1er login): ${res.parent_temp_password}`;
       } else if (res.parent_phone) {
         info += ` · Parent lié: ${res.parent_phone}`;
       }

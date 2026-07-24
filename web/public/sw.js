@@ -1,5 +1,5 @@
 /* Service worker WRBH — shell + mise à jour forcée */
-const CACHE = "wrbh-shell-v6";
+const CACHE = "wrbh-shell-v7";
 const SHELL = ["/", "/index.html", "/logo.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

@@ -4,6 +4,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
@@ -11,7 +12,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.roles import Role
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import Club, User
+from app.models import Athlete, Club, ParentChild, Registration, User
 from app.schemas import ClubOut, PasswordChangeIn, TokenOut, UserCreate, UserOut
 from app.services.parents import find_user_by_phone
 
@@ -21,16 +22,28 @@ settings = get_settings()
 _login_hits: dict[str, list[float]] = defaultdict(list)
 
 
-def _rate_limit_login(request: Request) -> None:
-    ip = request.client.host if request.client else "unknown"
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip")
+    if xff:
+        return xff.split(",")[0].strip() or "unknown"
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit_login(request: Request, username: str) -> None:
+    ip = _client_ip(request)
     now = time.time()
     window = settings.login_rate_window_seconds
     limit = settings.login_rate_limit
-    hits = [t for t in _login_hits[ip] if now - t < window]
-    if len(hits) >= limit:
-        raise HTTPException(status_code=429, detail="Trop de tentatives de connexion. Réessayez plus tard.")
-    hits.append(now)
-    _login_hits[ip] = hits
+    keys = [f"ip:{ip}", f"user:{(username or '').strip().lower()}:{ip}"]
+    for key in keys:
+        hits = [t for t in _login_hits[key] if now - t < window]
+        if len(hits) >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail="Trop de tentatives de connexion. Réessayez plus tard.",
+            )
+        hits.append(now)
+        _login_hits[key] = hits
 
 
 @router.post("/login", response_model=TokenOut)
@@ -39,7 +52,7 @@ def login(
     form: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    _rate_limit_login(request)
+    _rate_limit_login(request, form.username)
     user = db.query(User).filter(User.email == form.username).first()
     if not user:
         user = find_user_by_phone(db, form.username)
@@ -53,6 +66,7 @@ def login(
         role=user.role,
         user_id=user.id,
         full_name=user.full_name,
+        must_change_password=bool(getattr(user, "must_change_password", False)),
     )
 
 
@@ -74,7 +88,10 @@ def change_password(
     weak = {"admin123", "coach123", "parent123", "password", "12345678"}
     if payload.new_password.lower() in weak:
         raise HTTPException(400, "Mot de passe trop faible (interdit en production)")
+    if len(payload.new_password) < 8:
+        raise HTTPException(400, "Mot de passe trop court (min. 8 caractères)")
     user.password_hash = hash_password(payload.new_password)
+    user.must_change_password = False
     db.commit()
     return {"ok": True, "message": "Mot de passe mis à jour"}
 
@@ -83,8 +100,14 @@ def change_password(
 def create_user(
     payload: UserCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    actor: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
 ):
+    try:
+        role = Role(payload.role)
+    except ValueError as exc:
+        raise HTTPException(400, f"Rôle invalide: {payload.role}") from exc
+    if role == Role.ADMIN and actor.role != Role.ADMIN:
+        raise HTTPException(403, "Seul un admin peut créer un compte admin")
     if payload.email and db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(400, "Email déjà utilisé")
     if payload.phone and db.query(User).filter(User.phone == payload.phone).first():
@@ -94,9 +117,10 @@ def create_user(
         phone=payload.phone,
         full_name=payload.full_name,
         full_name_ar=payload.full_name_ar,
-        role=payload.role,
+        role=str(role),
         password_hash=hash_password(payload.password),
         locale=payload.locale,
+        must_change_password=True,
     )
     db.add(user)
     db.commit()
@@ -151,3 +175,56 @@ def wake():
     global _last_wake
     _last_wake = datetime.now(timezone.utc)
     return {"status": "awake", "woken_at": _last_wake.isoformat(), "message": "Serveur réveillé"}
+
+
+@system_router.post("/cleanup-audit")
+def cleanup_audit(
+    confirm: bool = False,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN)),
+):
+    """Purge données marquées [AUDIT] / [TEST] créées par les audits."""
+    if not confirm:
+        raise HTTPException(400, "Ajoutez ?confirm=true")
+    if settings.is_production and not settings.allow_test_cleanup:
+        raise HTTPException(403, "Activer ALLOW_TEST_CLEANUP=true pour purger en production")
+
+    markers = ("[AUDIT]", "[TEST]", "TEST-WRBH")
+    athletes = (
+        db.query(Athlete)
+        .filter(
+            or_(
+                Athlete.full_name.ilike("%[AUDIT]%"),
+                Athlete.full_name.ilike("%[TEST]%"),
+                Athlete.notes.ilike("%[AUDIT]%"),
+            )
+        )
+        .all()
+    )
+    ids = [a.id for a in athletes]
+    deleted = {"athletes": 0, "regs": 0}
+    for aid in ids:
+        deleted["regs"] += (
+            db.query(Registration).filter(Registration.athlete_id == aid).delete(synchronize_session=False)
+        )
+        db.query(ParentChild).filter(ParentChild.athlete_id == aid).delete(synchronize_session=False)
+        ath = db.get(Athlete, aid)
+        if ath:
+            db.delete(ath)
+            deleted["athletes"] += 1
+    # Annonces / libellés audit
+    from app.models import Announcement, Event, InventoryItem, LedgerEntry
+
+    for model, field in (
+        (Announcement, "title"),
+        (Event, "title"),
+        (LedgerEntry, "label"),
+        (InventoryItem, "name"),
+    ):
+        col = getattr(model, field)
+        n = 0
+        for m in markers:
+            n += db.query(model).filter(col.ilike(f"%{m}%")).delete(synchronize_session=False)
+        deleted[model.__tablename__] = n
+    db.commit()
+    return {"ok": True, "deleted": deleted, "markers": list(markers)}

@@ -614,6 +614,21 @@ html[dir="rtl"] .field { text-align: right; }
 .badge.status-syncing { background: #dbeafe; color: #1e40af; }
 .badge.status-error { background: #fee2e2; color: #b91c1c; }
 
+.pwd-gate-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(15, 23, 42, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.pwd-gate {
+  width: min(420px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+}
+
 /* Photos */
 .photo-capture { display: grid; gap: 0.5rem; }
 .photo-preview, .photo-placeholder {

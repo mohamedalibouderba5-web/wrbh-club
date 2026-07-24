@@ -58,6 +58,7 @@ class User(Base, TimestampMixin):
     role: Mapped[str] = mapped_column(String(30), index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     locale: Mapped[str] = mapped_column(String(10), default="fr")
     birth_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     birth_place: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)

@@ -6,6 +6,7 @@ import { useI18n } from "../i18n";
 import { useAppUpdate } from "../pwa";
 import { countPendingRegistrations } from "../offline/registrationQueue";
 import { startOfflineSyncListeners, syncPendingRegistrations } from "../offline/sync";
+import { ChangePasswordGate } from "../components/ChangePasswordGate";
 
 export function AppLayout() {
   const { fullName, role, logout } = useAuth();
@@ -84,17 +85,17 @@ export function AppLayout() {
   }, []);
 
   const links = [
-    { to: "/", label: t("dashboard"), short: lang === "ar" ? "رئيسية" : "Accueil" },
-    { to: "/athletes", label: t("athletes"), short: lang === "ar" ? "لاعبون" : "Joueurs" },
-    { to: "/registrations", label: t("registrations"), short: lang === "ar" ? "تسجيل" : "Inscript." },
-    { to: "/agenda", label: t("agenda"), short: lang === "ar" ? "جدول" : "Agenda" },
-    { to: "/finance", label: t("finance"), short: lang === "ar" ? "مالية" : "Finance" },
-    { to: "/inventory", label: t("inventory"), short: lang === "ar" ? "عتاد" : "Matériel" },
-    { to: "/announcements", label: t("announcements"), short: lang === "ar" ? "إعلان" : "Annonces" },
-    { to: "/download", label: t("download"), short: lang === "ar" ? "تطبيق" : "App" },
-  ];
+    { to: "/", label: t("dashboard"), short: lang === "ar" ? "رئيسية" : "Accueil", roles: null as string[] | null },
+    { to: "/athletes", label: t("athletes"), short: lang === "ar" ? "لاعبون" : "Joueurs", roles: ["admin", "direction", "staff", "coach"] },
+    { to: "/registrations", label: t("registrations"), short: lang === "ar" ? "تسجيل" : "Inscript.", roles: ["admin", "direction", "staff", "parent"] },
+    { to: "/agenda", label: t("agenda"), short: lang === "ar" ? "جدول" : "Agenda", roles: null },
+    { to: "/finance", label: t("finance"), short: lang === "ar" ? "مالية" : "Finance", roles: ["admin", "direction", "staff"] },
+    { to: "/inventory", label: t("inventory"), short: lang === "ar" ? "عتاد" : "Matériel", roles: ["admin", "direction", "staff"] },
+    { to: "/announcements", label: t("announcements"), short: lang === "ar" ? "إعلان" : "Annonces", roles: null },
+    { to: "/download", label: t("download"), short: lang === "ar" ? "تطبيق" : "App", roles: null },
+  ].filter((l) => !l.roles || (role && l.roles.includes(role)));
 
-  const bottom = [links[0], links[1], links[2], links[3], links[7]];
+  const bottom = [links[0], links[1], links[2], links[3], links[links.length - 1]].filter(Boolean);
 
   async function onWake() {
     setWakeMsg("…");
@@ -124,6 +125,7 @@ export function AppLayout() {
 
   return (
     <div className={`app-shell ${menuOpen ? "menu-open" : ""}`}>
+      <ChangePasswordGate />
       {menuOpen && <button type="button" className="drawer-backdrop" aria-label="Close" onClick={() => setMenuOpen(false)} />}
 
       <aside className="sidebar">

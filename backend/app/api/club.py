@@ -46,6 +46,7 @@ from app.services.fees import ensure_subscription_installment
 from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
 from app.services.phone import normalize_phone, validate_dz_mobile
+from app.services.media import enrich_media_path
 
 TEST_MARKER = "TEST-WRBH-BATCH"
 settings = get_settings()
@@ -284,7 +285,7 @@ def _to_athlete_out(
         status=athlete.status,
         license_number=athlete.license_number,
         notes=athlete.notes,
-        photo_path=athlete.photo_path,
+        photo_path=enrich_media_path(athlete.photo_path),
         blood_type=getattr(athlete, "blood_type", None),
         parent_phone=phone,  # type: ignore[arg-type]
         category_id=category_id,
@@ -401,7 +402,7 @@ def list_athletes(
                 status=athlete.status,
                 license_number=athlete.license_number,
                 notes=None,
-                photo_path=athlete.photo_path,
+                photo_path=enrich_media_path(athlete.photo_path),
                 blood_type=getattr(athlete, "blood_type", None),
                 parent_phone=phone,
                 category_id=cid,
@@ -702,7 +703,7 @@ def _reg_out_from_maps(
         source=reg.source,
         subscription_fee=reg.subscription_fee,
         athlete_name=athlete.full_name if athlete else None,
-        athlete_photo=athlete.photo_path if athlete else None,
+        athlete_photo=enrich_media_path(athlete.photo_path) if athlete else None,
         category_code=cat.code if cat else None,
         parent_phone=phones.get(reg.athlete_id),
         parent_temp_password=(parent_meta or {}).get("temp_password"),
@@ -724,7 +725,7 @@ def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) ->
         source=reg.source,
         subscription_fee=reg.subscription_fee,
         athlete_name=athlete.full_name if athlete else None,
-        athlete_photo=athlete.photo_path if athlete else None,
+        athlete_photo=enrich_media_path(athlete.photo_path) if athlete else None,
         category_code=cat.code if cat else None,
         parent_phone=parent_phone,
         parent_temp_password=(parent_meta or {}).get("temp_password"),
@@ -804,12 +805,23 @@ def create_registration(
     parent_meta: dict = {}
     birth = payload.athlete.birth_date if payload.athlete else None
 
+    season = db.get(Season, payload.season_id)
+    if not season:
+        raise HTTPException(400, "Saison introuvable")
+    if not season.registration_open and user.role not in {Role.ADMIN, Role.DIRECTION}:
+        raise HTTPException(403, "Inscriptions fermées pour cette saison")
+
     category_id = payload.category_id
     cat: Category | None = db.get(Category, category_id) if category_id else None
     if category_id and not cat:
         raise HTTPException(400, "Catégorie introuvable")
     if cat and cat.season_id != payload.season_id:
         raise HTTPException(400, "Catégorie hors saison sélectionnée")
+
+    # Parent : soit nouvel athlète, soit athlète déjà lié — jamais d'IDOR
+    if user.role == Role.PARENT and athlete_id and not payload.athlete:
+        if athlete_id not in _parent_athlete_ids(db, user):
+            raise HTTPException(403, "Athlète non lié à votre compte")
 
     if payload.athlete:
         try:
@@ -846,6 +858,14 @@ def create_registration(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
+    dup = (
+        db.query(Registration)
+        .filter(Registration.athlete_id == athlete_id, Registration.season_id == payload.season_id)
+        .first()
+    )
+    if dup:
+        raise HTTPException(400, "Inscription déjà existante pour cet athlète sur cette saison")
+
     if payload.photo_path:
         athlete.photo_path = payload.photo_path
 
@@ -859,8 +879,9 @@ def create_registration(
             raise HTTPException(400, str(exc)) from exc
 
     if user.role == Role.PARENT:
+        # Lien déjà créé pour nouvel athlète, ou déjà vérifié pour athlète existant
         if not db.query(ParentChild).filter_by(parent_id=user.id, athlete_id=athlete_id).first():
-            db.add(ParentChild(parent_id=user.id, athlete_id=athlete_id))
+            raise HTTPException(403, "Athlète non lié à votre compte")
     elif parent_phone:
         try:
             parent, temp_pw, created = ensure_parent_account(
@@ -872,6 +893,7 @@ def create_registration(
             parent_meta = {"temp_password": temp_pw, "created": created, "phone": parent.phone}
             if payload.parent_password and created:
                 parent.password_hash = hash_password(payload.parent_password)
+                parent.must_change_password = True
                 parent_meta["temp_password"] = payload.parent_password
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -982,6 +1004,24 @@ def approve_registration(
             f"{athlete.full_name} — saison validée.",
             kind="registration",
         )
+    db.commit()
+    db.refresh(reg)
+    _bust_club_caches()
+    return _reg_out(db, reg)
+
+
+@reg_router.post("/{reg_id}/reject", response_model=RegistrationOut)
+def reject_registration(
+    reg_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+):
+    reg = db.get(Registration, reg_id)
+    if not reg:
+        raise HTTPException(404, "Inscription introuvable")
+    if reg.status == "approved":
+        raise HTTPException(400, "Inscription déjà approuvée")
+    reg.status = "rejected"
     db.commit()
     db.refresh(reg)
     _bust_club_caches()

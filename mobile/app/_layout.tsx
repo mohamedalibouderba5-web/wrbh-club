@@ -4,16 +4,18 @@ import { ActivityIndicator, View } from "react-native";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
 
 function Guard({ children }: { children: React.ReactNode }) {
-  const { ready, token } = useAuth();
+  const { ready, token, mustChangePassword } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
     if (!ready) return;
     const onLogin = segments[0] === "login";
+    const onChange = segments[0] === "change-password";
     if (!token && !onLogin) router.replace("/login");
-    if (token && onLogin) router.replace("/(tabs)");
-  }, [ready, token, segments]);
+    else if (token && mustChangePassword && !onChange) router.replace("/change-password");
+    else if (token && !mustChangePassword && (onLogin || onChange)) router.replace("/(tabs)");
+  }, [ready, token, mustChangePassword, segments]);
 
   if (!ready) {
     return (
@@ -31,6 +33,7 @@ export default function RootLayout() {
       <Guard>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="login" />
+          <Stack.Screen name="change-password" />
           <Stack.Screen name="(tabs)" />
         </Stack>
       </Guard>

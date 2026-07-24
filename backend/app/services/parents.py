@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.roles import Role
 from app.core.security import hash_password
 from app.models import ParentChild, User
-from app.services.phone import default_parent_password, normalize_phone, phone_lookup_variants
+from app.services.phone import generate_parent_password, normalize_phone, phone_lookup_variants
 
 
 def find_user_by_phone(db: Session, phone: str) -> User | None:
@@ -43,7 +43,7 @@ def ensure_parent_account(
         if not parent.phone:
             parent.phone = normalized
     else:
-        temp_password = default_parent_password(normalized)
+        temp_password = generate_parent_password()
         parent = User(
             phone=normalized,
             email=None,
@@ -51,6 +51,7 @@ def ensure_parent_account(
             role=Role.PARENT,
             password_hash=hash_password(temp_password),
             locale="ar",
+            must_change_password=True,
         )
         db.add(parent)
         db.flush()

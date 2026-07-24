@@ -6,6 +6,7 @@ export type TokenPayload = {
   role: string;
   user_id: number;
   full_name: string;
+  must_change_password?: boolean;
 };
 
 type CacheEntry = { at: number; data: unknown };
@@ -20,8 +21,15 @@ function authHeader(): HeadersInit {
 
 export function mediaUrl(path?: string | null): string | undefined {
   if (!path) return undefined;
-  if (path.startsWith("http")) return path;
-  return `${API_BASE}${path}`;
+  let url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+  // Fallback auth pour chemins non signés (img ne peut pas envoyer Bearer)
+  if (url.includes("/media/") && !url.includes("sig=") && !url.includes("access_token=")) {
+    const token = localStorage.getItem("wrbh_token");
+    if (token) {
+      url += `${url.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token)}`;
+    }
+  }
+  return url;
 }
 
 async function parseError(res: Response): Promise<string> {

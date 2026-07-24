@@ -18,6 +18,7 @@ def _ensure_schema() -> None:
     """Add columns create_all cannot alter on existing Postgres tables."""
     stmts = [
         "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS blood_type VARCHAR(8)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false",
         "CREATE INDEX IF NOT EXISTS ix_athletes_full_name ON athletes (full_name)",
         "CREATE INDEX IF NOT EXISTS ix_athletes_status ON athletes (status)",
         "CREATE INDEX IF NOT EXISTS ix_athletes_birth_date ON athletes (birth_date)",
@@ -30,9 +31,14 @@ def _ensure_schema() -> None:
             try:
                 conn.execute(text(sql))
             except Exception:
-                if "ADD COLUMN" in sql and "blood_type" in sql:
+                if "blood_type" in sql:
                     try:
                         conn.execute(text("ALTER TABLE athletes ADD COLUMN blood_type VARCHAR(8)"))
+                    except Exception:
+                        pass
+                if "must_change_password" in sql:
+                    try:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT false"))
                     except Exception:
                         pass
 
@@ -45,15 +51,20 @@ if settings.sentry_dsn:
     except Exception:
         pass
 
+_docs = None if settings.is_production else "/api/docs"
+_redoc = None if settings.is_production else "/api/redoc"
+_openapi = None if settings.is_production else "/api/openapi.json"
+
 app = FastAPI(
     title=settings.app_name,
-    version="1.4.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    version="1.5.0",
+    docs_url=_docs,
+    redoc_url=_redoc,
+    openapi_url=_openapi,
     default_response_class=ORJSONResponse,
 )
 
-# Origines web connues (prod) — toujours autorisées même si CORS_ORIGINS est mal configuré sur Render
+# Origines web exactes (pas de regex *.onrender.com en prod)
 KNOWN_WEB_ORIGINS = (
     "https://wrbh-web.onrender.com",
     "http://localhost:5173",
@@ -67,19 +78,22 @@ if not settings.is_production:
     cors_origins = list({*cors_origins, "*"})
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[o for o in cors_origins if o != "*"] or ["*"],
-    allow_origin_regex=r"https://.*\.onrender\.com",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
+_cors_kwargs: dict = {
+    "allow_origins": [o for o in cors_origins if o != "*"] or ["*"],
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+    "expose_headers": ["*"],
+}
+if not settings.is_production:
+    _cors_kwargs["allow_origin_regex"] = r"https://.*\.onrender\.com"
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 upload_dir = Path(settings.upload_dir)
 upload_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
+# Disque local uniquement hors prod (éphémère + public sur Render)
+if not settings.is_production:
+    app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
 
 
 @app.on_event("startup")
@@ -109,11 +123,13 @@ app.include_router(uploads.router, prefix="/api/v1")
 
 @app.get("/")
 def root():
-    return {
+    payload = {
         "app": settings.app_name,
         "club": settings.club_name,
         "club_ar": settings.club_name_ar,
-        "docs": "/api/docs",
         "health": "/health",
         "wake": "POST /api/v1/system/wake",
     }
+    if not settings.is_production:
+        payload["docs"] = "/api/docs"
+    return payload

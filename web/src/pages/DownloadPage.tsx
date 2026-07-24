@@ -102,11 +102,13 @@ export function DownloadPage() {
             </button>
           )}
         </div>
-        <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
-          {ar
-            ? "للمطور: عيّن VITE_ANDROID_APK_URL و VITE_IOS_TESTFLIGHT_URL ثم ابنِ بـ eas build."
-            : "Dev : définir VITE_ANDROID_APK_URL / VITE_IOS_TESTFLIGHT_URL puis `eas build`."}
-        </p>
+        {(!APK_URL || !IOS_URL) && import.meta.env.DEV && (
+          <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
+            {ar
+              ? "للمطور: عيّن VITE_ANDROID_APK_URL و VITE_IOS_TESTFLIGHT_URL ثم ابنِ بـ eas build."
+              : "Dev : définir VITE_ANDROID_APK_URL / VITE_IOS_TESTFLIGHT_URL puis `eas build`."}
+          </p>
+        )}
       </div>
 
       <img

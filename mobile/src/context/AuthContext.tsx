@@ -7,8 +7,10 @@ type Auth = {
   token: string | null;
   role: string | null;
   fullName: string | null;
+  mustChangePassword: boolean;
   login: (u: string, p: string) => Promise<void>;
   logout: () => Promise<void>;
+  clearMustChangePassword: () => Promise<void>;
 };
 
 const Ctx = createContext<Auth | null>(null);
@@ -18,13 +20,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [t, r, n] = await AsyncStorage.multiGet(["wrbh_token", "wrbh_role", "wrbh_name"]);
+      const [t, r, n, m] = await AsyncStorage.multiGet([
+        "wrbh_token",
+        "wrbh_role",
+        "wrbh_name",
+        "wrbh_must_pwd",
+      ]);
       setToken(t[1]);
       setRole(r[1]);
       setFullName(n[1]);
+      setMustChangePassword(m[1] === "1");
       setReady(true);
     })();
   }, []);
@@ -35,20 +44,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token,
       role,
       fullName,
+      mustChangePassword,
       async login(u, p) {
         const data = await apiLogin(u, p);
         setToken(data.access_token);
         setRole(data.role);
         setFullName(data.full_name);
+        setMustChangePassword(!!data.must_change_password);
       },
       async logout() {
         await apiLogout();
         setToken(null);
         setRole(null);
         setFullName(null);
+        setMustChangePassword(false);
+      },
+      async clearMustChangePassword() {
+        await AsyncStorage.setItem("wrbh_must_pwd", "0");
+        setMustChangePassword(false);
       },
     }),
-    [ready, token, role, fullName],
+    [ready, token, role, fullName, mustChangePassword],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

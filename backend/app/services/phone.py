@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import secrets
+import string
 
 
 def normalize_phone(raw: str | None) -> str | None:
@@ -45,8 +47,15 @@ def phone_lookup_variants(raw: str) -> list[str]:
     return [v for v in variants if v]
 
 
+def generate_parent_password(length: int = 12) -> str:
+    """Mot de passe aléatoire fort (non dérivable du téléphone)."""
+    alphabet = string.ascii_letters + string.digits
+    # Évite caractères ambigus
+    alphabet = alphabet.replace("O", "").replace("0", "").replace("l", "").replace("I", "")
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
 def default_parent_password(phone: str) -> str:
-    n = normalize_phone(phone) or phone
-    digits = re.sub(r"\D+", "", n)
-    tail = digits[-6:] if len(digits) >= 6 else digits
-    return f"wrbh{tail}" if tail else "wrbh2026"
+    """Deprecated — conserve le nom pour compat imports ; génère un MDP aléatoire."""
+    _ = phone
+    return generate_parent_password()

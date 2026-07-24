@@ -39,11 +39,19 @@ export async function login(username: string, password: string) {
   await AsyncStorage.setItem("wrbh_token", data.access_token);
   await AsyncStorage.setItem("wrbh_role", data.role);
   await AsyncStorage.setItem("wrbh_name", data.full_name);
+  await AsyncStorage.setItem("wrbh_must_pwd", data.must_change_password ? "1" : "0");
   return data;
 }
 
 export async function logout() {
-  await AsyncStorage.multiRemove(["wrbh_token", "wrbh_role", "wrbh_name"]);
+  await AsyncStorage.multiRemove(["wrbh_token", "wrbh_role", "wrbh_name", "wrbh_must_pwd"]);
+}
+
+export async function changePassword(current_password: string, new_password: string) {
+  return api("/api/v1/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password, new_password }),
+  });
 }
 
 export async function wakeServer() {

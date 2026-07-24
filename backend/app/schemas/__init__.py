@@ -15,6 +15,7 @@ class TokenOut(BaseModel):
     role: str
     user_id: int
     full_name: str
+    must_change_password: bool = False
 
 
 class UserCreate(BaseModel):
@@ -23,7 +24,7 @@ class UserCreate(BaseModel):
     full_name: str
     full_name_ar: Optional[str] = None
     role: str
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=8)
     locale: str = "fr"
 
 
@@ -36,6 +37,7 @@ class UserOut(ORMModel):
     role: str
     is_active: bool
     locale: str
+    must_change_password: bool = False
 
 
 class LoginForm(BaseModel):

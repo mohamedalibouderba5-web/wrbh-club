@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "WRBH Club"
     environment: str = "development"
     secret_key: str = "dev-secret-change-me"
-    access_token_expire_minutes: int = 60 * 24 * 7
+    access_token_expire_minutes: int = 60 * 12  # 12 h
     algorithm: str = "HS256"
     database_url: str = "sqlite:///./wrbh.db"
     cors_origins: str = (
@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     max_page_size: int = 200
     allow_test_cleanup: bool = False
     sentry_dsn: str = ""
-    login_rate_limit: int = 20
-    login_rate_window_seconds: int = 60
+    login_rate_limit: int = 10
+    login_rate_window_seconds: int = 300
 
     @property
     def is_production(self) -> bool:
