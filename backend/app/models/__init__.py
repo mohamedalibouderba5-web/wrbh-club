@@ -171,6 +171,9 @@ class TeamMembership(Base, TimestampMixin):
 
 class Registration(Base, TimestampMixin):
     __tablename__ = "registrations"
+    __table_args__ = (
+        UniqueConstraint("athlete_id", "season_id", name="uq_reg_athlete_season"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)

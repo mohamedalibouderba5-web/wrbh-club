@@ -36,6 +36,7 @@ from app.schemas import (
     PaymentCreate,
     QuickPaymentCreate,
 )
+from app.services.audit import write_audit
 from app.services.fast_cache import cache_delete_prefix, cache_get, cache_set
 from app.services.fees import (
     DEFAULT_SETTINGS,
@@ -233,6 +234,14 @@ def create_payment(
             paid_on=payload.paid_on,
             user_id=user.id,
         )
+    write_audit(
+        db,
+        action="create",
+        entity="payment",
+        entity_id=payment.id,
+        user_id=user.id,
+        detail=f"athlete={payload.athlete_id} amount={payload.amount}",
+    )
     db.commit()
     db.refresh(payment)
     cache_delete_prefix("finance:")
@@ -399,6 +408,14 @@ def create_quick_payment(
             category=ledger_category,
         )
 
+    write_audit(
+        db,
+        action="create",
+        entity="payment",
+        entity_id=payment.id,
+        user_id=user.id,
+        detail=f"type={ptype} athlete={athlete.id} amount={amount}",
+    )
     db.commit()
     cache_delete_prefix("finance:")
     cache_delete_prefix("bootstrap:")

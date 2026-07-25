@@ -92,6 +92,9 @@ def change_password(
         raise HTTPException(400, "Mot de passe trop court (min. 8 caractères)")
     user.password_hash = hash_password(payload.new_password)
     user.must_change_password = False
+    from app.services.audit import write_audit
+
+    write_audit(db, action="change_password", entity="user", entity_id=user.id, user_id=user.id)
     db.commit()
     return {"ok": True, "message": "Mot de passe mis à jour"}
 
@@ -123,6 +126,17 @@ def create_user(
         must_change_password=True,
     )
     db.add(user)
+    db.flush()
+    from app.services.audit import write_audit
+
+    write_audit(
+        db,
+        action="create",
+        entity="user",
+        entity_id=user.id,
+        user_id=actor.id,
+        detail=f"role={role} name={payload.full_name}",
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -163,7 +177,7 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "1.6.1",
+        "version": "1.7.0",
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,

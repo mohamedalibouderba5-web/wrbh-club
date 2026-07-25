@@ -42,6 +42,7 @@ from app.schemas import (
 from app.services.age import validate_category_for_birth, validate_club_age
 from app.services.blood import validate_blood_type
 from app.services.fast_cache import cache_delete_prefix, cache_get, cache_set
+from app.services.audit import write_audit
 from app.services.fees import ensure_season_fee_bundle, ensure_subscription_installment
 from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
@@ -459,7 +460,7 @@ def list_athletes(
 def create_athlete(
     payload: AthleteCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
 ):
     dup = _find_duplicate_athlete(db, payload.full_name, payload.birth_date)
     if dup:
@@ -483,6 +484,14 @@ def create_athlete(
     athlete = Athlete(**data)
     db.add(athlete)
     db.flush()
+    write_audit(
+        db,
+        action="create",
+        entity="athlete",
+        entity_id=athlete.id,
+        user_id=user.id,
+        detail=athlete.full_name,
+    )
     if payload.parent_phone:
         try:
             ensure_parent_account(
@@ -571,6 +580,14 @@ def update_athlete(
         notify_parents_of_athlete(db, athlete.id, title, body, kind="status")
         notify_role(db, Role.ADMIN, title, body, kind="status")
 
+    write_audit(
+        db,
+        action="update",
+        entity="athlete",
+        entity_id=athlete.id,
+        user_id=user.id,
+        detail=f"status={athlete.status}",
+    )
     db.commit()
     db.refresh(athlete)
     _bust_club_caches()
@@ -581,7 +598,7 @@ def update_athlete(
 def delete_athlete(
     athlete_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
 ):
     athlete = db.get(Athlete, athlete_id)
     if not athlete:
@@ -589,6 +606,14 @@ def delete_athlete(
     # cascade-ish cleanup of related rows
     for model in (Attendance, Convocation, FeeInstallment, Payment, TeamMembership, ParentChild, EmergencyContact, Registration):
         db.query(model).filter(getattr(model, "athlete_id") == athlete_id).delete(synchronize_session=False)
+    write_audit(
+        db,
+        action="delete",
+        entity="athlete",
+        entity_id=athlete_id,
+        user_id=user.id,
+        detail=athlete.full_name,
+    )
     db.delete(athlete)
     db.commit()
     _bust_club_caches()
@@ -1058,6 +1083,14 @@ def create_registration(
             )
         ensure_season_fee_bundle(db, reg)
 
+    write_audit(
+        db,
+        action="create",
+        entity="registration",
+        entity_id=reg.id,
+        user_id=user.id,
+        detail=f"athlete={athlete_id} season={payload.season_id} status={reg.status}",
+    )
     db.commit()
     db.refresh(reg)
     _bust_club_caches()
@@ -1068,7 +1101,7 @@ def create_registration(
 def approve_registration(
     reg_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
 ):
     reg = db.get(Registration, reg_id)
     if not reg:
@@ -1099,6 +1132,14 @@ def approve_registration(
             f"{athlete.full_name} — saison validée.",
             kind="registration",
         )
+    write_audit(
+        db,
+        action="approve",
+        entity="registration",
+        entity_id=reg.id,
+        user_id=user.id,
+        detail=f"athlete={reg.athlete_id}",
+    )
     db.commit()
     db.refresh(reg)
     _bust_club_caches()

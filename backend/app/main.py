@@ -13,9 +13,24 @@ from app.core.database import Base, engine
 
 settings = get_settings()
 
+_WEAK_SECRETS = {"dev-secret-change-me", "change-me", "secret", ""}
+_WEAK_ADMIN_PWDS = {"admin123", "password", "123456", "coach123"}
+
+
+def _assert_production_secrets() -> None:
+    """Refuse de démarrer en production avec SECRET_KEY faible (DoD commercial)."""
+    if not settings.is_production:
+        return
+    if settings.secret_key.strip() in _WEAK_SECRETS or len(settings.secret_key) < 24:
+        raise RuntimeError(
+            "SECRET_KEY trop faible pour la production. "
+            "Définir une clé aléatoire >= 24 caractères via variable d'environnement."
+        )
+    # DEFAULT_ADMIN_PASSWORD faible → warning health (ne bloque pas le boot si le hash DB est déjà rotaté)
+
 
 def _ensure_schema() -> None:
-    """Add columns create_all cannot alter on existing Postgres tables."""
+    """Compat legacy : colonnes/index. Nouveaux changements via Alembic (voir alembic/)."""
     stmts = [
         "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS blood_type VARCHAR(8)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false",
@@ -42,7 +57,33 @@ def _ensure_schema() -> None:
                         conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT false"))
                     except Exception:
                         pass
+        # Unique athlete+season : dédoublonne puis crée l'index (idempotent)
+        try:
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM registrations a
+                    USING registrations b
+                    WHERE a.id > b.id
+                      AND a.athlete_id = b.athlete_id
+                      AND a.season_id = b.season_id
+                    """
+                )
+            )
+        except Exception:
+            pass
+        try:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_reg_athlete_season "
+                    "ON registrations (athlete_id, season_id)"
+                )
+            )
+        except Exception:
+            pass
 
+
+_assert_production_secrets()
 
 if settings.sentry_dsn:
     try:
@@ -58,7 +99,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.6.1",
+    version="1.7.0",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,
