@@ -1,67 +1,40 @@
-import { useState } from "react";
 import { useI18n } from "../i18n";
-import { useInstallPrompt } from "../pwa";
 
-const APK_URL = (import.meta.env.VITE_ANDROID_APK_URL || "").trim();
-const IOS_URL = (import.meta.env.VITE_IOS_TESTFLIGHT_URL || "").trim();
+/** APK native (GitHub Release) — surcharge possible via VITE_ANDROID_APK_URL. */
+const DEFAULT_APK_URL =
+  "https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/android-v1.0.0/wrbh-club-1.0.0.apk";
+const APK_URL = (import.meta.env.VITE_ANDROID_APK_URL || DEFAULT_APK_URL).trim();
+const APP_VERSION = "1.0.0";
 
 export function DownloadPage() {
   const { lang } = useI18n();
-  const { canInstall, installed, install } = useInstallPrompt();
-  const [msg, setMsg] = useState("");
   const ar = lang === "ar";
-
-  async function onInstall() {
-    if (installed) {
-      setMsg(ar ? "التطبيق مثبت مسبقاً على هذا الهاتف." : "L’app est déjà installée sur ce téléphone.");
-      return;
-    }
-    if (canInstall) {
-      const ok = await install();
-      setMsg(
-        ok
-          ? ar
-            ? "تم التثبيت! ابحث عن أيقونة WRBH."
-            : "Installé ! Cherchez l’icône WRBH sur l’écran."
-          : ar
-            ? "ألغيت العملية."
-            : "Installation annulée.",
-      );
-      return;
-    }
-    setMsg(
-      ar
-        ? "Android: قائمة ⋮ → « تثبيت التطبيق ». iPhone: مشاركة → « على الشاشة الرئيسية »."
-        : "Android : menu ⋮ → « Installer l’application ». iPhone : Partager → « Sur l’écran d’accueil ».",
-    );
-  }
 
   return (
     <div className="download-page">
       <div className="card download-hero">
         <img src="/logo.png" alt="WRBH" />
         <div>
-          <h2 style={{ margin: "0 0 0.25rem" }}>{ar ? "ثبّت تطبيق WRBH" : "Installer l’app WRBH"}</h2>
+          <h2 style={{ margin: "0 0 0.25rem" }}>
+            {ar ? "حمّل تطبيق WRBH للأندرويد" : "Télécharger l’app Android WRBH"}
+          </h2>
           <div className="ar">تطبيق الوداد الرياضي لبلدية حمادي</div>
+          <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+            {ar ? `الإصدار ${APP_VERSION}` : `Version ${APP_VERSION}`}
+          </p>
         </div>
       </div>
 
       <div className="card">
         <p className="download-simple">
           {ar
-            ? "الطريقة الموصى بها الآن: تثبيت سريع (PWA) بدون متجر."
-            : "Méthode recommandée aujourd’hui : installation rapide (PWA) sans store."}
+            ? "تطبيق أندرويد رسمي للنادي: أولياء، مدربون وإدارة — متصل بالخادم مباشرة."
+            : "Application Android officielle du club : parents, coachs et staff — connectée à l’API en ligne."}
         </p>
-        <button type="button" className="accent install-cta" onClick={onInstall}>
-          {installed
-            ? ar
-              ? "Déjà installée"
-              : "Déjà installée"
-            : ar
-              ? "تثبيت على هاتفي (PWA)"
-              : "Installer sur mon téléphone (PWA)"}
-        </button>
-        {msg && <p className="install-msg">{msg}</p>}
+
+        <a className="button accent install-cta" href={APK_URL} download={`wrbh-club-${APP_VERSION}.apk`}>
+          {ar ? "تحميل APK أندرويد" : "Télécharger l’APK Android"}
+        </a>
 
         <div className="download-who" style={{ marginTop: "1.25rem" }}>
           <div>
@@ -76,39 +49,34 @@ export function DownloadPage() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{ar ? "تطبيقات المتاجر" : "Apps natives (stores)"}</h3>
-        <p className="muted">
-          {ar
-            ? "APK أندرويد وTestFlight جاهزان عند توفر روابط البناء (EAS)."
-            : "Liens APK Android et TestFlight iOS dès qu’un build EAS est publié."}
-        </p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {APK_URL ? (
-            <a className="button accent" href={APK_URL} target="_blank" rel="noreferrer">
-              Android APK
-            </a>
-          ) : (
-            <button type="button" className="secondary" disabled>
-              Android APK — bientôt
-            </button>
-          )}
-          {IOS_URL ? (
-            <a className="button secondary" href={IOS_URL} target="_blank" rel="noreferrer">
-              iOS TestFlight
-            </a>
-          ) : (
-            <button type="button" className="secondary" disabled>
-              iOS TestFlight — bientôt
-            </button>
-          )}
-        </div>
-        {(!APK_URL || !IOS_URL) && import.meta.env.DEV && (
-          <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
+        <h3 style={{ marginTop: 0 }}>{ar ? "طريقة التثبيت" : "Installation"}</h3>
+        <ol className="install-steps">
+          <li>
             {ar
-              ? "للمطور: عيّن VITE_ANDROID_APK_URL و VITE_IOS_TESTFLIGHT_URL ثم ابنِ بـ eas build."
-              : "Dev : définir VITE_ANDROID_APK_URL / VITE_IOS_TESTFLIGHT_URL puis `eas build`."}
-          </p>
-        )}
+              ? "حمّل الملف WRBH (APK) من الزر أعلاه."
+              : "Téléchargez le fichier WRBH (APK) avec le bouton ci-dessus."}
+          </li>
+          <li>
+            {ar
+              ? "افتح الملف من الإشعارات أو مجلد التنزيلات."
+              : "Ouvrez le fichier depuis les notifications ou le dossier Téléchargements."}
+          </li>
+          <li>
+            {ar
+              ? "إذا طلب الهاتف: اسمح بالتثبيت من « مصادر غير معروفة » / هذا المتصفح."
+              : "Si Android le demande : autorisez l’installation depuis « sources inconnues » / ce navigateur."}
+          </li>
+          <li>
+            {ar
+              ? "ثبّت ثم افتح « WRBH Club » وسجّل الدخول (هاتف الولي أو بريد الطاقم)."
+              : "Installez, ouvrez « WRBH Club », connectez-vous (téléphone parent ou e-mail staff)."}
+          </li>
+        </ol>
+        <p className="muted" style={{ marginBottom: 0, fontSize: "0.9rem" }}>
+          {ar
+            ? "ملاحظة: التطبيق موقّع من النادي. Google Play اختياري لاحقاً."
+            : "Note : APK signée par le club. Publication Play Store optionnelle plus tard."}
+        </p>
       </div>
 
       <img

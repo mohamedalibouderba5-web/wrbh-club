@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api } from "../../src/api/client";
+import { APP_VERSION, mediaUrl } from "../../src/config";
 import { useAuth } from "../../src/context/AuthContext";
 
 type Child = {
@@ -14,14 +15,6 @@ type Child = {
   photo_path?: string;
   category_code?: string;
 };
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://wrbh-api.onrender.com";
-
-function mediaUrl(path?: string | null) {
-  if (!path) return null;
-  if (path.startsWith("http")) return path;
-  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-}
 
 export default function ProfileScreen() {
   const { fullName, role, logout } = useAuth();
@@ -73,6 +66,7 @@ export default function ProfileScreen() {
       <Pressable style={styles.logout} onPress={() => logout()}>
         <Text style={styles.logoutT}>Déconnexion</Text>
       </Pressable>
+      <Text style={styles.version}>WRBH Club · version {APP_VERSION}</Text>
     </ScrollView>
   );
 }
@@ -88,4 +82,5 @@ const styles = StyleSheet.create({
   muted: { color: "#5b6478", marginTop: 4 },
   logout: { backgroundColor: "#1E3A8A", borderRadius: 12, padding: 14, alignItems: "center", marginTop: 12 },
   logoutT: { color: "white", fontWeight: "800" },
+  version: { color: "#64748b", textAlign: "center", fontSize: 12, marginTop: 4 },
 });

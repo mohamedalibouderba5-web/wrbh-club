@@ -1,10 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Constants from "expo-constants";
-
-const API_BASE =
-  (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ||
-  process.env.EXPO_PUBLIC_API_URL ||
-  "http://127.0.0.1:8000";
+import { API_BASE } from "../config";
 
 export async function getToken() {
   return AsyncStorage.getItem("wrbh_token");

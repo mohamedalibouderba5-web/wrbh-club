@@ -18,6 +18,11 @@ _excel_scan.json
 *.log
 .expo/
 dist/
+mobile/android/
+*.apk
+!web/public/**/*.apk
+**/*.jks
+**/*.keystore
 
 *.db
 backend/mobile/
@@ -25,3 +30,5 @@ backend/scripts/test_assets/last_test_report.json
 backend/scripts/test_assets/run_log.txt
 backend/.credentials.rotated
 
+
+web/public/downloads/*.apk

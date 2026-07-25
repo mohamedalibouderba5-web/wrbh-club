@@ -1,29 +1,36 @@
 # WRBH Mobile (Expo)
 
-## Démarrage
+App Android native du club — package `dz.wrbh.club`.
+
+## Démarrage (dev)
 
 ```bash
 cd mobile
 npm install
-# Pointer vers l'API (téléphone physique = IP LAN de votre PC)
-# dans app.json extra.apiUrl ou :
-set EXPO_PUBLIC_API_URL=http://192.168.x.x:8000
+set EXPO_PUBLIC_API_URL=https://wrbh-api.onrender.com
 npx expo start
 ```
 
-## Comptes démo
+## Build APK (local, recommandé)
 
-- Parent : `parent@wrbh.local` / `parent123`
-- Coach : `coach1@wrbh.local` / `coach123`
-
-## Build APK / TestFlight
+Prérequis : JDK 17 + Android SDK. Keystore hors dépôt (`~/.wrbh-signing` + `~/.gradle/gradle.properties` avec `WRBH_RELEASE_*`).
 
 ```bash
-npm i -g eas-cli
-eas login
-eas build -p android --profile preview
-eas build -p ios --profile preview
+cd mobile
+set EXPO_PUBLIC_API_URL=https://wrbh-api.onrender.com
+npx expo prebuild --platform android
+cd android
+gradlew.bat assembleRelease
 ```
 
-Deep link scheme : `wrbh://`  
-Bouton **Actualiser / Réveiller le serveur** sur l’écran login et Accueil.
+APK : `android/app/build/outputs/apk/release/app-release.apk`
+
+## EAS (optionnel)
+
+```bash
+npx eas-cli login
+npx eas-cli init
+npx eas-cli build -p android --profile preview
+```
+
+Deep link : `wrbh://`

@@ -7,6 +7,7 @@
     "icon": "./assets/logo.png",
     "scheme": "wrbh",
     "userInterfaceStyle": "light",
+    "primaryColor": "#1E3A8A",
     "splash": {
       "image": "./assets/logo.png",
       "resizeMode": "contain",
@@ -22,22 +23,43 @@
         "backgroundColor": "#1E3A8A"
       },
       "package": "dz.wrbh.club",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.INTERNET"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [{ "scheme": "wrbh" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "wrbh"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
-    "plugins": ["expo-router", "expo-notifications"],
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#1E3A8A"
+        }
+      ],
+      "./plugins/withAndroidReleaseSigning",
+      "expo-asset"
+    ],
     "extra": {
-      "apiUrl": "https://wrbh-api.onrender.com",
-      "eas": {
-        "projectId": "replace-with-eas-project-id"
-      },
-      "_eas_setup": "Run: npx eas init  (Expo account) then paste the real projectId here and set EXPO_PUBLIC_API_URL"
+      "apiUrl": "https://wrbh-api.onrender.com"
     }
   }
 }

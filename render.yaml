@@ -34,6 +34,8 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://wrbh-api.onrender.com
+      - key: VITE_ANDROID_APK_URL
+        value: https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/android-v1.0.0/wrbh-club-1.0.0.apk
     headers:
       - path: /*
         name: Cache-Control

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api, wakeServer } from "../../src/api/client";
+import { mediaUrl } from "../../src/config";
 import { useAuth } from "../../src/context/AuthContext";
 
 type Child = {
@@ -27,14 +28,6 @@ type Home = {
   upcoming_events: { id: number; title: string; starts_at: string; event_type: string; location?: string }[];
   announcements: { id: number; title: string; title_ar?: string; body: string }[];
 };
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://wrbh-api.onrender.com";
-
-function mediaUrl(path?: string | null) {
-  if (!path) return null;
-  if (path.startsWith("http")) return path;
-  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-}
 
 export default function HomeScreen() {
   const { fullName, role } = useAuth();
