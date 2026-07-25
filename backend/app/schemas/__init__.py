@@ -245,9 +245,26 @@ class PaymentCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class QuickPaymentCreate(BaseModel):
+    """Paiement guidé : type → catégorie → joueur."""
+
+    payment_type: str  # monthly | insurance | inscription | equipment
+    athlete_id: int
+    season_id: Optional[int] = None
+    category_id: Optional[int] = None
+    year: Optional[int] = None
+    month: Optional[int] = None  # 1-12 pour mensuel
+    amount: Optional[Decimal] = None
+    method: str = "cash"
+    paid_on: Optional[date] = None
+    equipment_label: Optional[str] = None  # ex. maillot, brassards
+    notes: Optional[str] = None
+
+
 class InstallmentOut(ORMModel):
     id: int
     athlete_id: int
+    athlete_name: Optional[str] = None
     season_id: int
     label: str
     label_ar: Optional[str]
@@ -255,6 +272,31 @@ class InstallmentOut(ORMModel):
     amount: Decimal
     amount_paid: Decimal
     status: str
+
+
+class ClubFeeSettingsOut(BaseModel):
+    monthly_subscription_dzd: Decimal
+    annual_insurance_dzd: Decimal
+    inscription_fee_dzd: Decimal
+    currency: str = "DZD"
+
+
+class ClubFeeSettingsUpdate(BaseModel):
+    monthly_subscription_dzd: Optional[Decimal] = None
+    annual_insurance_dzd: Optional[Decimal] = None
+    inscription_fee_dzd: Optional[Decimal] = None
+
+
+class EquipmentPurchaseCreate(BaseModel):
+    """Achat équipement (stock club et/ou attribué à un joueur)."""
+
+    name: str
+    quantity: int = 1
+    unit_cost: Decimal = Decimal("0")
+    athlete_id: Optional[int] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    entry_date: Optional[date] = None
 
 
 class LedgerCreate(BaseModel):

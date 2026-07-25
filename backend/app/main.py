@@ -19,6 +19,7 @@ def _ensure_schema() -> None:
     stmts = [
         "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS blood_type VARCHAR(8)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false",
+        "ALTER TABLE fee_plans ADD COLUMN IF NOT EXISTS insurance_amount NUMERIC(12, 2) DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS ix_athletes_full_name ON athletes (full_name)",
         "CREATE INDEX IF NOT EXISTS ix_athletes_status ON athletes (status)",
         "CREATE INDEX IF NOT EXISTS ix_athletes_birth_date ON athletes (birth_date)",
@@ -57,7 +58,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.5.0",
+    version="1.6.0",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,

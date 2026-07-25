@@ -7,6 +7,7 @@ import { useAppUpdate } from "../pwa";
 import { countPendingRegistrations } from "../offline/registrationQueue";
 import { startOfflineSyncListeners, syncPendingRegistrations } from "../offline/sync";
 import { ChangePasswordGate } from "../components/ChangePasswordGate";
+import { Toaster } from "../components/Toast";
 
 export function AppLayout() {
   const { fullName, role, logout } = useAuth();
@@ -126,6 +127,7 @@ export function AppLayout() {
   return (
     <div className={`app-shell ${menuOpen ? "menu-open" : ""}`}>
       <ChangePasswordGate />
+      <Toaster />
       {menuOpen && <button type="button" className="drawer-backdrop" aria-label="Close" onClick={() => setMenuOpen(false)} />}
 
       <aside className="sidebar">

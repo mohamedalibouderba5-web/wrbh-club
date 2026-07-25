@@ -277,7 +277,21 @@ class FeePlan(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120))
     inscription_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     monthly_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    insurance_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     currency: Mapped[str] = mapped_column(String(10), default="DZD")
+
+
+class ClubSetting(Base, TimestampMixin):
+    """Constantes club (abonnement mensuel, assurance annuelle, etc.)."""
+
+    __tablename__ = "club_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[int] = mapped_column(ForeignKey("clubs.id"), index=True)
+    key: Mapped[str] = mapped_column(String(80), index=True)
+    value: Mapped[str] = mapped_column(String(255))
+    label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    label_ar: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
 
 
 class FeeInstallment(Base, TimestampMixin):

@@ -1,7 +1,9 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiGetFast, formatDateFr, isDzMobile, loadAllSettled, mediaUrl, uploadPhoto } from "../api/client";
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
+import { SortHeader, type SortDir } from "../components/SortHeader";
+import { toast } from "../components/Toast";
 import { useI18n } from "../i18n";
 import {
   enqueueRegistration,
@@ -56,6 +58,18 @@ export function RegistrationsPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [sortKey, setSortKey] = useState("recent");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const savingRef = useRef(false);
+
+  function onSort(key: string) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
   const [form, setForm] = useState({
     full_name: "",
     birth_date: "",
@@ -118,6 +132,8 @@ export function RegistrationsPage() {
         const params = new URLSearchParams({ limit: String(PAGE) });
         if (listCategoryId) params.set("category_id", String(listCategoryId));
         if (form.season_id) params.set("season_id", String(form.season_id));
+        params.set("sort", sortKey);
+        params.set("order", sortDir);
         const path = `/api/v1/registrations?${params}`;
         const r = await apiGetFast<Reg[]>(path, {
           ttlMs: 40_000,
@@ -137,7 +153,7 @@ export function RegistrationsPage() {
         setLoading(false);
       }
     },
-    [listCategoryId, form.season_id],
+    [listCategoryId, form.season_id, sortKey, sortDir],
   );
 
   useEffect(() => {
@@ -150,18 +166,24 @@ export function RegistrationsPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const { data, errors } = await loadAllSettled<[Season[], Category[]]>([
+      const { data, errors } = await loadAllSettled<[Season[], Category[], { inscription_fee_dzd: number }]>([
         () => apiGetFast<Season[]>("/api/v1/seasons", { ttlMs: 120_000 }),
         () => apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 120_000 }),
+        () => apiGetFast<{ inscription_fee_dzd: number }>("/api/v1/finance/settings", { ttlMs: 120_000 }).catch(() => ({
+          inscription_fee_dzd: 4000,
+        })),
       ]);
       if (cancelled) return;
-      const [s, c] = data;
+      const [s, c, fees] = data;
       if (s) {
         setSeasons(s);
         const current = s.find((x) => x.is_current) || s[0];
         if (current) setForm((f) => ({ ...f, season_id: f.season_id || current.id }));
       }
       if (c) setCats(c);
+      if (fees?.inscription_fee_dzd != null) {
+        setForm((f) => ({ ...f, subscription_fee: String(fees.inscription_fee_dzd) }));
+      }
       if (errors.length && !s && !c) setError(errors.join(" · "));
     })();
     return () => {
@@ -224,6 +246,7 @@ export function RegistrationsPage() {
     e.preventDefault();
     setMsg("");
     setError("");
+    if (savingRef.current) return; // anti double-clic pendant l'envoi
     if (!form.birth_date) {
       setError("Date de naissance obligatoire");
       return;
@@ -247,15 +270,19 @@ export function RegistrationsPage() {
       );
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     const payload = buildPayload();
+    const playerName = form.full_name;
 
     if (!online) {
       try {
         await saveOffline({ ...payload, source: "web-offline" });
+        toast("Enregistré hors ligne — synchro au retour du réseau", "info");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur stockage local");
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
       return;
@@ -276,6 +303,7 @@ export function RegistrationsPage() {
         method: "POST",
         body: JSON.stringify(body),
       });
+      toast(`✓ ${playerName || "Joueur"} inscrit avec succès`, "success");
       let info = "Inscription enregistrée — التسجيل محفوظ";
       if (res.parent_created && res.parent_temp_password) {
         info += ` · Compte parent créé ☎ ${res.parent_phone} — mdp temporaire (à noter, changement forcé au 1er login): ${res.parent_temp_password}`;
@@ -292,13 +320,18 @@ export function RegistrationsPage() {
       if (isNetworkError(err)) {
         try {
           await saveOffline({ ...payload, source: "web-offline" });
+          toast("Enregistré hors ligne — synchro au retour du réseau", "info");
         } catch (e2) {
           setError(e2 instanceof Error ? e2.message : "Erreur stockage local");
         }
       } else {
-        setError(err instanceof Error ? err.message : "Erreur");
+        const m = err instanceof Error ? err.message : "Erreur";
+        setError(m);
+        // 409 = doublon détecté côté serveur
+        toast(m, "error");
       }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -531,10 +564,11 @@ export function RegistrationsPage() {
           <thead>
             <tr>
               <th>Photo</th>
-              <th>Athlète</th>
-              <th>Cat.</th>
+              <SortHeader label="Athlète" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader label="Cat." sortKey="category" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th>Parent</th>
-              <th>{t("status")}</th>
+              <SortHeader label={t("status")} sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th></th>
             </tr>
           </thead>
@@ -557,14 +591,7 @@ export function RegistrationsPage() {
                     <span className="avatar placeholder">?</span>
                   )}
                 </td>
-                <td>
-                  {r.athlete_name || `#${r.athlete_id}`}
-                  {r.registered_on && (
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      {formatDateFr(r.registered_on)}
-                    </div>
-                  )}
-                </td>
+                <td>{r.athlete_name || `#${r.athlete_id}`}</td>
                 <td>{r.category_code || "—"}</td>
                 <td>
                   <PhoneCell phone={r.parent_phone} />
@@ -572,6 +599,7 @@ export function RegistrationsPage() {
                 <td>
                   <span className="badge">{r.status}</span>
                 </td>
+                <td>{r.registered_on ? formatDateFr(r.registered_on) : "—"}</td>
                 <td>{r.status === "pending" && <button type="button" onClick={() => approve(r.id)}>OK</button>}</td>
               </tr>
             ))}

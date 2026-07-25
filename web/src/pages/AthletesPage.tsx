@@ -1,7 +1,9 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, apiGetFast, formatDateFr, isDzMobile, mediaUrl } from "../api/client";
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
+import { SortHeader, type SortDir } from "../components/SortHeader";
+import { toast } from "../components/Toast";
 import { useI18n } from "../i18n";
 
 type Category = {
@@ -52,10 +54,37 @@ export function AthletesPage() {
     photo_path: "",
     blood_type: "",
   });
+  const [sortKey, setSortKey] = useState("recent");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [editId, setEditId] = useState<number | null>(null);
   const [editStatus, setEditStatus] = useState("Active");
   const [editNote, setEditNote] = useState("");
   const [editBlood, setEditBlood] = useState("");
+  const [editForm, setEditForm] = useState({
+    full_name: "",
+    birth_date: "",
+    birth_place: "",
+    parent_phone: "",
+    parent_name: "",
+  });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editInstallments, setEditInstallments] = useState<
+    { id: number; label: string; label_ar?: string; amount: number; amount_paid: number; status: string }[]
+  >([]);
+  const [payType, setPayType] = useState("monthly");
+  const [payAmount, setPayAmount] = useState("800");
+  const [payMonth, setPayMonth] = useState(String(new Date().getMonth() + 1));
+  const [feeDefaults, setFeeDefaults] = useState({ monthly: 800, insurance: 1500 });
+  const savingRef = useRef(false);
+
+  function onSort(key: string) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
 
   useEffect(() => {
     const id = window.setTimeout(() => setQDebounced(q.trim()), 280);
@@ -86,6 +115,8 @@ export function AthletesPage() {
         if (qDebounced) params.set("q", qDebounced);
         if (statusFilter) params.set("status", statusFilter);
         if (categoryId) params.set("category_id", String(categoryId));
+        params.set("sort", sortKey);
+        params.set("order", sortDir);
         const path = `/api/v1/athletes?${params}`;
         const data = append
           ? await api<Athlete[]>(path)
@@ -108,7 +139,7 @@ export function AthletesPage() {
         setLoadingMore(false);
       }
     },
-    [qDebounced, statusFilter, categoryId],
+    [qDebounced, statusFilter, categoryId, sortKey, sortDir],
   );
 
   useEffect(() => {
@@ -119,6 +150,7 @@ export function AthletesPage() {
     e.preventDefault();
     setMsg("");
     setError("");
+    if (savingRef.current) return; // anti double-clic
     if (!form.birth_date) {
       setError("Date de naissance obligatoire (5–17 ans)");
       return;
@@ -127,6 +159,7 @@ export function AthletesPage() {
       setError("Téléphone DZ invalide (05/06/07…)");
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       await api("/api/v1/athletes", {
@@ -141,7 +174,7 @@ export function AthletesPage() {
           parent_name: form.parent_name || null,
         }),
       });
-      setMsg("Joueur ajouté — حساب الولي مرتبط بالهاتف");
+      toast(`Joueur ajouté : ${form.full_name}`, "success");
       setForm({
         full_name: "",
         birth_date: "",
@@ -153,31 +186,106 @@ export function AthletesPage() {
       });
       load({ offset: 0 });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
+      const m = err instanceof Error ? err.message : "Erreur";
+      setError(m);
+      toast(m, "error");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
-  async function onStatusSave() {
+  function openEdit(r: Athlete) {
+    setEditId(r.id);
+    setEditStatus(r.status);
+    setEditNote(r.notes || "");
+    setEditBlood(r.blood_type || "");
+    setEditForm({
+      full_name: r.full_name || "",
+      birth_date: r.birth_date || "",
+      birth_place: r.birth_place || "",
+      parent_phone: r.parent_phone || "",
+      parent_name: "",
+    });
+    setPayType("monthly");
+    apiGetFast<{ monthly_subscription_dzd: number; annual_insurance_dzd: number }>("/api/v1/finance/settings", {
+      ttlMs: 120_000,
+    })
+      .then((s) => {
+        setFeeDefaults({ monthly: Number(s.monthly_subscription_dzd), insurance: Number(s.annual_insurance_dzd) });
+        setPayAmount(String(s.monthly_subscription_dzd));
+      })
+      .catch(() => undefined);
+    api<
+      { id: number; label: string; label_ar?: string; amount: number; amount_paid: number; status: string }[]
+    >(`/api/v1/installments?athlete_id=${r.id}&limit=50`)
+      .then(setEditInstallments)
+      .catch(() => setEditInstallments([]));
+  }
+
+  async function onQuickPayAthlete() {
     if (!editId) return;
+    try {
+      const body: Record<string, unknown> = {
+        payment_type: payType,
+        athlete_id: editId,
+        amount: Number(payAmount),
+        paid_on: new Date().toISOString().slice(0, 10),
+        method: "cash",
+      };
+      if (payType === "monthly") {
+        body.month = Number(payMonth);
+        body.year = new Date().getFullYear();
+      }
+      if (payType === "equipment") body.equipment_label = "équipement";
+      const res = await api<{ label: string; amount: number; receipt_number: string }>("/api/v1/payments/quick", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      toast(`✓ ${res.label} — ${Number(res.amount).toLocaleString()} DZD`, "success");
+      const rows = await api<
+        { id: number; label: string; label_ar?: string; amount: number; amount_paid: number; status: string }[]
+      >(`/api/v1/installments?athlete_id=${editId}&limit=50`);
+      setEditInstallments(rows);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  async function onEditSave() {
+    if (!editId || editSaving) return;
     setMsg("");
     setError("");
+    if (editForm.parent_phone && !isDzMobile(editForm.parent_phone)) {
+      setError("Téléphone DZ invalide (05/06/07…)");
+      return;
+    }
+    setEditSaving(true);
     try {
+      const body: Record<string, unknown> = {
+        full_name: editForm.full_name,
+        birth_date: editForm.birth_date || null,
+        birth_place: editForm.birth_place || null,
+        status: editStatus,
+        notes: editNote,
+        blood_type: editBlood || null,
+        confirm_status: true,
+      };
+      if (editForm.parent_phone) body.parent_phone = editForm.parent_phone;
+      if (editForm.parent_name) body.parent_name = editForm.parent_name;
       await api(`/api/v1/athletes/${editId}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          status: editStatus,
-          notes: editNote,
-          blood_type: editBlood || null,
-          confirm_status: true,
-        }),
+        body: JSON.stringify(body),
       });
       setEditId(null);
-      setMsg("Statut mis à jour + notification parents");
+      toast("Joueur mis à jour", "success");
       load({ offset: 0 });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
+      const m = err instanceof Error ? err.message : "Erreur";
+      setError(m);
+      toast(m, "error");
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -293,13 +401,13 @@ export function AthletesPage() {
           <thead>
             <tr>
               <th>Photo</th>
-              <th>#</th>
-              <th>Nom / الاسم</th>
+              <SortHeader label="#" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader label="Nom / الاسم" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th>Cat.</th>
               <th>{t("bloodType")}</th>
               <th>Parent ☎</th>
-              <th>Naissance</th>
-              <th>{t("status")}</th>
+              <SortHeader label="Naissance" sortKey="birth" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader label={t("status")} sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th></th>
             </tr>
           </thead>
@@ -339,17 +447,8 @@ export function AthletesPage() {
                   <span className="badge">{r.status}</span>
                 </td>
                 <td>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => {
-                      setEditId(r.id);
-                      setEditStatus(r.status);
-                      setEditNote(r.notes || "");
-                      setEditBlood(r.blood_type || "");
-                    }}
-                  >
-                    {t("status")}
+                  <button type="button" className="secondary" onClick={() => openEdit(r)}>
+                    {t("edit")}
                   </button>
                 </td>
               </tr>
@@ -373,8 +472,43 @@ export function AthletesPage() {
       {editId && (
         <div className="card">
           <h3 style={{ marginTop: 0 }}>
-            {t("status")} #{editId}
+            {t("edit")} #{editId}
           </h3>
+          <div className="field">
+            <label>Nom / الاسم</label>
+            <input value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>Date de naissance (jj/mm/aaaa)</label>
+            <input
+              type="date"
+              lang="fr-DZ"
+              className="ltr"
+              value={editForm.birth_date}
+              onChange={(e) => setEditForm({ ...editForm, birth_date: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label>Lieu / مكان الميلاد</label>
+            <input value={editForm.birth_place} onChange={(e) => setEditForm({ ...editForm, birth_place: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>{t("parentPhone")}</label>
+            <div className="phone-row">
+              <input
+                placeholder="05XXXXXXXX"
+                inputMode="tel"
+                className="ltr"
+                value={editForm.parent_phone}
+                onChange={(e) => setEditForm({ ...editForm, parent_phone: e.target.value })}
+              />
+              <CallButton phone={editForm.parent_phone} />
+            </div>
+          </div>
+          <div className="field">
+            <label>Nom parent / اسم الولي</label>
+            <input value={editForm.parent_name} onChange={(e) => setEditForm({ ...editForm, parent_name: e.target.value })} />
+          </div>
           <div className="field">
             <label>{t("status")}</label>
             <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
@@ -397,9 +531,80 @@ export function AthletesPage() {
             <label>Note</label>
             <textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} rows={3} />
           </div>
+
+          <div style={{ borderTop: "1px solid #e5eaf3", paddingTop: 12, marginTop: 8 }}>
+            <h4 style={{ margin: "0 0 8px" }}>Paiements / الدفعات</h4>
+            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
+              <div className="field">
+                <label>Type</label>
+                <select
+                  value={payType}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setPayType(v);
+                    setPayAmount(
+                      String(v === "insurance" ? feeDefaults.insurance : v === "monthly" ? feeDefaults.monthly : payAmount),
+                    );
+                  }}
+                >
+                  <option value="monthly">Abonnement mensuel</option>
+                  <option value="insurance">Assurance annuelle</option>
+                  <option value="inscription">Inscription</option>
+                  <option value="equipment">Équipement</option>
+                </select>
+              </div>
+              {payType === "monthly" && (
+                <div className="field">
+                  <label>Mois</label>
+                  <select value={payMonth} onChange={(e) => setPayMonth(e.target.value)}>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="field">
+                <label>Montant DZD</label>
+                <input className="ltr" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+              </div>
+            </div>
+            <button type="button" className="secondary" onClick={onQuickPayAthlete}>
+              Enregistrer paiement
+            </button>
+            {editInstallments.length > 0 && (
+              <table style={{ marginTop: 12 }}>
+                <thead>
+                  <tr>
+                    <th>Échéance</th>
+                    <th>Payé</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editInstallments.slice(0, 12).map((i) => (
+                    <tr key={i.id}>
+                      <td>
+                        {i.label}
+                        {i.label_ar ? ` · ${i.label_ar}` : ""}
+                      </td>
+                      <td>
+                        {Number(i.amount_paid).toLocaleString()} / {Number(i.amount).toLocaleString()}
+                      </td>
+                      <td>
+                        <span className="badge">{i.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={onStatusSave}>
-              {t("save")}
+            <button type="button" disabled={editSaving} onClick={onEditSave}>
+              {editSaving ? t("saving") : t("save")}
             </button>
             <button type="button" className="secondary" onClick={() => setEditId(null)}>
               {t("cancel")}

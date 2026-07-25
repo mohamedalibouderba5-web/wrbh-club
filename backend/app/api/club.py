@@ -42,7 +42,7 @@ from app.schemas import (
 from app.services.age import validate_category_for_birth, validate_club_age
 from app.services.blood import validate_blood_type
 from app.services.fast_cache import cache_delete_prefix, cache_get, cache_set
-from app.services.fees import ensure_subscription_installment
+from app.services.fees import ensure_season_fee_bundle, ensure_subscription_installment
 from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
 from app.services.phone import normalize_phone, validate_dz_mobile
@@ -251,6 +251,29 @@ def _parent_athlete_ids(db: Session, user: User) -> set[int]:
     return {r[0] for r in rows}
 
 
+def _norm_name(name: str | None) -> str:
+    if not name:
+        return ""
+    return " ".join(str(name).strip().lower().split())
+
+
+def _find_duplicate_athlete(db: Session, full_name: str | None, birth_date) -> Athlete | None:
+    """Cherche un athlète avec même nom (normalisé) et même date de naissance."""
+    norm = _norm_name(full_name)
+    if not norm or not birth_date:
+        return None
+    candidates = (
+        db.query(Athlete)
+        .filter(Athlete.birth_date == birth_date)
+        .filter(func.lower(Athlete.full_name).like(f"%{norm.split()[0]}%"))
+        .all()
+    )
+    for a in candidates:
+        if _norm_name(a.full_name) == norm:
+            return a
+    return None
+
+
 def _athlete_parent_phone(db: Session, athlete_id: int) -> str | None:
     link = db.query(ParentChild).filter(ParentChild.athlete_id == athlete_id).first()
     if not link:
@@ -320,13 +343,15 @@ def list_athletes(
     status: str | None = Query(None, alias="status"),
     category_id: int | None = None,
     season_id: int | None = None,
+    sort: str = Query("recent"),
+    order: str = Query("desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(40, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     limit = min(limit, settings.max_page_size)
-    cache_key = f"athletes:{user.role}:{user.id}:{q}:{status}:{category_id}:{season_id}:{skip}:{limit}"
+    cache_key = f"athletes:{user.role}:{user.id}:{q}:{status}:{category_id}:{season_id}:{sort}:{order}:{skip}:{limit}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
@@ -387,7 +412,24 @@ def list_athletes(
         else:
             query = query.filter(Athlete.id == -1)
 
-    rows = query.order_by(Athlete.full_name).offset(skip).limit(limit).all()
+    desc = order.lower() != "asc"
+    sort_cols = {
+        "recent": Athlete.id,
+        "name": Athlete.full_name,
+        "number": Athlete.legacy_number,
+        "birth": Athlete.birth_date,
+        "status": Athlete.status,
+    }
+    col = sort_cols.get(sort, Athlete.id)
+    order_expr = col.desc() if desc else col.asc()
+    try:
+        order_expr = order_expr.nullslast()
+    except Exception:
+        pass
+    # Tri stable secondaire par id pour éviter les doublons de pagination
+    query = query.order_by(order_expr, Athlete.id.desc())
+
+    rows = query.offset(skip).limit(limit).all()
     out: list[AthleteOut] = []
     for athlete, phone in rows:
         cid, ccode = _cat_for_birth(cats, athlete.birth_date)
@@ -419,6 +461,13 @@ def create_athlete(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
 ):
+    dup = _find_duplicate_athlete(db, payload.full_name, payload.birth_date)
+    if dup:
+        raise HTTPException(
+            409,
+            f"Joueur déjà existant : {dup.full_name} (même nom et date de naissance). "
+            f"Doublon évité.",
+        )
     try:
         validate_club_age(payload.birth_date, required=True)
         if payload.parent_phone:
@@ -758,13 +807,15 @@ def list_registrations(
     season_id: int | None = None,
     status: str | None = None,
     category_id: int | None = None,
+    sort: str = Query("recent"),
+    order: str = Query("desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
 ):
     limit = min(limit, settings.max_page_size)
-    cache_key = f"regs:{user.role}:{user.id}:{season_id}:{status}:{category_id}:{skip}:{limit}"
+    cache_key = f"regs:{user.role}:{user.id}:{season_id}:{status}:{category_id}:{sort}:{order}:{skip}:{limit}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
@@ -779,7 +830,26 @@ def list_registrations(
     if user.role == Role.PARENT:
         ids = _parent_athlete_ids(db, user)
         q = q.filter(Registration.athlete_id.in_(ids or {-1}))
-    rows = q.order_by(Registration.id.desc()).offset(skip).limit(limit).all()
+
+    desc = order.lower() != "asc"
+    if sort == "name":
+        q = q.outerjoin(Athlete, Athlete.id == Registration.athlete_id)
+        name_col = Athlete.full_name
+        order_expr = name_col.desc() if desc else name_col.asc()
+    else:
+        sort_cols = {
+            "recent": Registration.id,
+            "date": Registration.registered_on,
+            "status": Registration.status,
+            "category": Registration.category_id,
+        }
+        col = sort_cols.get(sort, Registration.id)
+        order_expr = col.desc() if desc else col.asc()
+    try:
+        order_expr = order_expr.nullslast()
+    except Exception:
+        pass
+    rows = q.order_by(order_expr, Registration.id.desc()).offset(skip).limit(limit).all()
     if not rows:
         cache_set(cache_key, [], 25)
         return []
@@ -831,18 +901,43 @@ def create_registration(
                 payload.athlete.blood_type = validate_blood_type(payload.athlete.blood_type)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        athlete_data = payload.athlete.model_dump(exclude={"parent_phone", "parent_name"})
-        if payload.photo_path:
-            athlete_data["photo_path"] = payload.photo_path
-        if "blood_type" in athlete_data:
-            athlete_data["blood_type"] = validate_blood_type(athlete_data.get("blood_type"))
-        athlete = Athlete(**athlete_data)
-        db.add(athlete)
-        db.flush()
-        athlete_id = athlete.id
-        birth = athlete.birth_date
-        if user.role == Role.PARENT:
-            db.add(ParentChild(parent_id=user.id, athlete_id=athlete.id))
+        # Anti-doublon : même nom + date de naissance déjà en base
+        existing_dup = _find_duplicate_athlete(db, payload.athlete.full_name, payload.athlete.birth_date)
+        if existing_dup:
+            dup_reg = (
+                db.query(Registration)
+                .filter(
+                    Registration.athlete_id == existing_dup.id,
+                    Registration.season_id == payload.season_id,
+                )
+                .first()
+            )
+            if dup_reg:
+                raise HTTPException(
+                    409,
+                    f"Joueur déjà inscrit cette saison : {existing_dup.full_name} "
+                    f"(même nom et date de naissance). Inscription annulée pour éviter un doublon.",
+                )
+            # Athlète connu mais pas encore inscrit cette saison → on réutilise
+            athlete_id = existing_dup.id
+            birth = existing_dup.birth_date
+            if user.role == Role.PARENT and not db.query(ParentChild).filter_by(
+                parent_id=user.id, athlete_id=existing_dup.id
+            ).first():
+                db.add(ParentChild(parent_id=user.id, athlete_id=existing_dup.id))
+        else:
+            athlete_data = payload.athlete.model_dump(exclude={"parent_phone", "parent_name"})
+            if payload.photo_path:
+                athlete_data["photo_path"] = payload.photo_path
+            if "blood_type" in athlete_data:
+                athlete_data["blood_type"] = validate_blood_type(athlete_data.get("blood_type"))
+            athlete = Athlete(**athlete_data)
+            db.add(athlete)
+            db.flush()
+            athlete_id = athlete.id
+            birth = athlete.birth_date
+            if user.role == Role.PARENT:
+                db.add(ParentChild(parent_id=user.id, athlete_id=athlete.id))
     if not athlete_id:
         raise HTTPException(400, "Athlète requis")
 
@@ -961,7 +1056,7 @@ def create_registration(
                     season_id=payload.season_id,
                 )
             )
-        ensure_subscription_installment(db, reg)
+        ensure_season_fee_bundle(db, reg)
 
     db.commit()
     db.refresh(reg)
@@ -995,7 +1090,7 @@ def approve_registration(
             db.add(
                 TeamMembership(team_id=team.id, athlete_id=reg.athlete_id, season_id=reg.season_id)
             )
-    ensure_subscription_installment(db, reg)
+    ensure_season_fee_bundle(db, reg)
     if athlete:
         notify_parents_of_athlete(
             db,
