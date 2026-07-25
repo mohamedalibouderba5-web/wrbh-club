@@ -29,8 +29,39 @@ def _assert_production_secrets() -> None:
     # DEFAULT_ADMIN_PASSWORD faible → warning health (ne bloque pas le boot si le hash DB est déjà rotaté)
 
 
+# Tables métier recevant club_id (doit refléter alembic 003)
+_TENANT_TABLES = [
+    "users",
+    "categories",
+    "teams",
+    "team_coaches",
+    "athletes",
+    "parent_children",
+    "emergency_contacts",
+    "team_memberships",
+    "registrations",
+    "attachments",
+    "event_exceptions",
+    "convocations",
+    "attendances",
+    "fee_plans",
+    "fee_installments",
+    "payments",
+    "receipts",
+    "coach_payrolls",
+    "message_threads",
+    "messages",
+    "notifications",
+    "push_tokens",
+    "inventory_assignments",
+    "audit_logs",
+    "media_objects",
+]
+
+
 def _ensure_schema() -> None:
-    """Compat legacy : colonnes/index. Nouveaux changements via Alembic (voir alembic/)."""
+    """Compat legacy + tenant : colonnes/index idempotents (Render ne lance pas Alembic
+    au déploiement). Alembic reste la source de vérité pour une base neuve."""
     stmts = [
         "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS blood_type VARCHAR(8)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false",
@@ -41,7 +72,24 @@ def _ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS ix_parent_children_athlete ON parent_children (athlete_id)",
         "CREATE INDEX IF NOT EXISTS ix_registrations_athlete_season ON registrations (athlete_id, season_id)",
         "CREATE INDEX IF NOT EXISTS ix_emergency_contacts_athlete ON emergency_contacts (athlete_id)",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS substitute_coach_id INTEGER",
+        # --- Multi-tenant (alembic 003) : champs Club ---
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS slug VARCHAR(60)",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS favicon_path VARCHAR(255)",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS app_name VARCHAR(120)",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS locale_default VARCHAR(10) DEFAULT 'fr'",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS timezone VARCHAR(60) DEFAULT 'Africa/Algiers'",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'DZD'",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS sport VARCHAR(40) DEFAULT 'football'",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'club'",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS trial_ends_on DATE",
+        "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS is_platform BOOLEAN DEFAULT false",
     ]
+    # club_id sur chaque table métier + index
+    for _t in _TENANT_TABLES:
+        stmts.append(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS club_id INTEGER")
+        stmts.append(f"CREATE INDEX IF NOT EXISTS ix_{_t}_club_id ON {_t} (club_id)")
     with engine.begin() as conn:
         for sql in stmts:
             try:
@@ -81,6 +129,41 @@ def _ensure_schema() -> None:
             )
         except Exception:
             pass
+        # --- Tenant backfill : rattacher tout l'existant au club le plus ancien (WRBH=1) ---
+        try:
+            conn.execute(
+                text(
+                    """
+                    UPDATE clubs
+                    SET slug = COALESCE(slug, 'wrbh'),
+                        status = COALESCE(status, 'active'),
+                        plan = COALESCE(plan, 'club'),
+                        locale_default = COALESCE(locale_default, 'fr'),
+                        currency = COALESCE(currency, 'DZD'),
+                        timezone = COALESCE(timezone, 'Africa/Algiers'),
+                        sport = COALESCE(sport, 'football')
+                    WHERE id = (SELECT MIN(id) FROM clubs)
+                    """
+                )
+            )
+        except Exception:
+            pass
+        for _t in _TENANT_TABLES:
+            try:
+                conn.execute(
+                    text(
+                        f"UPDATE {_t} SET club_id = (SELECT MIN(id) FROM clubs) "
+                        f"WHERE club_id IS NULL"
+                    )
+                )
+            except Exception:
+                pass
+        try:
+            conn.execute(
+                text("CREATE UNIQUE INDEX IF NOT EXISTS uq_clubs_slug ON clubs (slug)")
+            )
+        except Exception:
+            pass
 
 
 _assert_production_secrets()
@@ -99,7 +182,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.7.0",
+    version="1.9.0",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,

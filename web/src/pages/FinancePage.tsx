@@ -20,6 +20,8 @@ type Ledger = {
   amount: number;
   entry_date: string;
   place?: string;
+  counterparty?: string;
+  notes?: string;
 };
 type Payroll = { id: number; user_id: number; label: string; amount: number; pay_type: string; status: string };
 type FeeSettings = {
@@ -36,6 +38,7 @@ type PaymentRow = {
   amount: number;
   paid_on?: string;
   method: string;
+  notes?: string;
 };
 type Installment = {
   id: number;
@@ -109,6 +112,8 @@ export function FinancePage() {
     place: "",
     counterparty: "",
   });
+  const [editLedger, setEditLedger] = useState<Ledger | null>(null);
+  const [editPay, setEditPay] = useState<PaymentRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -271,6 +276,62 @@ export function FinancePage() {
       });
       setForm((f) => ({ ...f, label: "", amount: "", place: "", counterparty: "" }));
       toast("Écriture caisse enregistrée", "success");
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  async function saveLedgerEdit() {
+    if (!editLedger) return;
+    try {
+      await api(`/api/v1/ledger/${editLedger.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          entry_type: editLedger.entry_type,
+          category: editLedger.category,
+          label: editLedger.label,
+          amount: Number(editLedger.amount),
+          entry_date: editLedger.entry_date,
+          place: editLedger.place || null,
+          counterparty: editLedger.counterparty || null,
+        }),
+      });
+      toast("Ligne caisse modifiée", "success");
+      setEditLedger(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  async function deleteLedger(id: number) {
+    if (!canEditSettings) return;
+    if (!window.confirm("Supprimer cette ligne de caisse ?")) return;
+    try {
+      await api(`/api/v1/ledger/${id}`, { method: "DELETE" });
+      toast("Ligne supprimée", "success");
+      setEditLedger(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  async function savePaymentEdit() {
+    if (!editPay) return;
+    try {
+      await api(`/api/v1/payments/${editPay.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          amount: Number(editPay.amount),
+          method: editPay.method,
+          paid_on: editPay.paid_on,
+          notes: editPay.notes || null,
+        }),
+      });
+      toast("Paiement modifié", "success");
+      setEditPay(null);
       load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erreur", "error");
@@ -548,12 +609,52 @@ export function FinancePage() {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Derniers paiements joueurs</h3>
+          {editPay && (
+            <div style={{ marginBottom: "0.75rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: 8 }}>
+              <strong>Modifier — {editPay.athlete_name || `#${editPay.athlete_id}`}</strong>
+              <div className="field">
+                <label>Montant</label>
+                <input
+                  className="ltr"
+                  value={editPay.amount}
+                  onChange={(e) => setEditPay({ ...editPay, amount: Number(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="field">
+                <label>Date</label>
+                <input
+                  type="date"
+                  className="ltr"
+                  value={editPay.paid_on || ""}
+                  onChange={(e) => setEditPay({ ...editPay, paid_on: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Méthode</label>
+                <select value={editPay.method} onChange={(e) => setEditPay({ ...editPay, method: e.target.value })}>
+                  <option value="cash">Espèces</option>
+                  <option value="transfer">Virement</option>
+                  <option value="check">Chèque</option>
+                  <option value="other">Autre</option>
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button type="button" className="accent" onClick={savePaymentEdit}>
+                  Enregistrer
+                </button>
+                <button type="button" onClick={() => setEditPay(null)}>
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
           <table>
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Joueur</th>
                 <th>Montant</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -562,11 +663,16 @@ export function FinancePage() {
                   <td>{r.paid_on || "—"}</td>
                   <td>{r.athlete_name || `#${r.athlete_id}`}</td>
                   <td>{Number(r.amount).toLocaleString()} DZD</td>
+                  <td>
+                    <button type="button" onClick={() => setEditPay({ ...r })}>
+                      Modifier
+                    </button>
+                  </td>
                 </tr>
               ))}
               {!recent.length && (
                 <tr>
-                  <td colSpan={3} className="muted">
+                  <td colSpan={4} className="muted">
                     Aucun paiement
                   </td>
                 </tr>
@@ -609,12 +715,87 @@ export function FinancePage() {
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Journal de caisse</h3>
+        {editLedger && (
+          <div style={{ marginBottom: "0.75rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: 8 }}>
+            <strong>Modifier la ligne</strong>
+            <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+              <div className="field">
+                <label>Type</label>
+                <select
+                  value={editLedger.entry_type}
+                  onChange={(e) => setEditLedger({ ...editLedger, entry_type: e.target.value })}
+                >
+                  <option value="expense">Dépense</option>
+                  <option value="income">Recette</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Catégorie</label>
+                <select
+                  value={editLedger.category}
+                  onChange={(e) => setEditLedger({ ...editLedger, category: e.target.value })}
+                >
+                  <option value="subscription">Abonnement</option>
+                  <option value="insurance">Assurance</option>
+                  <option value="equipment">Matériel</option>
+                  <option value="transport">Transport</option>
+                  <option value="salary">Salaire</option>
+                  <option value="other">Autre</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Libellé</label>
+                <input
+                  value={editLedger.label}
+                  onChange={(e) => setEditLedger({ ...editLedger, label: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Montant</label>
+                <input
+                  className="ltr"
+                  value={editLedger.amount}
+                  onChange={(e) => setEditLedger({ ...editLedger, amount: Number(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="field">
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={editLedger.entry_date}
+                  onChange={(e) => setEditLedger({ ...editLedger, entry_date: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Lieu</label>
+                <input
+                  value={editLedger.place || ""}
+                  onChange={(e) => setEditLedger({ ...editLedger, place: e.target.value })}
+                />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <button type="button" className="accent" onClick={saveLedgerEdit}>
+                Enregistrer
+              </button>
+              <button type="button" onClick={() => setEditLedger(null)}>
+                Annuler
+              </button>
+              {canEditSettings && (
+                <button type="button" className="danger" onClick={() => deleteLedger(editLedger.id)}>
+                  Supprimer
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <table>
           <thead>
             <tr>
               <th>Date</th>
               <th>Libellé</th>
               <th>Montant</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -626,6 +807,11 @@ export function FinancePage() {
                 </td>
                 <td>
                   {Number(r.amount).toLocaleString()} ({r.entry_type})
+                </td>
+                <td>
+                  <button type="button" onClick={() => setEditLedger({ ...r })}>
+                    Modifier
+                  </button>
                 </td>
               </tr>
             ))}

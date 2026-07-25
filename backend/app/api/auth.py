@@ -60,12 +60,15 @@ def login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Identifiants incorrects")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Compte désactivé")
-    token = create_access_token(user.id, {"role": user.role})
+    token = create_access_token(
+        user.id, {"role": user.role, "club_id": getattr(user, "club_id", None)}
+    )
     return TokenOut(
         access_token=token,
         role=user.role,
         user_id=user.id,
         full_name=user.full_name,
+        club_id=getattr(user, "club_id", None),
         must_change_password=bool(getattr(user, "must_change_password", False)),
     )
 
@@ -111,11 +114,14 @@ def create_user(
         raise HTTPException(400, f"Rôle invalide: {payload.role}") from exc
     if role == Role.ADMIN and actor.role != Role.ADMIN:
         raise HTTPException(403, "Seul un admin peut créer un compte admin")
+    if role == Role.SUPERADMIN:
+        raise HTTPException(403, "Le super-admin ne se crée pas depuis un club")
     if payload.email and db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(400, "Email déjà utilisé")
     if payload.phone and db.query(User).filter(User.phone == payload.phone).first():
         raise HTTPException(400, "Téléphone déjà utilisé")
     user = User(
+        club_id=getattr(actor, "club_id", None),
         email=payload.email,
         phone=payload.phone,
         full_name=payload.full_name,
@@ -145,17 +151,29 @@ def create_user(
 @router.get("/users", response_model=list[UserOut])
 def list_users(
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    actor: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
 ):
-    return db.query(User).order_by(User.full_name).all()
+    q = db.query(User)
+    club_id = getattr(actor, "club_id", None)
+    if club_id:
+        q = q.filter(or_(User.club_id == club_id, User.club_id.is_(None)))
+    return q.order_by(User.full_name).all()
 
 
 club_router = APIRouter(prefix="/club", tags=["club"])
 
 
 @club_router.get("/branding", response_model=ClubOut)
-def branding(db: Session = Depends(get_db)):
-    club = db.query(Club).first()
+def branding(slug: str | None = None, db: Session = Depends(get_db)):
+    """Branding public. Phase 1 multi-club : sélection par slug à la connexion.
+    Sans slug → premier club (compat mono-club WRBH)."""
+    club = None
+    if slug:
+        club = db.query(Club).filter(Club.slug == slug.strip().lower()).first()
+        if not club:
+            raise HTTPException(404, "Club introuvable")
+    else:
+        club = db.query(Club).order_by(Club.id).first()
     if not club:
         raise HTTPException(404, "Club non configuré")
     return club
@@ -177,7 +195,7 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "1.7.0",
+        "version": "1.9.0",
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,

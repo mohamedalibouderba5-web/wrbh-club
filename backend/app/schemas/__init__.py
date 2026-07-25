@@ -15,6 +15,7 @@ class TokenOut(BaseModel):
     role: str
     user_id: int
     full_name: str
+    club_id: Optional[int] = None
     must_change_password: bool = False
 
 
@@ -30,6 +31,7 @@ class UserCreate(BaseModel):
 
 class UserOut(ORMModel):
     id: int
+    club_id: Optional[int] = None
     email: Optional[str]
     phone: Optional[str]
     full_name: str
@@ -52,6 +54,7 @@ class PasswordChangeIn(BaseModel):
 
 class ClubOut(ORMModel):
     id: int
+    slug: Optional[str] = None
     name: str
     name_ar: Optional[str]
     acronym: str
@@ -59,10 +62,17 @@ class ClubOut(ORMModel):
     whatsapp: Optional[str]
     address: Optional[str]
     logo_path: Optional[str]
+    favicon_path: Optional[str] = None
     primary_color: str
     accent_color: str
     facebook: Optional[str]
     instagram: Optional[str]
+    app_name: Optional[str] = None
+    locale_default: Optional[str] = None
+    currency: Optional[str] = None
+    sport: Optional[str] = None
+    status: Optional[str] = None
+    plan: Optional[str] = None
 
 
 class SeasonOut(ORMModel):
@@ -91,6 +101,37 @@ class TeamOut(ORMModel):
     name: str
     name_ar: Optional[str]
     code: Optional[str]
+
+
+class TeamCoachOut(BaseModel):
+    id: int
+    team_id: int
+    user_id: int
+    role_label: str
+    coach_name: Optional[str] = None
+    coach_phone: Optional[str] = None
+
+
+class TeamCoachMemberIn(BaseModel):
+    user_id: int
+    role_label: str = "coach"  # primary | coach | assistant
+    is_primary: bool = False
+
+
+class TeamCoachAssignIn(BaseModel):
+    """Remplace la liste des coachs d'une équipe."""
+
+    coaches: list[TeamCoachMemberIn]
+
+
+class TeamWithCoachesOut(BaseModel):
+    id: int
+    category_id: int
+    name: str
+    name_ar: Optional[str] = None
+    code: Optional[str] = None
+    category_code: Optional[str] = None
+    coaches: list[TeamCoachOut] = []
 
 
 class AthleteCreate(BaseModel):
@@ -187,6 +228,27 @@ class EventCreate(BaseModel):
     opponent: Optional[str] = None
     home_away: Optional[str] = None
     coach_id: Optional[int] = None
+    substitute_coach_id: Optional[int] = None
+
+
+class EventUpdate(BaseModel):
+    season_id: Optional[int] = None
+    team_id: Optional[int] = None
+    venue_id: Optional[int] = None
+    event_type: Optional[str] = None
+    title: Optional[str] = None
+    title_ar: Optional[str] = None
+    description: Optional[str] = None
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    recurrence_rule: Optional[str] = None
+    opponent: Optional[str] = None
+    home_away: Optional[str] = None
+    coach_id: Optional[int] = None
+    substitute_coach_id: Optional[int] = None
+    score_home: Optional[int] = None
+    score_away: Optional[int] = None
+    clear_substitute: bool = False
 
 
 class EventOut(ORMModel):
@@ -206,6 +268,9 @@ class EventOut(ORMModel):
     is_cancelled: bool
     recurrence_rule: Optional[str]
     coach_id: Optional[int] = None
+    substitute_coach_id: Optional[int] = None
+    coach_name: Optional[str] = None
+    substitute_coach_name: Optional[str] = None
 
 
 class EventCancelIn(BaseModel):
@@ -241,6 +306,14 @@ class PaymentCreate(BaseModel):
     amount: Decimal
     method: str = "cash"
     paid_on: date
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class PaymentUpdate(BaseModel):
+    amount: Optional[Decimal] = None
+    method: Optional[str] = None
+    paid_on: Optional[date] = None
     reference: Optional[str] = None
     notes: Optional[str] = None
 
@@ -311,6 +384,17 @@ class LedgerCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class LedgerUpdate(BaseModel):
+    entry_type: Optional[str] = None
+    category: Optional[str] = None
+    label: Optional[str] = None
+    amount: Optional[Decimal] = None
+    entry_date: Optional[date] = None
+    counterparty: Optional[str] = None
+    place: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class LedgerOut(ORMModel):
     id: int
     entry_type: str
@@ -320,6 +404,7 @@ class LedgerOut(ORMModel):
     entry_date: date
     counterparty: Optional[str]
     place: Optional[str]
+    notes: Optional[str] = None
 
 
 class AnnouncementCreate(BaseModel):
@@ -351,6 +436,15 @@ class InventoryItemCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class InventoryItemUpdate(BaseModel):
+    name: Optional[str] = None
+    sku: Optional[str] = None
+    quantity: Optional[int] = None
+    alert_threshold: Optional[int] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class InventoryItemOut(ORMModel):
     id: int
     name: str
@@ -358,6 +452,15 @@ class InventoryItemOut(ORMModel):
     quantity: int
     alert_threshold: int
     location: Optional[str]
+    notes: Optional[str] = None
+
+
+class InventoryAssignmentUpdate(BaseModel):
+    quantity: Optional[int] = None
+    athlete_id: Optional[int] = None
+    status: Optional[str] = None  # out / returned / lost
+    returned_on: Optional[date] = None
+    assigned_on: Optional[date] = None
 
 
 class PushTokenIn(BaseModel):

@@ -29,6 +29,7 @@ def db_session():
     session.add(club)
     session.flush()
     admin = User(
+        club_id=club.id,
         email="admin@test.local",
         full_name="Admin",
         role="admin",
@@ -36,6 +37,7 @@ def db_session():
         must_change_password=False,
     )
     parent = User(
+        club_id=club.id,
         email=None,
         phone="0555123456",
         full_name="Parent Test",

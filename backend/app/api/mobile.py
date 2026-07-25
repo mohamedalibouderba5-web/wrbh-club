@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -70,7 +71,10 @@ def _parent_children(db: Session, parent_id: int) -> list[MobileChildOut]:
 
 @router.get("/home", response_model=MobileHomeOut)
 def mobile_home(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    club = db.query(Club).first()
+    club_id = getattr(user, "club_id", None)
+    club = (
+        db.get(Club, club_id) if club_id else db.query(Club).order_by(Club.id).first()
+    )
     now = datetime.now(timezone.utc)
     # Planning du mois (~35 jours) pour les parents
     soon = now + timedelta(days=35)
@@ -132,26 +136,24 @@ def mobile_home(db: Session = Depends(get_db), user: User = Depends(get_current_
             .all()
         )
     else:
-        events = (
-            db.query(Event)
-            .filter(Event.starts_at >= now, Event.starts_at <= soon, Event.is_cancelled.is_(False))
-            .order_by(Event.starts_at)
-            .limit(40)
-            .all()
+        eq = db.query(Event).filter(
+            Event.starts_at >= now, Event.starts_at <= soon, Event.is_cancelled.is_(False)
         )
+        if club_id:
+            eq = eq.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
+        events = eq.order_by(Event.starts_at).limit(40).all()
 
     audience = ["all"]
     if user.role == Role.PARENT:
         audience.append("parents")
     if user.role == Role.COACH:
         audience.append("coaches")
-    anns = (
-        db.query(Announcement)
-        .filter(Announcement.audience.in_(audience))
-        .order_by(Announcement.is_pinned.desc(), Announcement.id.desc())
-        .limit(5)
-        .all()
-    )
+    ann_q = db.query(Announcement).filter(Announcement.audience.in_(audience))
+    if club_id:
+        ann_q = ann_q.filter(
+            or_(Announcement.club_id == club_id, Announcement.club_id.is_(None))
+        )
+    anns = ann_q.order_by(Announcement.is_pinned.desc(), Announcement.id.desc()).limit(5).all()
 
     return MobileHomeOut(
         role=user.role,

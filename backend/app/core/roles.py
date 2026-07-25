@@ -2,6 +2,7 @@ from enum import StrEnum
 
 
 class Role(StrEnum):
+    SUPERADMIN = "superadmin"  # plateforme SaaS — cross-club
     ADMIN = "admin"
     DIRECTION = "direction"
     STAFF = "staff"

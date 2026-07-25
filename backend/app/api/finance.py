@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_roles
 from app.core.database import get_db
 from app.core.roles import Role
+from app.core.tenant import assert_same_club, get_current_club_id
+from sqlalchemy import or_
 from app.models import (
     Athlete,
     Club,
@@ -29,11 +31,15 @@ from app.schemas import (
     ClubFeeSettingsUpdate,
     EquipmentPurchaseCreate,
     InstallmentOut,
+    InventoryAssignmentUpdate,
     InventoryItemCreate,
     InventoryItemOut,
+    InventoryItemUpdate,
     LedgerCreate,
     LedgerOut,
+    LedgerUpdate,
     PaymentCreate,
+    PaymentUpdate,
     QuickPaymentCreate,
 )
 from app.services.audit import write_audit
@@ -87,9 +93,18 @@ def _apply_payment_to_installment(inst: FeeInstallment, amount: Decimal) -> None
         inst.status = "partial"
 
 
-def _make_receipt(db: Session, payment_id: int) -> Receipt:
-    count = db.query(func.count(Receipt.id)).scalar() or 0
-    receipt = Receipt(payment_id=payment_id, number=f"WRBH-{date.today().year}-{count + 1:05d}")
+def _make_receipt(db: Session, payment_id: int, club_id: int | None = None) -> Receipt:
+    count = (
+        db.query(func.count(Receipt.id)).filter(Receipt.club_id == club_id).scalar()
+        if club_id
+        else db.query(func.count(Receipt.id)).scalar()
+    ) or 0
+    prefix = f"C{club_id}" if club_id else "WRBH"
+    receipt = Receipt(
+        club_id=club_id,
+        payment_id=payment_id,
+        number=f"{prefix}-{date.today().year}-{count + 1:05d}",
+    )
     db.add(receipt)
     return receipt
 
@@ -137,10 +152,8 @@ def update_finance_settings(
     payload: ClubFeeSettingsUpdate,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    club = db.query(Club).first()
-    if not club:
-        raise HTTPException(400, "Club introuvable")
     ensure_default_settings(db)
     mapping = {
         "monthly_subscription_dzd": payload.monthly_subscription_dzd,
@@ -154,7 +167,7 @@ def update_finance_settings(
             raise HTTPException(400, f"Montant invalide pour {key}")
         row = (
             db.query(ClubSetting)
-            .filter(ClubSetting.club_id == club.id, ClubSetting.key == key)
+            .filter(ClubSetting.club_id == club_id, ClubSetting.key == key)
             .first()
         )
         if row:
@@ -163,7 +176,7 @@ def update_finance_settings(
             meta = DEFAULT_SETTINGS[key]
             db.add(
                 ClubSetting(
-                    club_id=club.id,
+                    club_id=club_id,
                     key=key,
                     value=str(val),
                     label=meta[1],
@@ -189,8 +202,11 @@ def list_installments(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
-    q = db.query(FeeInstallment)
+    q = db.query(FeeInstallment).filter(
+        or_(FeeInstallment.club_id == club_id, FeeInstallment.club_id.is_(None))
+    )
     if athlete_id:
         q = q.filter(FeeInstallment.athlete_id == athlete_id)
     if season_id:
@@ -210,8 +226,9 @@ def create_payment(
     payload: PaymentCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    payment = Payment(**payload.model_dump(), recorded_by=user.id)
+    payment = Payment(**payload.model_dump(), club_id=club_id, recorded_by=user.id)
     db.add(payment)
     db.flush()
 
@@ -219,21 +236,20 @@ def create_payment(
         inst = db.get(FeeInstallment, payload.installment_id)
         if not inst:
             raise HTTPException(404, "Échéance introuvable")
+        assert_same_club(inst, club_id)
         _apply_payment_to_installment(inst, payload.amount)
 
-    receipt = _make_receipt(db, payment.id)
-    club = db.query(Club).first()
-    if club:
-        athlete = db.get(Athlete, payload.athlete_id)
-        _ledger_income_for_payment(
-            db,
-            club_id=club.id,
-            season_id=None,
-            label=f"Paiement — {athlete.full_name if athlete else payload.athlete_id}",
-            amount=payload.amount,
-            paid_on=payload.paid_on,
-            user_id=user.id,
-        )
+    receipt = _make_receipt(db, payment.id, club_id)
+    athlete = db.get(Athlete, payload.athlete_id)
+    _ledger_income_for_payment(
+        db,
+        club_id=club_id,
+        season_id=None,
+        label=f"Paiement — {athlete.full_name if athlete else payload.athlete_id}",
+        amount=payload.amount,
+        paid_on=payload.paid_on,
+        user_id=user.id,
+    )
     write_audit(
         db,
         action="create",
@@ -258,11 +274,13 @@ def create_quick_payment(
     payload: QuickPaymentCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
     """UX : type de paiement → joueur (catégorie côté client) → enregistrement."""
     athlete = db.get(Athlete, payload.athlete_id)
     if not athlete:
         raise HTTPException(404, "Joueur introuvable")
+    assert_same_club(athlete, club_id)
 
     season_id = payload.season_id or _current_season_id(db)
     if not season_id:
@@ -317,6 +335,7 @@ def create_quick_payment(
             )
             if not installment:
                 installment = FeeInstallment(
+                    club_id=club_id,
                     athlete_id=athlete.id,
                     season_id=season_id,
                     label="assurance",
@@ -338,6 +357,7 @@ def create_quick_payment(
             installment = ensure_subscription_installment(db, reg)
         if not installment:
             installment = FeeInstallment(
+                club_id=club_id,
                 athlete_id=athlete.id,
                 season_id=season_id,
                 registration_id=reg.id if reg else None,
@@ -359,6 +379,7 @@ def create_quick_payment(
         label = f"Équipement ({eq}) — {display}"
         ledger_category = "equipment"
         installment = FeeInstallment(
+            club_id=club_id,
             athlete_id=athlete.id,
             season_id=season_id,
             registration_id=reg.id if reg else None,
@@ -380,8 +401,12 @@ def create_quick_payment(
     if amount is None or amount <= 0:
         raise HTTPException(400, "Montant invalide")
 
+    if installment is not None and getattr(installment, "club_id", None) is None:
+        installment.club_id = club_id
+
     payment = Payment(
         installment_id=installment.id if installment else None,
+        club_id=club_id,
         athlete_id=athlete.id,
         amount=amount,
         method=payload.method or "cash",
@@ -394,19 +419,17 @@ def create_quick_payment(
     if installment:
         _apply_payment_to_installment(installment, amount)
 
-    receipt = _make_receipt(db, payment.id)
-    club = db.query(Club).first()
-    if club:
-        _ledger_income_for_payment(
-            db,
-            club_id=club.id,
-            season_id=season_id,
-            label=label,
-            amount=amount,
-            paid_on=paid_on,
-            user_id=user.id,
-            category=ledger_category,
-        )
+    receipt = _make_receipt(db, payment.id, club_id)
+    _ledger_income_for_payment(
+        db,
+        club_id=club_id,
+        season_id=season_id,
+        label=label,
+        amount=amount,
+        paid_on=paid_on,
+        user_id=user.id,
+        category=ledger_category,
+    )
 
     write_audit(
         db,
@@ -438,8 +461,16 @@ def list_recent_payments(
     limit: int = Query(40, ge=1, le=200),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    rows = db.query(Payment).order_by(Payment.id.desc()).offset(skip).limit(limit).all()
+    rows = (
+        db.query(Payment)
+        .filter(or_(Payment.club_id == club_id, Payment.club_id.is_(None)))
+        .order_by(Payment.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
     names = _athlete_names(db, [r.athlete_id for r in rows])
     return [
         {
@@ -463,8 +494,11 @@ def list_ledger(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    q = db.query(LedgerEntry)
+    q = db.query(LedgerEntry).filter(
+        or_(LedgerEntry.club_id == club_id, LedgerEntry.club_id.is_(None))
+    )
     if entry_type:
         q = q.filter(LedgerEntry.entry_type == entry_type)
     return q.order_by(LedgerEntry.entry_date.desc()).offset(skip).limit(limit).all()
@@ -475,9 +509,9 @@ def create_ledger(
     payload: LedgerCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    club = db.query(Club).first()
-    entry = LedgerEntry(club_id=club.id, created_by=user.id, **payload.model_dump())
+    entry = LedgerEntry(club_id=club_id, created_by=user.id, **payload.model_dump())
     db.add(entry)
     db.commit()
     db.refresh(entry)
@@ -486,27 +520,148 @@ def create_ledger(
     return entry
 
 
+@router.patch("/ledger/{entry_id}", response_model=LedgerOut)
+def update_ledger(
+    entry_id: int,
+    payload: LedgerUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    entry = db.get(LedgerEntry, entry_id)
+    if not entry:
+        raise HTTPException(404, "Ligne introuvable")
+    assert_same_club(entry, club_id)
+    for key, val in payload.model_dump(exclude_unset=True).items():
+        setattr(entry, key, val)
+    db.commit()
+    db.refresh(entry)
+    write_audit(
+        db,
+        action="update",
+        entity="ledger",
+        entity_id=entry.id,
+        user_id=user.id,
+        detail=entry.label,
+        commit=True,
+    )
+    cache_delete_prefix("finance:")
+    cache_delete_prefix("bootstrap:")
+    return entry
+
+
+@router.delete("/ledger/{entry_id}")
+def delete_ledger(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    entry = db.get(LedgerEntry, entry_id)
+    if not entry:
+        raise HTTPException(404, "Ligne introuvable")
+    assert_same_club(entry, club_id)
+    label = entry.label
+    db.delete(entry)
+    write_audit(
+        db,
+        action="delete",
+        entity="ledger",
+        entity_id=entry_id,
+        user_id=user.id,
+        detail=label,
+        commit=True,
+    )
+    cache_delete_prefix("finance:")
+    cache_delete_prefix("bootstrap:")
+    return {"ok": True}
+
+
+@router.patch("/payments/{payment_id}")
+def update_payment(
+    payment_id: int,
+    payload: PaymentUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    payment = db.get(Payment, payment_id)
+    if not payment:
+        raise HTTPException(404, "Paiement introuvable")
+    assert_same_club(payment, club_id)
+    old_amount = payment.amount
+    data = payload.model_dump(exclude_unset=True)
+    for key, val in data.items():
+        setattr(payment, key, val)
+    # Ajuste l'échéance liée si le montant change
+    if "amount" in data and payment.installment_id:
+        inst = db.get(FeeInstallment, payment.installment_id)
+        if inst:
+            delta = Decimal(str(payment.amount)) - Decimal(str(old_amount))
+            inst.amount_paid = Decimal(str(inst.amount_paid or 0)) + delta
+            if inst.amount_paid < 0:
+                inst.amount_paid = Decimal("0")
+            if inst.amount_paid >= inst.amount:
+                inst.status = "paid"
+                inst.amount_paid = inst.amount
+            elif inst.amount_paid > 0:
+                inst.status = "partial"
+            else:
+                inst.status = "due"
+    db.commit()
+    write_audit(
+        db,
+        action="update",
+        entity="payment",
+        entity_id=payment.id,
+        user_id=user.id,
+        detail=f"amount={payment.amount}",
+        commit=True,
+    )
+    cache_delete_prefix("finance:")
+    cache_delete_prefix("bootstrap:")
+    names = _athlete_names(db, [payment.athlete_id])
+    return {
+        "id": payment.id,
+        "athlete_id": payment.athlete_id,
+        "athlete_name": names.get(payment.athlete_id),
+        "amount": float(payment.amount),
+        "method": payment.method,
+        "paid_on": payment.paid_on.isoformat() if payment.paid_on else None,
+        "installment_id": payment.installment_id,
+        "notes": payment.notes,
+    }
+
+
 @router.get("/dashboard")
 def finance_dashboard(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    cached = cache_get("finance:dashboard")
+    cached = cache_get(f"finance:dashboard:{club_id}")
     if cached is not None:
         return cached
+
+    def _cf(model):
+        return or_(model.club_id == club_id, model.club_id.is_(None))
+
     due = db.query(func.coalesce(func.sum(FeeInstallment.amount - FeeInstallment.amount_paid), 0)).filter(
-        FeeInstallment.status.in_(["due", "partial", "overdue"])
+        FeeInstallment.status.in_(["due", "partial", "overdue"]), _cf(FeeInstallment)
     ).scalar()
-    paid = db.query(func.coalesce(func.sum(Payment.amount), 0)).scalar()
+    paid = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(_cf(Payment)).scalar()
     income = db.query(func.coalesce(func.sum(LedgerEntry.amount), 0)).filter(
-        LedgerEntry.entry_type == "income"
+        LedgerEntry.entry_type == "income", _cf(LedgerEntry)
     ).scalar()
     expense = db.query(func.coalesce(func.sum(LedgerEntry.amount), 0)).filter(
-        LedgerEntry.entry_type == "expense"
+        LedgerEntry.entry_type == "expense", _cf(LedgerEntry)
     ).scalar()
-    payroll = db.query(func.coalesce(func.sum(CoachPayroll.amount), 0)).scalar()
+    payroll = db.query(func.coalesce(func.sum(CoachPayroll.amount), 0)).filter(_cf(CoachPayroll)).scalar()
     overdue_count = (
-        db.query(func.count(FeeInstallment.id)).filter(FeeInstallment.status == "overdue").scalar() or 0
+        db.query(func.count(FeeInstallment.id))
+        .filter(FeeInstallment.status == "overdue", _cf(FeeInstallment))
+        .scalar()
+        or 0
     )
     fees = get_fee_settings(db)
     payload = {
@@ -521,7 +676,7 @@ def finance_dashboard(
         "annual_insurance_dzd": float(fees["annual_insurance_dzd"]),
         "inscription_fee_dzd": float(fees["inscription_fee_dzd"]),
     }
-    cache_set("finance:dashboard", payload, 40)
+    cache_set(f"finance:dashboard:{club_id}", payload, 40)
     return payload
 
 
@@ -529,8 +684,15 @@ def finance_dashboard(
 def list_payroll(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    rows = db.query(CoachPayroll).order_by(CoachPayroll.id.desc()).limit(300).all()
+    rows = (
+        db.query(CoachPayroll)
+        .filter(or_(CoachPayroll.club_id == club_id, CoachPayroll.club_id.is_(None)))
+        .order_by(CoachPayroll.id.desc())
+        .limit(300)
+        .all()
+    )
     return [
         {
             "id": r.id,
@@ -551,13 +713,22 @@ inv_router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 
 @inv_router.get("/items", response_model=list[InventoryItemOut])
-def list_items(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    cached = cache_get("inventory:items")
+def list_items(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    cached = cache_get(f"inventory:items:{club_id}")
     if cached is not None:
         return cached
-    rows = db.query(InventoryItem).order_by(InventoryItem.name).all()
+    rows = (
+        db.query(InventoryItem)
+        .filter(or_(InventoryItem.club_id == club_id, InventoryItem.club_id.is_(None)))
+        .order_by(InventoryItem.name)
+        .all()
+    )
     out = [InventoryItemOut.model_validate(r) for r in rows]
-    cache_set("inventory:items", out, 45)
+    cache_set(f"inventory:items:{club_id}", out, 45)
     return out
 
 
@@ -566,12 +737,43 @@ def create_item(
     payload: InventoryItemCreate,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    club = db.query(Club).first()
-    item = InventoryItem(club_id=club.id, **payload.model_dump())
+    item = InventoryItem(club_id=club_id, **payload.model_dump())
     db.add(item)
     db.commit()
     db.refresh(item)
+    cache_delete_prefix("inventory:")
+    return item
+
+
+@inv_router.patch("/items/{item_id}", response_model=InventoryItemOut)
+def update_item(
+    item_id: int,
+    payload: InventoryItemUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    item = db.get(InventoryItem, item_id)
+    if not item:
+        raise HTTPException(404, "Article introuvable")
+    assert_same_club(item, club_id)
+    for key, val in payload.model_dump(exclude_unset=True).items():
+        setattr(item, key, val)
+    if item.quantity < 0:
+        raise HTTPException(400, "Quantité invalide")
+    db.commit()
+    db.refresh(item)
+    write_audit(
+        db,
+        action="update",
+        entity="inventory_item",
+        entity_id=item.id,
+        user_id=user.id,
+        detail=item.name,
+        commit=True,
+    )
     cache_delete_prefix("inventory:")
     return item
 
@@ -580,8 +782,13 @@ def create_item(
 def inventory_alerts(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    items = db.query(InventoryItem).all()
+    items = (
+        db.query(InventoryItem)
+        .filter(or_(InventoryItem.club_id == club_id, InventoryItem.club_id.is_(None)))
+        .all()
+    )
     return [
         {"id": i.id, "name": i.name, "quantity": i.quantity, "alert_threshold": i.alert_threshold}
         for i in items
@@ -596,14 +803,17 @@ def assign_item(
     quantity: int = 1,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
     item = db.get(InventoryItem, item_id)
     if not item:
         raise HTTPException(404, "Article introuvable")
+    assert_same_club(item, club_id)
     if item.quantity < quantity:
         raise HTTPException(400, "Stock insuffisant")
     item.quantity -= quantity
     asg = InventoryAssignment(
+        club_id=club_id,
         item_id=item_id,
         athlete_id=athlete_id,
         user_id=user.id,
@@ -623,8 +833,11 @@ def list_assignments(
     limit: int = Query(100, ge=1, le=300),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    q = db.query(InventoryAssignment)
+    q = db.query(InventoryAssignment).filter(
+        or_(InventoryAssignment.club_id == club_id, InventoryAssignment.club_id.is_(None))
+    )
     if athlete_id:
         q = q.filter(InventoryAssignment.athlete_id == athlete_id)
     rows = q.order_by(InventoryAssignment.id.desc()).offset(skip).limit(limit).all()
@@ -646,31 +859,101 @@ def list_assignments(
     ]
 
 
+@inv_router.patch("/assignments/{assignment_id}")
+def update_assignment(
+    assignment_id: int,
+    payload: InventoryAssignmentUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    asg = db.get(InventoryAssignment, assignment_id)
+    if not asg:
+        raise HTTPException(404, "Attribution introuvable")
+    assert_same_club(asg, club_id)
+    item = db.get(InventoryItem, asg.item_id)
+    data = payload.model_dump(exclude_unset=True)
+    old_qty = asg.quantity
+    old_status = asg.status
+
+    if "quantity" in data and item:
+        new_qty = int(data["quantity"])
+        if new_qty < 1:
+            raise HTTPException(400, "Quantité invalide")
+        delta = new_qty - old_qty
+        if delta > 0 and item.quantity < delta:
+            raise HTTPException(400, "Stock insuffisant")
+        item.quantity -= delta
+        asg.quantity = new_qty
+
+    if "athlete_id" in data:
+        asg.athlete_id = data["athlete_id"]
+    if "assigned_on" in data and data["assigned_on"]:
+        asg.assigned_on = data["assigned_on"]
+    if "status" in data and data["status"]:
+        new_status = data["status"]
+        if new_status not in {"out", "returned", "lost"}:
+            raise HTTPException(400, "Statut invalide")
+        # Retour stock si passage out → returned
+        if old_status == "out" and new_status == "returned" and item:
+            item.quantity += asg.quantity
+            asg.returned_on = data.get("returned_on") or date.today()
+        if new_status == "out" and old_status == "returned" and item:
+            if item.quantity < asg.quantity:
+                raise HTTPException(400, "Stock insuffisant pour re-attribuer")
+            item.quantity -= asg.quantity
+            asg.returned_on = None
+        asg.status = new_status
+    if "returned_on" in data:
+        asg.returned_on = data["returned_on"]
+
+    db.commit()
+    write_audit(
+        db,
+        action="update",
+        entity="inventory_assignment",
+        entity_id=asg.id,
+        user_id=user.id,
+        detail=f"status={asg.status}",
+        commit=True,
+    )
+    cache_delete_prefix("inventory:")
+    names = _athlete_names(db, [asg.athlete_id] if asg.athlete_id else [])
+    return {
+        "id": asg.id,
+        "item_id": asg.item_id,
+        "item_name": item.name if item else None,
+        "athlete_id": asg.athlete_id,
+        "athlete_name": names.get(asg.athlete_id) if asg.athlete_id else None,
+        "quantity": asg.quantity,
+        "assigned_on": asg.assigned_on.isoformat() if asg.assigned_on else None,
+        "status": asg.status,
+    }
+
+
 @inv_router.post("/purchase")
 def purchase_equipment(
     payload: EquipmentPurchaseCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
     """Achat équipement (stock) + dépense caisse ; optionnellement attribué à un joueur."""
     if payload.quantity < 1:
         raise HTTPException(400, "Quantité invalide")
-    club = db.query(Club).first()
-    if not club:
-        raise HTTPException(400, "Club introuvable")
     entry_date = payload.entry_date or date.today()
     total = Decimal(str(payload.unit_cost)) * payload.quantity
 
     item = (
         db.query(InventoryItem)
-        .filter(InventoryItem.club_id == club.id, InventoryItem.name == payload.name.strip())
+        .filter(InventoryItem.club_id == club_id, InventoryItem.name == payload.name.strip())
         .first()
     )
     if item:
         item.quantity += payload.quantity
     else:
         item = InventoryItem(
-            club_id=club.id,
+            club_id=club_id,
             name=payload.name.strip(),
             quantity=payload.quantity,
             alert_threshold=2,
@@ -683,7 +966,7 @@ def purchase_equipment(
     if total > 0:
         db.add(
             LedgerEntry(
-                club_id=club.id,
+                club_id=club_id,
                 entry_type="expense",
                 category="equipment",
                 label=f"Achat {payload.name} ×{payload.quantity}",
@@ -699,11 +982,13 @@ def purchase_equipment(
         athlete = db.get(Athlete, payload.athlete_id)
         if not athlete:
             raise HTTPException(404, "Joueur introuvable")
+        assert_same_club(athlete, club_id)
         if item.quantity < 1:
             raise HTTPException(400, "Stock insuffisant pour attribution")
         qty = min(payload.quantity, item.quantity)
         item.quantity -= qty
         asg = InventoryAssignment(
+            club_id=club_id,
             item_id=item.id,
             athlete_id=payload.athlete_id,
             user_id=user.id,

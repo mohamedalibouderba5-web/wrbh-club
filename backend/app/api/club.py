@@ -2,10 +2,11 @@ from datetime import date
 from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import extract, func
+from sqlalchemy import extract, func, or_
 from sqlalchemy.orm import Session, load_only
 
 from app.api.deps import get_current_user, require_roles
+from app.core.tenant import assert_same_club, get_current_club_id
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.roles import Role
@@ -37,7 +38,10 @@ from app.schemas import (
     RegistrationCreate,
     RegistrationOut,
     SeasonOut,
+    TeamCoachAssignIn,
+    TeamCoachOut,
     TeamOut,
+    TeamWithCoachesOut,
 )
 from app.services.age import validate_category_for_birth, validate_club_age
 from app.services.blood import validate_blood_type
@@ -54,7 +58,8 @@ settings = get_settings()
 
 router = APIRouter(tags=["structure"])
 
-_STATS_CACHE: dict = {"ts": 0.0, "payload": None}
+# Cache stats par club : {club_id: {"ts": float, "payload": dict}}
+_STATS_CACHE: dict = {}
 _STATS_TTL_SEC = 45.0
 
 
@@ -63,19 +68,24 @@ def _bust_club_caches() -> None:
     cache_delete_prefix("regs:")
     cache_delete_prefix("bootstrap:")
     cache_delete_prefix("categories:")
+    cache_delete_prefix("seasons:")
     cache_delete_prefix("finance:")
-    _STATS_CACHE["payload"] = None
-    _STATS_CACHE["ts"] = 0.0
+    _STATS_CACHE.clear()
 
 
 @router.get("/seasons", response_model=list[SeasonOut])
-def list_seasons(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    cached = cache_get("seasons:all")
+def list_seasons(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    club_id = getattr(user, "club_id", None)
+    key = f"seasons:{club_id}"
+    cached = cache_get(key)
     if cached is not None:
         return cached
-    rows = db.query(Season).order_by(Season.starts_on.desc()).all()
+    q = db.query(Season)
+    if club_id:
+        q = q.filter(or_(Season.club_id == club_id, Season.club_id.is_(None)))
+    rows = q.order_by(Season.starts_on.desc()).all()
     out = [SeasonOut.model_validate(s) for s in rows]
-    cache_set("seasons:all", out, 120)
+    cache_set(key, out, 120)
     return out
 
 
@@ -83,13 +93,16 @@ def list_seasons(db: Session = Depends(get_db), _: User = Depends(get_current_us
 def list_categories(
     season_id: int | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    key = f"categories:{season_id or 'current'}"
+    club_id = getattr(user, "club_id", None)
+    key = f"categories:{club_id}:{season_id or 'current'}"
     cached = cache_get(key)
     if cached is not None:
         return cached
     q = db.query(Category)
+    if club_id:
+        q = q.filter(or_(Category.club_id == club_id, Category.club_id.is_(None)))
     if season_id:
         q = q.filter(Category.season_id == season_id)
     else:
@@ -113,13 +126,17 @@ def bootstrap(db: Session = Depends(get_db), user: User = Depends(get_current_us
     seasons = list_seasons(db, user)
     categories = list_categories(None, db, user)
     stats = club_stats(db, user)
-    events_count = db.query(func.count(Event.id)).filter(Event.is_cancelled.is_(False)).scalar() or 0
+    club_id = getattr(user, "club_id", None)
+    events_q = db.query(func.count(Event.id)).filter(Event.is_cancelled.is_(False))
+    if club_id:
+        events_q = events_q.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
+    events_count = events_q.scalar() or 0
     finance = None
-    if user.role in {Role.ADMIN, Role.DIRECTION, Role.STAFF}:
+    if user.role in {Role.ADMIN, Role.DIRECTION, Role.STAFF} and club_id:
         from app.api.finance import finance_dashboard
 
         try:
-            finance = finance_dashboard(db, user)
+            finance = finance_dashboard(db, user, club_id)
         except Exception:
             finance = None
 
@@ -140,9 +157,10 @@ def list_teams(
     season_id: int | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
     """Par défaut : équipes de la saison courante uniquement (évite les doublons inter-saisons)."""
-    q = db.query(Team)
+    q = db.query(Team).filter(or_(Team.club_id == club_id, Team.club_id.is_(None)))
     if category_id:
         q = q.filter(Team.category_id == category_id)
     else:
@@ -157,36 +175,193 @@ def list_teams(
     return q.order_by(Team.name).all()
 
 
+def _team_coach_rows(db: Session, team_id: int) -> list[TeamCoachOut]:
+    rows = db.query(TeamCoach).filter(TeamCoach.team_id == team_id).all()
+    user_ids = [r.user_id for r in rows]
+    users = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
+    out: list[TeamCoachOut] = []
+    for r in rows:
+        u = users.get(r.user_id)
+        out.append(
+            TeamCoachOut(
+                id=r.id,
+                team_id=r.team_id,
+                user_id=r.user_id,
+                role_label=r.role_label,
+                coach_name=u.full_name if u else None,
+                coach_phone=u.phone if u else None,
+            )
+        )
+    # Titulaire d'abord
+    out.sort(key=lambda c: (0 if c.role_label == "primary" else 1, c.coach_name or ""))
+    return out
+
+
+@router.get("/teams/coaches", response_model=list[TeamWithCoachesOut])
+def list_teams_with_coaches(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Vue équipes + coachs (saison courante)."""
+    cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+    q = db.query(Team).filter(or_(Team.club_id == club_id, Team.club_id.is_(None)))
+    cats: dict[int, Category] = {}
+    if cur:
+        cat_rows = db.query(Category).filter(Category.season_id == cur.id).all()
+        cats = {c.id: c for c in cat_rows}
+        if cats:
+            q = q.filter(Team.category_id.in_(list(cats.keys())))
+    teams = q.order_by(Team.name).all()
+    return [
+        TeamWithCoachesOut(
+            id=t.id,
+            category_id=t.category_id,
+            name=t.name,
+            name_ar=t.name_ar,
+            code=t.code,
+            category_code=cats[t.category_id].code if t.category_id in cats else None,
+            coaches=_team_coach_rows(db, t.id),
+        )
+        for t in teams
+    ]
+
+
+@router.get("/teams/{team_id}/coaches", response_model=list[TeamCoachOut])
+def list_team_coaches(
+    team_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    team = db.get(Team, team_id)
+    if not team:
+        raise HTTPException(404, "Équipe introuvable")
+    assert_same_club(team, club_id)
+    return _team_coach_rows(db, team_id)
+
+
+@router.put("/teams/{team_id}/coaches", response_model=list[TeamCoachOut])
+def assign_team_coaches(
+    team_id: int,
+    payload: TeamCoachAssignIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Remplace les coachs d'une équipe (un coach peut être sur plusieurs équipes)."""
+    team = db.get(Team, team_id)
+    if not team:
+        raise HTTPException(404, "Équipe introuvable")
+    assert_same_club(team, club_id)
+    seen: set[int] = set()
+    cleaned: list[tuple[int, str]] = []
+    for item in payload.coaches:
+        if item.user_id in seen:
+            continue
+        coach = db.get(User, item.user_id)
+        if not coach or coach.role != Role.COACH:
+            raise HTTPException(400, f"Utilisateur {item.user_id} n'est pas un coach")
+        if getattr(coach, "club_id", None) not in (None, club_id):
+            raise HTTPException(400, f"Coach {item.user_id} hors de ce club")
+        label = "primary" if item.is_primary or item.role_label == "primary" else (item.role_label or "coach")
+        if label not in {"primary", "coach", "assistant"}:
+            label = "coach"
+        cleaned.append((item.user_id, label))
+        seen.add(item.user_id)
+    # Un seul titulaire
+    primaries = [i for i, (_, lab) in enumerate(cleaned) if lab == "primary"]
+    if len(primaries) > 1:
+        for i in primaries[1:]:
+            cleaned[i] = (cleaned[i][0], "coach")
+    elif cleaned and not primaries:
+        cleaned[0] = (cleaned[0][0], "primary")
+
+    db.query(TeamCoach).filter(TeamCoach.team_id == team_id).delete(synchronize_session=False)
+    for uid, lab in cleaned:
+        db.add(TeamCoach(club_id=club_id, team_id=team_id, user_id=uid, role_label=lab))
+    db.commit()
+    write_audit(
+        db,
+        action="team_coaches_assign",
+        entity="team",
+        entity_id=team_id,
+        user_id=user.id,
+        detail=",".join(f"{u}:{l}" for u, l in cleaned),
+        commit=True,
+    )
+    return _team_coach_rows(db, team_id)
+
+
+@router.get("/coaches", response_model=list)
+def list_coaches(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Liste des utilisateurs rôle coach (pour sélection agenda / équipes)."""
+    rows = (
+        db.query(User)
+        .filter(
+            User.role == Role.COACH,
+            User.is_active.is_(True),
+            or_(User.club_id == club_id, User.club_id.is_(None)),
+        )
+        .order_by(User.full_name)
+        .all()
+    )
+    return [
+        {
+            "id": u.id,
+            "full_name": u.full_name,
+            "full_name_ar": u.full_name_ar,
+            "phone": u.phone,
+            "email": u.email,
+        }
+        for u in rows
+    ]
+
+
 @router.get("/stats/club")
-def club_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    """Stats rapides : agrégats SQL + cache court (20 s)."""
+def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Stats rapides : agrégats SQL + cache court (20 s), scopé par club."""
     now = monotonic()
-    cached = _STATS_CACHE.get("payload")
-    if cached is not None and now - float(_STATS_CACHE["ts"]) < _STATS_TTL_SEC:
-        return cached
+    club_id = getattr(user, "club_id", None)
+    cache_slot = _STATS_CACHE.get(club_id)
+    if cache_slot and now - float(cache_slot["ts"]) < _STATS_TTL_SEC:
+        return cache_slot["payload"]
+
+    def _cf(query):
+        if club_id:
+            return query.filter(or_(Athlete.club_id == club_id, Athlete.club_id.is_(None)))
+        return query
 
     season = db.query(Season).filter(Season.is_current.is_(True)).first()
 
-    athletes_total = db.query(func.count(Athlete.id)).scalar() or 0
+    athletes_total = _cf(db.query(func.count(Athlete.id))).scalar() or 0
     athletes_active = (
-        db.query(func.count(Athlete.id)).filter(Athlete.status == "Active").scalar() or 0
+        _cf(db.query(func.count(Athlete.id)).filter(Athlete.status == "Active")).scalar() or 0
     )
     athletes_left = (
-        db.query(func.count(Athlete.id))
-        .filter(Athlete.status.in_(["Abandonne", "Left", "Inactif"]))
-        .scalar()
+        _cf(
+            db.query(func.count(Athlete.id)).filter(
+                Athlete.status.in_(["Abandonne", "Left", "Inactif"])
+            )
+        ).scalar()
         or 0
     )
     by_status = {
         status: int(count)
-        for status, count in db.query(Athlete.status, func.count(Athlete.id)).group_by(Athlete.status).all()
+        for status, count in _cf(
+            db.query(Athlete.status, func.count(Athlete.id))
+        ).group_by(Athlete.status).all()
     }
     missing_birth = (
-        db.query(func.count(Athlete.id)).filter(Athlete.birth_date.is_(None)).scalar() or 0
+        _cf(db.query(func.count(Athlete.id)).filter(Athlete.birth_date.is_(None))).scalar() or 0
     )
 
     # Une seule lecture légère (id, status, année) pour classer par catégories
-    light = db.query(Athlete.id, Athlete.status, Athlete.birth_date).all()
+    light = _cf(db.query(Athlete.id, Athlete.status, Athlete.birth_date)).all()
     cats_out = []
     classified_active: set[int] = set()
     if season:
@@ -239,8 +414,7 @@ def club_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user
         "registrations_pending": int(regs_pending),
         "parents_count": int(parents),
     }
-    _STATS_CACHE["ts"] = now
-    _STATS_CACHE["payload"] = payload
+    _STATS_CACHE[club_id] = {"ts": now, "payload": payload}
     return payload
 
 
@@ -350,9 +524,10 @@ def list_athletes(
     limit: int = Query(40, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
     limit = min(limit, settings.max_page_size)
-    cache_key = f"athletes:{user.role}:{user.id}:{q}:{status}:{category_id}:{season_id}:{sort}:{order}:{skip}:{limit}"
+    cache_key = f"athletes:{club_id}:{user.role}:{user.id}:{q}:{status}:{category_id}:{season_id}:{sort}:{order}:{skip}:{limit}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
@@ -395,6 +570,9 @@ def list_athletes(
             )
         )
     )
+    # Isolation tenant : uniquement les athlètes du club courant
+    # (tolère les anciennes lignes NULL pendant la migration)
+    query = query.filter(or_(Athlete.club_id == club_id, Athlete.club_id.is_(None)))
     if user.role == Role.PARENT:
         ids = _parent_athlete_ids(db, user)
         query = query.filter(Athlete.id.in_(ids or {-1}))
@@ -461,6 +639,7 @@ def create_athlete(
     payload: AthleteCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
     dup = _find_duplicate_athlete(db, payload.full_name, payload.birth_date)
     if dup:
@@ -481,7 +660,7 @@ def create_athlete(
     data = payload.model_dump(exclude={"parent_phone", "parent_name"})
     if "blood_type" in data:
         data["blood_type"] = validate_blood_type(data.get("blood_type"))
-    athlete = Athlete(**data)
+    athlete = Athlete(club_id=club_id, **data)
     db.add(athlete)
     db.flush()
     write_audit(
@@ -504,6 +683,7 @@ def create_athlete(
             raise HTTPException(400, str(exc)) from exc
         db.add(
             EmergencyContact(
+                club_id=club_id,
                 athlete_id=athlete.id,
                 name=payload.parent_name or "Parent",
                 phone=normalize_phone(payload.parent_phone) or payload.parent_phone,
@@ -517,10 +697,16 @@ def create_athlete(
 
 
 @athletes_router.get("/{athlete_id}", response_model=AthleteOut)
-def get_athlete(athlete_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_athlete(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
     athlete = db.get(Athlete, athlete_id)
     if not athlete:
         raise HTTPException(404, "Athlète introuvable")
+    assert_same_club(athlete, club_id)
     if user.role == Role.PARENT and athlete_id not in _parent_athlete_ids(db, user):
         raise HTTPException(403, "Accès refusé")
     return _to_athlete_out(db, athlete)
@@ -532,10 +718,12 @@ def update_athlete(
     payload: AthleteUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
 ):
     athlete = db.get(Athlete, athlete_id)
     if not athlete:
         raise HTTPException(404, "Athlète introuvable")
+    assert_same_club(athlete, club_id)
 
     data = payload.model_dump(exclude_unset=True, exclude={"confirm_status", "parent_phone", "parent_name"})
     new_status = data.get("status")
@@ -599,10 +787,12 @@ def delete_athlete(
     athlete_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
 ):
     athlete = db.get(Athlete, athlete_id)
     if not athlete:
         raise HTTPException(404, "Athlète introuvable")
+    assert_same_club(athlete, club_id)
     # cascade-ish cleanup of related rows
     for model in (Attendance, Convocation, FeeInstallment, Payment, TeamMembership, ParentChild, EmergencyContact, Registration):
         db.query(model).filter(getattr(model, "athlete_id") == athlete_id).delete(synchronize_session=False)
@@ -838,14 +1028,17 @@ def list_registrations(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
+    club_id: int = Depends(get_current_club_id),
 ):
     limit = min(limit, settings.max_page_size)
-    cache_key = f"regs:{user.role}:{user.id}:{season_id}:{status}:{category_id}:{sort}:{order}:{skip}:{limit}"
+    cache_key = f"regs:{club_id}:{user.role}:{user.id}:{season_id}:{status}:{category_id}:{sort}:{order}:{skip}:{limit}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
 
-    q = db.query(Registration)
+    q = db.query(Registration).filter(
+        or_(Registration.club_id == club_id, Registration.club_id.is_(None))
+    )
     if season_id:
         q = q.filter(Registration.season_id == season_id)
     if status:
@@ -895,6 +1088,7 @@ def create_registration(
     payload: RegistrationCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
+    club_id: int = Depends(get_current_club_id),
 ):
     athlete_id = payload.athlete_id
     parent_meta: dict = {}
@@ -949,20 +1143,20 @@ def create_registration(
             if user.role == Role.PARENT and not db.query(ParentChild).filter_by(
                 parent_id=user.id, athlete_id=existing_dup.id
             ).first():
-                db.add(ParentChild(parent_id=user.id, athlete_id=existing_dup.id))
+                db.add(ParentChild(club_id=club_id, parent_id=user.id, athlete_id=existing_dup.id))
         else:
             athlete_data = payload.athlete.model_dump(exclude={"parent_phone", "parent_name"})
             if payload.photo_path:
                 athlete_data["photo_path"] = payload.photo_path
             if "blood_type" in athlete_data:
                 athlete_data["blood_type"] = validate_blood_type(athlete_data.get("blood_type"))
-            athlete = Athlete(**athlete_data)
+            athlete = Athlete(club_id=club_id, **athlete_data)
             db.add(athlete)
             db.flush()
             athlete_id = athlete.id
             birth = athlete.birth_date
             if user.role == Role.PARENT:
-                db.add(ParentChild(parent_id=user.id, athlete_id=athlete.id))
+                db.add(ParentChild(club_id=club_id, parent_id=user.id, athlete_id=athlete.id))
     if not athlete_id:
         raise HTTPException(400, "Athlète requis")
 
@@ -1024,6 +1218,7 @@ def create_registration(
         )
         db.add(
             EmergencyContact(
+                club_id=club_id,
                 athlete_id=athlete_id,
                 name=payload.emergency_name or parent_name or "Parent",
                 phone=phone or "",
@@ -1058,6 +1253,7 @@ def create_registration(
             raise HTTPException(400, str(exc)) from exc
 
     reg = Registration(
+        club_id=club_id,
         athlete_id=athlete_id,
         season_id=payload.season_id,
         category_id=category_id,
@@ -1076,6 +1272,7 @@ def create_registration(
         ).first():
             db.add(
                 TeamMembership(
+                    club_id=club_id,
                     team_id=team.id,
                     athlete_id=athlete_id,
                     season_id=payload.season_id,
@@ -1102,10 +1299,12 @@ def approve_registration(
     reg_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
     reg = db.get(Registration, reg_id)
     if not reg:
         raise HTTPException(404, "Inscription introuvable")
+    assert_same_club(reg, club_id)
     athlete = db.get(Athlete, reg.athlete_id)
     cat = db.get(Category, reg.category_id) if reg.category_id else None
     if athlete:
@@ -1151,10 +1350,12 @@ def reject_registration(
     reg_id: int,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
     reg = db.get(Registration, reg_id)
     if not reg:
         raise HTTPException(404, "Inscription introuvable")
+    assert_same_club(reg, club_id)
     if reg.status == "approved":
         raise HTTPException(400, "Inscription déjà approuvée")
     reg.status = "rejected"

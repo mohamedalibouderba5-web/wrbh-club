@@ -33,24 +33,40 @@ class Club(Base, TimestampMixin):
     __tablename__ = "clubs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Identifiant tenant : slug unique utilisé à la connexion (phase 1) et sous-domaine (phase 2)
+    slug: Mapped[Optional[str]] = mapped_column(String(60), unique=True, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
     name_ar: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    acronym: Mapped[str] = mapped_column(String(20), default="WRBH")
+    acronym: Mapped[str] = mapped_column(String(20), default="CLUB")
     phone: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     whatsapp: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     logo_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    favicon_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     primary_color: Mapped[str] = mapped_column(String(20), default="#1E3A8A")
     accent_color: Mapped[str] = mapped_column(String(20), default="#F5C518")
     facebook: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     instagram: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # White-label / i18n par club
+    app_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    locale_default: Mapped[str] = mapped_column(String(10), default="fr")
+    timezone: Mapped[str] = mapped_column(String(60), default="Africa/Algiers")
+    currency: Mapped[str] = mapped_column(String(10), default="DZD")
+    sport: Mapped[str] = mapped_column(String(40), default="football")
+    # Tenant lifecycle / abonnement
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active / suspended / trial
+    plan: Mapped[str] = mapped_column(String(20), default="club")  # discovery / club / academy
+    trial_ends_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    is_platform: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Tenant : NULL uniquement pour le super-admin plateforme
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     email: Mapped[Optional[str]] = mapped_column(String(180), unique=True, nullable=True, index=True)
     phone: Mapped[Optional[str]] = mapped_column(String(40), unique=True, nullable=True, index=True)
     full_name: Mapped[str] = mapped_column(String(200))
@@ -92,6 +108,7 @@ class Category(Base, TimestampMixin):
     __table_args__ = (UniqueConstraint("season_id", "code", name="uq_category_season_code"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), index=True)
     discipline_id: Mapped[int] = mapped_column(ForeignKey("disciplines.id"))
     code: Mapped[str] = mapped_column(String(20))
@@ -106,6 +123,7 @@ class Team(Base, TimestampMixin):
     __tablename__ = "teams"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), index=True)
     name: Mapped[str] = mapped_column(String(80))
     name_ar: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
@@ -116,6 +134,7 @@ class TeamCoach(Base):
     __tablename__ = "team_coaches"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     role_label: Mapped[str] = mapped_column(String(40), default="coach")
@@ -125,6 +144,7 @@ class Athlete(Base, TimestampMixin):
     __tablename__ = "athletes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     legacy_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     full_name: Mapped[str] = mapped_column(String(200), index=True)
     full_name_ar: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
@@ -143,6 +163,7 @@ class ParentChild(Base):
     __table_args__ = (UniqueConstraint("parent_id", "athlete_id", name="uq_parent_athlete"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     parent_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)
     relationship_label: Mapped[str] = mapped_column(String(40), default="parent")
@@ -152,6 +173,7 @@ class EmergencyContact(Base):
     __tablename__ = "emergency_contacts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     phone: Mapped[str] = mapped_column(String(40))
@@ -162,6 +184,7 @@ class TeamMembership(Base, TimestampMixin):
     __tablename__ = "team_memberships"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), index=True)
@@ -176,6 +199,7 @@ class Registration(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), nullable=True)
@@ -191,6 +215,7 @@ class Attachment(Base, TimestampMixin):
     __tablename__ = "attachments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     athlete_id: Mapped[Optional[int]] = mapped_column(ForeignKey("athletes.id"), nullable=True)
     registration_id: Mapped[Optional[int]] = mapped_column(ForeignKey("registrations.id"), nullable=True)
     filename: Mapped[str] = mapped_column(String(255))
@@ -230,6 +255,8 @@ class Event(Base, TimestampMixin):
     score_home: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     score_away: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     coach_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # Remplaçant si le coach titulaire est absent
+    substitute_coach_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -237,6 +264,7 @@ class EventException(Base):
     __tablename__ = "event_exceptions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     original_date: Mapped[date] = mapped_column(Date)
     new_starts_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -249,6 +277,7 @@ class Convocation(Base, TimestampMixin):
     __table_args__ = (UniqueConstraint("event_id", "athlete_id", name="uq_convocation"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)
     status: Mapped[str] = mapped_column(String(30), default="pending")
@@ -263,6 +292,7 @@ class Attendance(Base, TimestampMixin):
     __table_args__ = (UniqueConstraint("event_id", "athlete_id", name="uq_attendance"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)
     status: Mapped[str] = mapped_column(String(30), default="present")
@@ -275,6 +305,7 @@ class FeePlan(Base, TimestampMixin):
     __tablename__ = "fee_plans"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(120))
@@ -301,6 +332,7 @@ class FeeInstallment(Base, TimestampMixin):
     __tablename__ = "fee_installments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), index=True)
     registration_id: Mapped[Optional[int]] = mapped_column(ForeignKey("registrations.id"), nullable=True)
@@ -317,6 +349,7 @@ class Payment(Base, TimestampMixin):
     __tablename__ = "payments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     installment_id: Mapped[Optional[int]] = mapped_column(ForeignKey("fee_installments.id"), nullable=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
@@ -331,6 +364,7 @@ class Receipt(Base, TimestampMixin):
     __tablename__ = "receipts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     payment_id: Mapped[int] = mapped_column(ForeignKey("payments.id"), unique=True)
     number: Mapped[str] = mapped_column(String(40), unique=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -357,6 +391,7 @@ class CoachPayroll(Base, TimestampMixin):
     __tablename__ = "coach_payrolls"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), index=True)
     pay_type: Mapped[str] = mapped_column(String(30), default="monthly")
@@ -390,6 +425,7 @@ class MessageThread(Base, TimestampMixin):
     __tablename__ = "message_threads"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     subject: Mapped[str] = mapped_column(String(200))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     athlete_id: Mapped[Optional[int]] = mapped_column(ForeignKey("athletes.id"), nullable=True)
@@ -400,6 +436,7 @@ class Message(Base, TimestampMixin):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     thread_id: Mapped[int] = mapped_column(ForeignKey("message_threads.id"), index=True)
     sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     body: Mapped[str] = mapped_column(Text)
@@ -410,6 +447,7 @@ class Notification(Base, TimestampMixin):
     __tablename__ = "notifications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text)
@@ -423,6 +461,7 @@ class PushToken(Base, TimestampMixin):
     __table_args__ = (UniqueConstraint("user_id", "token", name="uq_user_push"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     token: Mapped[str] = mapped_column(String(255))
     platform: Mapped[str] = mapped_column(String(20), default="unknown")
@@ -445,6 +484,7 @@ class InventoryAssignment(Base, TimestampMixin):
     __tablename__ = "inventory_assignments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("inventory_items.id"), index=True)
     athlete_id: Mapped[Optional[int]] = mapped_column(ForeignKey("athletes.id"), nullable=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -470,6 +510,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     action: Mapped[str] = mapped_column(String(80))
     entity: Mapped[str] = mapped_column(String(80))
@@ -484,6 +525,7 @@ class MediaObject(Base, TimestampMixin):
     __tablename__ = "media_objects"
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
     content_type: Mapped[str] = mapped_column(String(80), default="image/jpeg")
     filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     data: Mapped[bytes] = mapped_column(LargeBinary)

@@ -1,11 +1,13 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
 from app.core.database import get_db
 from app.core.roles import Role
+from app.core.tenant import assert_same_club, get_current_club_id
 from app.models import (
     Announcement,
     Athlete,
@@ -30,11 +32,39 @@ from app.schemas import (
     EventCancelIn,
     EventCreate,
     EventOut,
+    EventUpdate,
     RosterAthleteOut,
 )
 from app.services.notify import notify_team_parents
 
 router = APIRouter(tags=["agenda"])
+
+
+def _primary_coach_id(db: Session, team_id: int | None) -> int | None:
+    if not team_id:
+        return None
+    rows = db.query(TeamCoach).filter(TeamCoach.team_id == team_id).all()
+    if not rows:
+        return None
+    for r in rows:
+        if r.role_label == "primary":
+            return r.user_id
+    return rows[0].user_id
+
+
+def _enrich_event(db: Session, event: Event) -> EventOut:
+    out = EventOut.model_validate(event)
+    names: dict[int, str] = {}
+    ids = [i for i in (event.coach_id, event.substitute_coach_id) if i]
+    if ids:
+        for u in db.query(User).filter(User.id.in_(ids)).all():
+            names[u.id] = u.full_name
+    data = out.model_dump()
+    data["coach_name"] = names.get(event.coach_id) if event.coach_id else None
+    data["substitute_coach_name"] = (
+        names.get(event.substitute_coach_id) if event.substitute_coach_id else None
+    )
+    return EventOut(**data)
 
 
 @router.get("/events", response_model=list[EventOut])
@@ -48,8 +78,9 @@ def list_events(
     limit: int = Query(100, ge=1, le=300),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
-    q = db.query(Event)
+    q = db.query(Event).filter(Event.club_id == club_id)
     if not include_cancelled:
         q = q.filter(Event.is_cancelled.is_(False))
     if from_dt:
@@ -75,9 +106,17 @@ def list_events(
         q = q.filter(Event.team_id.in_(team_ids or {-1}))
     elif user.role == Role.COACH:
         team_ids = {r[0] for r in db.query(TeamCoach.team_id).filter(TeamCoach.user_id == user.id)}
-        q = q.filter(Event.team_id.in_(team_ids or {-1}))
+        # Coach voit aussi les séances où il est titulaire ou remplaçant
+        q = q.filter(
+            or_(
+                Event.team_id.in_(team_ids or {-1}),
+                Event.coach_id == user.id,
+                Event.substitute_coach_id == user.id,
+            )
+        )
 
-    return q.order_by(Event.starts_at).offset(skip).limit(limit).all()
+    rows = q.order_by(Event.starts_at).offset(skip).limit(limit).all()
+    return [_enrich_event(db, e) for e in rows]
 
 
 @router.post("/events", response_model=EventOut)
@@ -85,13 +124,47 @@ def create_event(
     payload: EventCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    club = db.query(Club).first()
-    event = Event(club_id=club.id, **payload.model_dump())
+    data = payload.model_dump()
+    if not data.get("coach_id") and data.get("team_id"):
+        data["coach_id"] = _primary_coach_id(db, data["team_id"])
+    if data.get("substitute_coach_id") and data.get("coach_id") == data.get("substitute_coach_id"):
+        raise HTTPException(400, "Le remplaçant doit être différent du coach titulaire")
+    event = Event(club_id=club_id, **data)
     db.add(event)
     db.commit()
     db.refresh(event)
-    return event
+    return _enrich_event(db, event)
+
+
+@router.patch("/events/{event_id}", response_model=EventOut)
+def update_event(
+    event_id: int,
+    payload: EventUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
+):
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
+    if event.is_cancelled:
+        raise HTTPException(400, "Séance annulée — modification impossible")
+    data = payload.model_dump(exclude_unset=True)
+    clear_sub = data.pop("clear_substitute", False)
+    for key, val in data.items():
+        setattr(event, key, val)
+    if clear_sub:
+        event.substitute_coach_id = None
+    if event.team_id and not event.coach_id:
+        event.coach_id = _primary_coach_id(db, event.team_id)
+    if event.substitute_coach_id and event.coach_id == event.substitute_coach_id:
+        raise HTTPException(400, "Le remplaçant doit être différent du coach titulaire")
+    db.commit()
+    db.refresh(event)
+    return _enrich_event(db, event)
 
 
 @router.post("/events/{event_id}/convocations", response_model=list[ConvocationOut])
@@ -163,11 +236,17 @@ def respond_convocation(
 
 
 @router.get("/events/{event_id}", response_model=EventOut)
-def get_event(event_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def get_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
     event = db.get(Event, event_id)
     if not event:
         raise HTTPException(404, "Événement introuvable")
-    return event
+    assert_same_club(event, club_id)
+    return _enrich_event(db, event)
 
 
 @router.post("/events/{event_id}/cancel", response_model=EventOut)
@@ -176,10 +255,12 @@ def cancel_event(
     payload: EventCancelIn,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
 ):
     event = db.get(Event, event_id)
     if not event:
         raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
     event.is_cancelled = True
     reason = payload.reason or "Séance annulée"
     if event.description:
@@ -198,8 +279,7 @@ def cancel_event(
         )
     db.commit()
     db.refresh(event)
-    event._notified = notified  # type: ignore[attr-defined]
-    return event
+    return _enrich_event(db, event)
 
 
 @router.get("/events/{event_id}/roster", response_model=list[RosterAthleteOut])
@@ -263,8 +343,16 @@ comms_router = APIRouter(tags=["communication"])
 
 
 @comms_router.get("/announcements", response_model=list[AnnouncementOut])
-def list_announcements(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    q = db.query(Announcement).order_by(Announcement.is_pinned.desc(), Announcement.id.desc())
+def list_announcements(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    q = (
+        db.query(Announcement)
+        .filter(Announcement.club_id == club_id)
+        .order_by(Announcement.is_pinned.desc(), Announcement.id.desc())
+    )
     if user.role == Role.PARENT:
         q = q.filter(Announcement.audience.in_(["all", "parents"]))
     elif user.role == Role.COACH:
@@ -277,10 +365,10 @@ def create_announcement(
     payload: AnnouncementCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    club = db.query(Club).first()
     ann = Announcement(
-        club_id=club.id,
+        club_id=club_id,
         author_id=user.id,
         published_at=datetime.now(timezone.utc),
         **payload.model_dump(),
