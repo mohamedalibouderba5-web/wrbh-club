@@ -32,7 +32,7 @@ const PAGE = 40;
 const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export function AthletesPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [rows, setRows] = useState<Athlete[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [q, setQ] = useState("");
@@ -54,6 +54,7 @@ export function AthletesPage() {
     photo_path: "",
     blood_type: "",
   });
+  // Nouveaux joueurs en premier (décroissant) — obligatoire en arabe
   const [sortKey, setSortKey] = useState("recent");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [editId, setEditId] = useState<number | null>(null);
@@ -85,6 +86,14 @@ export function AthletesPage() {
       setSortDir(key === "name" ? "asc" : "desc");
     }
   }
+
+  // AR : toujours afficher les nouveaux joueurs en ordre décroissant (الأحدث أولاً)
+  useEffect(() => {
+    if (lang === "ar") {
+      setSortKey("recent");
+      setSortDir("desc");
+    }
+  }, [lang]);
 
   useEffect(() => {
     const id = window.setTimeout(() => setQDebounced(q.trim()), 280);
@@ -401,6 +410,13 @@ export function AthletesPage() {
           <thead>
             <tr>
               <th>Photo</th>
+              <SortHeader
+                label={lang === "ar" ? "جديد ↕" : "Récent"}
+                sortKey="recent"
+                activeKey={sortKey}
+                dir={sortDir}
+                onSort={onSort}
+              />
               <SortHeader label="#" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Nom / الاسم" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th>Cat.</th>
@@ -434,6 +450,9 @@ export function AthletesPage() {
                   ) : (
                     <span className="avatar placeholder">?</span>
                   )}
+                </td>
+                <td className="muted" style={{ fontSize: "0.85em" }}>
+                  {r.id}
                 </td>
                 <td>{r.legacy_number ?? "—"}</td>
                 <td>{r.full_name}</td>

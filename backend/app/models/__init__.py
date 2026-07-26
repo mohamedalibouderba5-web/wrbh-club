@@ -539,3 +539,23 @@ class MediaObject(Base, TimestampMixin):
     data: Mapped[bytes] = mapped_column(LargeBinary)
     byte_size: Mapped[int] = mapped_column(Integer, default=0)
     kind: Mapped[str] = mapped_column(String(40), default="photo")
+
+
+class SystemFeedbackEvent(Base):
+    """Erreurs automatiques + réclamations / idées utilisateurs (SaaS feedback)."""
+
+    __tablename__ = "system_feedback_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)  # auto_error | user_report
+    source: Mapped[str] = mapped_column(String(40), default="web")  # web | api | mobile
+    severity: Mapped[str] = mapped_column(String(20), default="error")
+    target: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    message: Mapped[str] = mapped_column(Text)
+    stack: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    page_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    role: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    meta_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

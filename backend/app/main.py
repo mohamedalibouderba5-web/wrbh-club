@@ -7,9 +7,10 @@ from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from app.api import agenda, auth, club, finance, mobile, uploads
+from app.api import agenda, auth, club, feedback, finance, mobile, uploads
 from app.core.config import get_settings
 from app.core.database import Base, engine
+from app.services.feedback_store import append_event
 
 settings = get_settings()
 
@@ -194,7 +195,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.10.0",
+    version="1.11.0",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,
@@ -268,6 +269,35 @@ app.include_router(finance.router, prefix="/api/v1")
 app.include_router(finance.inv_router, prefix="/api/v1")
 app.include_router(mobile.router, prefix="/api/v1")
 app.include_router(uploads.router, prefix="/api/v1")
+app.include_router(feedback.router, prefix="/api/v1")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request, exc: Exception):
+    """Exceptions non-HTTP → collecteur. Les HTTPException restent gérées par FastAPI."""
+    from fastapi import HTTPException
+    from fastapi.exception_handlers import http_exception_handler
+    from fastapi.responses import JSONResponse
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    if isinstance(exc, (HTTPException, StarletteHTTPException)):
+        return await http_exception_handler(request, exc)
+    try:
+        append_event(
+            {
+                "kind": "auto_error",
+                "source": "api",
+                "severity": "critical",
+                "target": str(request.url.path),
+                "message": f"{type(exc).__name__}: {exc}",
+                "page_url": str(request.url),
+                "meta": {"method": request.method},
+            },
+            db=None,
+        )
+    except Exception:
+        pass
+    return JSONResponse(status_code=500, content={"detail": "Erreur serveur interne"})
 
 
 @app.get("/")

@@ -30,5 +30,7 @@ backend/scripts/test_assets/last_test_report.json
 backend/scripts/test_assets/run_log.txt
 backend/.credentials.rotated
 
+data/*.jsonl
+data/ERROR_FEEDBACK_LATEST.md
 
 web/public/downloads/*.apk

@@ -1,3 +1,5 @@
+import { reportApiFailure } from "../feedback/collector";
+
 /** Client API rapide : mémoire + sessionStorage, stale-while-revalidate. */
 const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 
@@ -118,6 +120,8 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, retries = 0)
         if (res.status === 401 && localStorage.getItem("wrbh_token")) {
           // JWT expiré / secret changé / token corrompu → reconnecter au lieu d'afficher l'erreur
           clearSessionAndRedirect(msg.toLowerCase().includes("expir") ? "expired" : "session");
+        } else if (res.status !== 401) {
+          reportApiFailure(path, res.status, msg);
         }
         throw new HttpError(msg);
       }
