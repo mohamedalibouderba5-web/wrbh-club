@@ -206,6 +206,8 @@ class RegistrationOut(ORMModel):
     status: str
     source: str
     subscription_fee: Optional[Decimal]
+    seq_no: Optional[int] = None
+    reference: Optional[str] = None
     athlete_name: Optional[str] = None
     athlete_photo: Optional[str] = None
     category_code: Optional[str] = None
@@ -345,6 +347,16 @@ class InstallmentOut(ORMModel):
     amount: Decimal
     amount_paid: Decimal
     status: str
+    seq_no: Optional[int] = None
+    reference: Optional[str] = None
+
+
+class InstallmentUpdate(BaseModel):
+    label: Optional[str] = None
+    due_date: Optional[date] = None
+    amount: Optional[Decimal] = None
+    amount_paid: Optional[Decimal] = None
+    status: Optional[str] = None
 
 
 class ClubFeeSettingsOut(BaseModel):
@@ -405,6 +417,8 @@ class LedgerOut(ORMModel):
     counterparty: Optional[str]
     place: Optional[str]
     notes: Optional[str] = None
+    seq_no: Optional[int] = None
+    reference: Optional[str] = None
 
 
 class AnnouncementCreate(BaseModel):

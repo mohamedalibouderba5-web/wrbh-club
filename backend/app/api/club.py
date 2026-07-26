@@ -966,6 +966,8 @@ def _reg_out_from_maps(
         status=reg.status,
         source=reg.source,
         subscription_fee=reg.subscription_fee,
+        seq_no=getattr(reg, "seq_no", None),
+        reference=getattr(reg, "reference", None),
         athlete_name=athlete.full_name if athlete else None,
         athlete_photo=enrich_media_path(athlete.photo_path) if athlete else None,
         category_code=cat.code if cat else None,
@@ -988,6 +990,8 @@ def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) ->
         status=reg.status,
         source=reg.source,
         subscription_fee=reg.subscription_fee,
+        seq_no=getattr(reg, "seq_no", None),
+        reference=getattr(reg, "reference", None),
         athlete_name=athlete.full_name if athlete else None,
         athlete_photo=enrich_media_path(athlete.photo_path) if athlete else None,
         category_code=cat.code if cat else None,
@@ -1060,6 +1064,8 @@ def list_registrations(
             "date": Registration.registered_on,
             "status": Registration.status,
             "category": Registration.category_id,
+            "number": Registration.seq_no,
+            "reference": Registration.reference,
         }
         col = sort_cols.get(sort, Registration.id)
         order_expr = col.desc() if desc else col.asc()
@@ -1261,6 +1267,15 @@ def create_registration(
         status="pending" if user.role == Role.PARENT else "approved",
         source=payload.source or ("mobile" if user.role == Role.PARENT else "web"),
         subscription_fee=payload.subscription_fee,
+    )
+    from app.services.references import assign_registration_identity
+
+    assign_registration_identity(
+        db,
+        reg,
+        club_id=club_id,
+        season=season,
+        category=cat,
     )
     db.add(reg)
     db.flush()

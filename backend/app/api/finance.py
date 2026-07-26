@@ -31,6 +31,7 @@ from app.schemas import (
     ClubFeeSettingsUpdate,
     EquipmentPurchaseCreate,
     InstallmentOut,
+    InstallmentUpdate,
     InventoryAssignmentUpdate,
     InventoryItemCreate,
     InventoryItemOut,
@@ -52,6 +53,12 @@ from app.services.fees import (
     ensure_subscription_installment,
     get_fee_settings,
     monthly_label_display,
+)
+from app.services.references import (
+    assign_installment_identity,
+    assign_ledger_identity,
+    assign_payment_identity,
+    build_op_reference,
 )
 
 router = APIRouter(tags=["finance"])
@@ -76,6 +83,8 @@ def _installment_out(row: FeeInstallment, names: dict[int, str]) -> InstallmentO
         amount=row.amount,
         amount_paid=row.amount_paid,
         status=row.status,
+        seq_no=getattr(row, "seq_no", None),
+        reference=getattr(row, "reference", None),
     )
 
 
@@ -120,18 +129,18 @@ def _ledger_income_for_payment(
     user_id: int,
     category: str = "subscription",
 ) -> None:
-    db.add(
-        LedgerEntry(
-            club_id=club_id,
-            season_id=season_id,
-            entry_type="income",
-            category=category,
-            label=label,
-            amount=amount,
-            entry_date=paid_on,
-            created_by=user_id,
-        )
+    entry = LedgerEntry(
+        club_id=club_id,
+        season_id=season_id,
+        entry_type="income",
+        category=category,
+        label=label,
+        amount=amount,
+        entry_date=paid_on,
+        created_by=user_id,
     )
+    assign_ledger_identity(db, entry, club_id=club_id)
+    db.add(entry)
 
 
 @router.get("/finance/settings", response_model=ClubFeeSettingsOut)
@@ -221,6 +230,62 @@ def list_installments(
     return [_installment_out(r, names) for r in rows]
 
 
+@router.patch("/installments/{installment_id}", response_model=InstallmentOut)
+def update_installment(
+    installment_id: int,
+    payload: InstallmentUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    inst = db.get(FeeInstallment, installment_id)
+    if not inst:
+        raise HTTPException(404, "Échéance introuvable")
+    assert_same_club(inst, club_id)
+    data = payload.model_dump(exclude_unset=True)
+    if "status" in data and data["status"] not in {
+        "due",
+        "partial",
+        "paid",
+        "waived",
+        "overdue",
+        None,
+    }:
+        raise HTTPException(400, "Statut invalide")
+    for key, val in data.items():
+        setattr(inst, key, val)
+    if inst.amount is not None and inst.amount < 0:
+        raise HTTPException(400, "Montant invalide")
+    # Ajuster statut auto si montant payé change
+    if inst.amount_paid is not None and inst.amount is not None:
+        if inst.amount_paid >= inst.amount and inst.amount > 0:
+            inst.status = "paid"
+        elif inst.amount_paid > 0 and inst.status == "paid":
+            inst.status = "partial"
+    # Numéro / réf immuables si absents
+    if not getattr(inst, "seq_no", None):
+        q = db.query(func.coalesce(func.max(FeeInstallment.seq_no), 0)).filter(
+            or_(FeeInstallment.club_id == club_id, FeeInstallment.club_id.is_(None))
+        )
+        inst.seq_no = int(q.scalar() or 0) + 1
+    if not getattr(inst, "reference", None):
+        year = inst.due_date.year if inst.due_date else date.today().year
+        inst.reference = build_op_reference("ECH", year, int(inst.seq_no))
+    write_audit(
+        db,
+        action="update",
+        entity="fee_installment",
+        entity_id=inst.id,
+        user_id=user.id,
+        detail=f"status={inst.status} due={inst.due_date}",
+    )
+    db.commit()
+    db.refresh(inst)
+    cache_delete_prefix("finance:")
+    names = _athlete_names(db, [inst.athlete_id])
+    return _installment_out(inst, names)
+
+
 @router.post("/payments")
 def create_payment(
     payload: PaymentCreate,
@@ -229,6 +294,7 @@ def create_payment(
     club_id: int = Depends(get_current_club_id),
 ):
     payment = Payment(**payload.model_dump(), club_id=club_id, recorded_by=user.id)
+    assign_payment_identity(db, payment, club_id=club_id)
     db.add(payment)
     db.flush()
 
@@ -403,6 +469,8 @@ def create_quick_payment(
 
     if installment is not None and getattr(installment, "club_id", None) is None:
         installment.club_id = club_id
+    if installment is not None:
+        assign_installment_identity(db, installment, club_id=club_id)
 
     payment = Payment(
         installment_id=installment.id if installment else None,
@@ -414,6 +482,7 @@ def create_quick_payment(
         recorded_by=user.id,
         notes=payload.notes,
     )
+    assign_payment_identity(db, payment, club_id=club_id)
     db.add(payment)
     db.flush()
     if installment:
@@ -475,6 +544,8 @@ def list_recent_payments(
     return [
         {
             "id": r.id,
+            "seq_no": getattr(r, "seq_no", None),
+            "reference": r.reference,
             "athlete_id": r.athlete_id,
             "athlete_name": names.get(r.athlete_id),
             "amount": float(r.amount),
@@ -512,6 +583,7 @@ def create_ledger(
     club_id: int = Depends(get_current_club_id),
 ):
     entry = LedgerEntry(club_id=club_id, created_by=user.id, **payload.model_dump())
+    assign_ledger_identity(db, entry, club_id=club_id)
     db.add(entry)
     db.commit()
     db.refresh(entry)
@@ -532,7 +604,10 @@ def update_ledger(
     if not entry:
         raise HTTPException(404, "Ligne introuvable")
     assert_same_club(entry, club_id)
-    for key, val in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    data.pop("reference", None)
+    data.pop("seq_no", None)
+    for key, val in data.items():
         setattr(entry, key, val)
     db.commit()
     db.refresh(entry)
@@ -591,6 +666,9 @@ def update_payment(
     assert_same_club(payment, club_id)
     old_amount = payment.amount
     data = payload.model_dump(exclude_unset=True)
+    # Référence / N° immuables — ne jamais écraser
+    data.pop("reference", None)
+    data.pop("seq_no", None)
     for key, val in data.items():
         setattr(payment, key, val)
     # Ajuste l'échéance liée si le montant change
@@ -964,18 +1042,18 @@ def purchase_equipment(
         db.flush()
 
     if total > 0:
-        db.add(
-            LedgerEntry(
-                club_id=club_id,
-                entry_type="expense",
-                category="equipment",
-                label=f"Achat {payload.name} ×{payload.quantity}",
-                amount=total,
-                entry_date=entry_date,
-                notes=payload.notes,
-                created_by=user.id,
-            )
+        entry = LedgerEntry(
+            club_id=club_id,
+            entry_type="expense",
+            category="equipment",
+            label=f"Achat {payload.name} ×{payload.quantity}",
+            amount=total,
+            entry_date=entry_date,
+            notes=payload.notes,
+            created_by=user.id,
         )
+        assign_ledger_identity(db, entry, club_id=club_id)
+        db.add(entry)
 
     assigned = None
     if payload.athlete_id:

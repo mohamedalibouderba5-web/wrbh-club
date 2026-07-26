@@ -195,7 +195,7 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "1.9.0",
+        "version": "1.10.0",
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,

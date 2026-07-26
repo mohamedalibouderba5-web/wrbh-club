@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiGetFast, loadAllSettled } from "../api/client";
+import { SortHeader, type SortDir } from "../components/SortHeader";
 import { toast } from "../components/Toast";
 import { useAuth } from "../auth";
 
@@ -22,6 +23,8 @@ type Ledger = {
   place?: string;
   counterparty?: string;
   notes?: string;
+  seq_no?: number;
+  reference?: string;
 };
 type Payroll = { id: number; user_id: number; label: string; amount: number; pay_type: string; status: string };
 type FeeSettings = {
@@ -39,6 +42,8 @@ type PaymentRow = {
   paid_on?: string;
   method: string;
   notes?: string;
+  seq_no?: number;
+  reference?: string;
 };
 type Installment = {
   id: number;
@@ -49,7 +54,12 @@ type Installment = {
   amount: number;
   amount_paid: number;
   status: string;
+  due_date?: string;
+  seq_no?: number;
+  reference?: string;
 };
+
+type FinanceTab = "cotisations" | "paiements" | "achats" | "caisse";
 
 const MONTHS = [
   { v: 1, l: "Janvier" },
@@ -65,6 +75,14 @@ const MONTHS = [
   { v: 11, l: "Novembre" },
   { v: 12, l: "Décembre" },
 ];
+
+function cmp(a: unknown, b: unknown): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), "fr", { numeric: true, sensitivity: "base" });
+}
 
 export function FinancePage() {
   const { role } = useAuth();
@@ -114,6 +132,11 @@ export function FinancePage() {
   });
   const [editLedger, setEditLedger] = useState<Ledger | null>(null);
   const [editPay, setEditPay] = useState<PaymentRow | null>(null);
+  const [editInst, setEditInst] = useState<Installment | null>(null);
+  const [tab, setTab] = useState<FinanceTab>("cotisations");
+  const [paySort, setPaySort] = useState({ key: "recent", dir: "desc" as SortDir });
+  const [ledSort, setLedSort] = useState({ key: "date", dir: "desc" as SortDir });
+  const [instSort, setInstSort] = useState({ key: "due", dir: "desc" as SortDir });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -163,7 +186,6 @@ export function FinancePage() {
     load();
   }, [load]);
 
-  // Charge les joueurs filtrés par catégorie
   useEffect(() => {
     const params = new URLSearchParams({ limit: "200", sort: "name", order: "asc" });
     if (pay.category_id) params.set("category_id", pay.category_id);
@@ -173,6 +195,105 @@ export function FinancePage() {
   }, [pay.category_id]);
 
   const filteredAthletes = useMemo(() => athletes, [athletes]);
+
+  const purchases = useMemo(
+    () => ledger.filter((x) => x.category === "equipment" || x.category === "achat" || /équip|equip|achat/i.test(x.label)),
+    [ledger],
+  );
+  const caisseRows = useMemo(
+    () => ledger.filter((x) => x.category !== "equipment" && x.category !== "achat"),
+    [ledger],
+  );
+
+  const sortedInstallments = useMemo(() => {
+    const rows = [...unpaid];
+    const dir = instSort.dir === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      const map: Record<string, [unknown, unknown]> = {
+        number: [a.seq_no ?? a.id, b.seq_no ?? b.id],
+        reference: [a.reference, b.reference],
+        athlete: [a.athlete_name, b.athlete_name],
+        label: [a.label, b.label],
+        amount: [a.amount, b.amount],
+        paid: [a.amount_paid, b.amount_paid],
+        due: [a.due_date, b.due_date],
+        status: [a.status, b.status],
+      };
+      const [va, vb] = map[instSort.key] ?? [a.due_date, b.due_date];
+      return cmp(va, vb) * dir;
+    });
+    return rows;
+  }, [unpaid, instSort]);
+
+  const sortedPayments = useMemo(() => {
+    const rows = [...recent];
+    const dir = paySort.dir === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      const map: Record<string, [unknown, unknown]> = {
+        number: [a.seq_no ?? a.id, b.seq_no ?? b.id],
+        reference: [a.reference, b.reference],
+        athlete: [a.athlete_name, b.athlete_name],
+        amount: [a.amount, b.amount],
+        recent: [a.paid_on, b.paid_on],
+        method: [a.method, b.method],
+      };
+      const [va, vb] = map[paySort.key] ?? [a.paid_on, b.paid_on];
+      return cmp(va, vb) * dir;
+    });
+    return rows;
+  }, [recent, paySort]);
+
+  const sortedPurchases = useMemo(() => {
+    const rows = [...purchases];
+    const dir = ledSort.dir === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      const map: Record<string, [unknown, unknown]> = {
+        number: [a.seq_no ?? a.id, b.seq_no ?? b.id],
+        reference: [a.reference, b.reference],
+        label: [a.label, b.label],
+        amount: [a.amount, b.amount],
+        date: [a.entry_date, b.entry_date],
+        type: [a.entry_type, b.entry_type],
+      };
+      const [va, vb] = map[ledSort.key] ?? [a.entry_date, b.entry_date];
+      return cmp(va, vb) * dir;
+    });
+    return rows;
+  }, [purchases, ledSort]);
+
+  const sortedCaisse = useMemo(() => {
+    const rows = [...caisseRows];
+    const dir = ledSort.dir === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      const map: Record<string, [unknown, unknown]> = {
+        number: [a.seq_no ?? a.id, b.seq_no ?? b.id],
+        reference: [a.reference, b.reference],
+        label: [a.label, b.label],
+        amount: [a.amount, b.amount],
+        date: [a.entry_date, b.entry_date],
+        type: [a.entry_type, b.entry_type],
+        category: [a.category, b.category],
+      };
+      const [va, vb] = map[ledSort.key] ?? [a.entry_date, b.entry_date];
+      return cmp(va, vb) * dir;
+    });
+    return rows;
+  }, [caisseRows, ledSort]);
+
+  const purchaseTotal = useMemo(() => purchases.reduce((s, x) => s + Number(x.amount || 0), 0), [purchases]);
+  const caisseExpense = useMemo(
+    () => caisseRows.filter((x) => x.entry_type === "expense").reduce((s, x) => s + Number(x.amount || 0), 0),
+    [caisseRows],
+  );
+  const caisseIncome = useMemo(
+    () => caisseRows.filter((x) => x.entry_type === "income").reduce((s, x) => s + Number(x.amount || 0), 0),
+    [caisseRows],
+  );
+  const paymentsTotal = useMemo(() => recent.reduce((s, x) => s + Number(x.amount || 0), 0), [recent]);
+  const unpaidRemain = useMemo(
+    () => unpaid.reduce((s, x) => s + Math.max(0, Number(x.amount) - Number(x.amount_paid)), 0),
+    [unpaid],
+  );
 
   function onTypeChange(type: string) {
     const amount =
@@ -338,6 +459,44 @@ export function FinancePage() {
     }
   }
 
+  async function saveInstallmentEdit() {
+    if (!editInst) return;
+    try {
+      await api(`/api/v1/installments/${editInst.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          label: editInst.label,
+          amount: Number(editInst.amount),
+          amount_paid: Number(editInst.amount_paid),
+          status: editInst.status,
+          due_date: editInst.due_date || null,
+        }),
+      });
+      toast("Échéance modifiée", "success");
+      setEditInst(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  function onPaySort(key: string) {
+    setPaySort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
+  }
+  function onLedSort(key: string) {
+    setLedSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
+  }
+  function onInstSort(key: string) {
+    setInstSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
+  }
+
+  const tabs: { id: FinanceTab; label: string }[] = [
+    { id: "cotisations", label: "Cotisations / Échéances" },
+    { id: "paiements", label: "Paiements joueurs" },
+    { id: "achats", label: "Achats" },
+    { id: "caisse", label: "Recettes / Dépenses" },
+  ];
+
   return (
     <div className="grid" style={{ gap: "1rem" }}>
       {loading && <p className="muted">Chargement…</p>}
@@ -361,491 +520,663 @@ export function FinancePage() {
             <span>Impayés</span>
           </div>
           <div className="card stat">
-            <strong>{(dash.monthly_subscription_dzd ?? settings?.monthly_subscription_dzd ?? 800).toLocaleString()} DZD</strong>
-            <span>Mensuel / شهري</span>
+            <strong>
+              {(dash.monthly_subscription_dzd ?? settings?.monthly_subscription_dzd ?? 800).toLocaleString()} DZD
+            </strong>
+            <span>Cotisation mensuelle</span>
           </div>
           <div className="card stat">
-            <strong>{(dash.annual_insurance_dzd ?? settings?.annual_insurance_dzd ?? 1500).toLocaleString()} DZD</strong>
-            <span>Assurance / التأمين</span>
+            <strong>{dash.ledger_expense.toLocaleString()} DZD</strong>
+            <span>Dépenses caisse</span>
           </div>
         </div>
       )}
 
-      {/* Constantes */}
-      <form className="card" onSubmit={onSaveSettings}>
-        <h3 style={{ marginTop: 0 }}>Constantes cotisations / ثوابت الاشتراك</h3>
-        <p className="muted" style={{ marginTop: 0 }}>
-          Paramètres du club : chaque joueur paie l’abonnement mensuel et l’assurance annuelle.
-        </p>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-          <div className="field">
-            <label>Abonnement mensuel (DZD)</label>
-            <input
-              className="ltr"
-              inputMode="decimal"
-              disabled={!canEditSettings}
-              value={settingsForm.monthly}
-              onChange={(e) => setSettingsForm({ ...settingsForm, monthly: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Assurance annuelle (DZD)</label>
-            <input
-              className="ltr"
-              inputMode="decimal"
-              disabled={!canEditSettings}
-              value={settingsForm.insurance}
-              onChange={(e) => setSettingsForm({ ...settingsForm, insurance: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Droits d’inscription (DZD)</label>
-            <input
-              className="ltr"
-              inputMode="decimal"
-              disabled={!canEditSettings}
-              value={settingsForm.inscription}
-              onChange={(e) => setSettingsForm({ ...settingsForm, inscription: e.target.value })}
-            />
-          </div>
-        </div>
-        {canEditSettings && <button type="submit">Enregistrer les constantes</button>}
-      </form>
+      <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={tab === t.id ? "primary" : ""}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      {/* Paiement guidé */}
-      <form className="card" onSubmit={onQuickPay}>
-        <h3 style={{ marginTop: 0 }}>Encaisser un paiement / تسجيل دفعة</h3>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-          <div className="field">
-            <label>Type de paiement</label>
-            <select value={pay.payment_type} onChange={(e) => onTypeChange(e.target.value)}>
-              <option value="monthly">Abonnement mensuel (800)</option>
-              <option value="insurance">Assurance annuelle (1500)</option>
-              <option value="inscription">Droits d’inscription</option>
-              <option value="equipment">Équipement / brassards</option>
-            </select>
+      {tab === "cotisations" && (
+        <>
+          <div className="card">
+            <h2>Formule — Cotisations</h2>
+            <p className="muted" style={{ marginBottom: "0.75rem" }}>
+              Impayés restants = Σ (montant échéance − déjà payé). Constantes club ci-dessous.
+            </p>
+            <div className="grid stats">
+              <div className="card stat">
+                <strong>{unpaidRemain.toLocaleString()} DZD</strong>
+                <span>Reste à encaisser (échéances)</span>
+              </div>
+              <div className="card stat">
+                <strong>{(dash?.cotisations_paid ?? 0).toLocaleString()} DZD</strong>
+                <span>Déjà encaissé</span>
+              </div>
+              <div className="card stat">
+                <strong>{unpaid.length}</strong>
+                <span>Échéances ouvertes</span>
+              </div>
+            </div>
+            {canEditSettings && (
+              <form onSubmit={onSaveSettings} className="grid" style={{ gap: "0.75rem", marginTop: "1rem" }}>
+                <h3>Constantes (tarifs)</h3>
+                <div className="grid two">
+                  <label>
+                    Mensuelle (DZD)
+                    <input
+                      value={settingsForm.monthly}
+                      onChange={(e) => setSettingsForm((s) => ({ ...s, monthly: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Assurance annuelle
+                    <input
+                      value={settingsForm.insurance}
+                      onChange={(e) => setSettingsForm((s) => ({ ...s, insurance: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Inscription
+                    <input
+                      value={settingsForm.inscription}
+                      onChange={(e) => setSettingsForm((s) => ({ ...s, inscription: e.target.value }))}
+                    />
+                  </label>
+                </div>
+                <button type="submit" className="primary">
+                  Enregistrer les constantes
+                </button>
+              </form>
+            )}
           </div>
-          <div className="field">
-            <label>Catégorie joueur</label>
-            <select
-              value={pay.category_id}
-              onChange={(e) => setPay({ ...pay, category_id: e.target.value, athlete_id: "" })}
-            >
-              <option value="">Toutes</option>
-              {cats.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code}
-                </option>
-              ))}
-            </select>
+
+          <div className="card">
+            <h2>Tableau — Échéances</h2>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <SortHeader label="N°" sortKey="number" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label="Réf" sortKey="reference" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label="Joueur" sortKey="athlete" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label="Libellé" sortKey="label" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label="Montant" sortKey="amount" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label="Payé" sortKey="paid" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label="Échéance" sortKey="due" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label="Statut" sortKey="status" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedInstallments.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.seq_no ?? "—"}</td>
+                      <td>
+                        <code>{row.reference || "—"}</code>
+                      </td>
+                      <td>{row.athlete_name || `#${row.athlete_id}`}</td>
+                      <td>{row.label}</td>
+                      <td>{Number(row.amount).toLocaleString()} DZD</td>
+                      <td>{Number(row.amount_paid).toLocaleString()} DZD</td>
+                      <td>{row.due_date || "—"}</td>
+                      <td>{row.status}</td>
+                      <td>
+                        <button type="button" onClick={() => setEditInst({ ...row })}>
+                          Modifier
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!sortedInstallments.length && (
+                    <tr>
+                      <td colSpan={9} className="muted">
+                        Aucune échéance ouverte
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div className="field">
-            <label>Joueur</label>
-            <select
-              required
-              value={pay.athlete_id}
-              onChange={(e) => setPay({ ...pay, athlete_id: e.target.value })}
-            >
-              <option value="">— Choisir —</option>
-              {filteredAthletes.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.full_name}
-                  {a.category_code ? ` (${a.category_code})` : ""}
-                </option>
-              ))}
-            </select>
+        </>
+      )}
+
+      {tab === "paiements" && (
+        <>
+          <div className="card">
+            <h2>Formule — Paiements joueurs</h2>
+            <p className="muted">Total encaissements récents = Σ montants paiements listés.</p>
+            <div className="grid stats">
+              <div className="card stat">
+                <strong>{paymentsTotal.toLocaleString()} DZD</strong>
+                <span>Total paiements (liste)</span>
+              </div>
+              <div className="card stat">
+                <strong>{recent.length}</strong>
+                <span>Opérations</span>
+              </div>
+            </div>
           </div>
-          {pay.payment_type === "monthly" && (
-            <>
-              <div className="field">
-                <label>Mois</label>
-                <select value={pay.month} onChange={(e) => setPay({ ...pay, month: e.target.value })}>
-                  {MONTHS.map((m) => (
-                    <option key={m.v} value={m.v}>
-                      {m.l}
+
+          <div className="card">
+            <h2>Encaisser un paiement</h2>
+            <form onSubmit={onQuickPay} className="grid" style={{ gap: "0.75rem" }}>
+              <div className="grid two">
+                <label>
+                  Type
+                  <select value={pay.payment_type} onChange={(e) => onTypeChange(e.target.value)}>
+                    <option value="monthly">Mensuelle</option>
+                    <option value="insurance">Assurance</option>
+                    <option value="inscription">Inscription</option>
+                    <option value="equipment">Équipement</option>
+                  </select>
+                </label>
+                <label>
+                  Catégorie
+                  <select
+                    value={pay.category_id}
+                    onChange={(e) => setPay((p) => ({ ...p, category_id: e.target.value, athlete_id: "" }))}
+                  >
+                    <option value="">Toutes</option>
+                    {cats.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Joueur
+                  <select
+                    required
+                    value={pay.athlete_id}
+                    onChange={(e) => setPay((p) => ({ ...p, athlete_id: e.target.value }))}
+                  >
+                    <option value="">—</option>
+                    {filteredAthletes.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {pay.payment_type === "monthly" && (
+                  <>
+                    <label>
+                      Mois
+                      <select value={pay.month} onChange={(e) => setPay((p) => ({ ...p, month: e.target.value }))}>
+                        {MONTHS.map((m) => (
+                          <option key={m.v} value={m.v}>
+                            {m.l}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Année
+                      <input value={pay.year} onChange={(e) => setPay((p) => ({ ...p, year: e.target.value }))} />
+                    </label>
+                  </>
+                )}
+                {pay.payment_type === "equipment" && (
+                  <label>
+                    Libellé équipement
+                    <input
+                      value={pay.equipment_label}
+                      onChange={(e) => setPay((p) => ({ ...p, equipment_label: e.target.value }))}
+                    />
+                  </label>
+                )}
+                <label>
+                  Montant (DZD)
+                  <input value={pay.amount} onChange={(e) => setPay((p) => ({ ...p, amount: e.target.value }))} />
+                </label>
+                <label>
+                  Date
+                  <input
+                    type="date"
+                    value={pay.paid_on}
+                    onChange={(e) => setPay((p) => ({ ...p, paid_on: e.target.value }))}
+                  />
+                </label>
+              </div>
+              <button type="submit" className="primary" disabled={savingPay}>
+                {savingPay ? "Enregistrement…" : "Enregistrer le paiement"}
+              </button>
+            </form>
+          </div>
+
+          <div className="card">
+            <h2>Tableau — Paiements</h2>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <SortHeader label="N°" sortKey="number" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label="Réf" sortKey="reference" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label="Joueur" sortKey="athlete" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label="Montant" sortKey="amount" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label="Date" sortKey="recent" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label="Mode" sortKey="method" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedPayments.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.seq_no ?? "—"}</td>
+                      <td>
+                        <code>{row.reference || "—"}</code>
+                      </td>
+                      <td>{row.athlete_name || `#${row.athlete_id}`}</td>
+                      <td>{Number(row.amount).toLocaleString()} DZD</td>
+                      <td>{row.paid_on || "—"}</td>
+                      <td>{row.method}</td>
+                      <td>
+                        <button type="button" onClick={() => setEditPay({ ...row })}>
+                          Modifier
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!sortedPayments.length && (
+                    <tr>
+                      <td colSpan={7} className="muted">
+                        Aucun paiement récent
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === "achats" && (
+        <>
+          <div className="card">
+            <h2>Formule — Achats</h2>
+            <p className="muted">Total achats = Σ montants écritures achat / équipement.</p>
+            <div className="grid stats">
+              <div className="card stat">
+                <strong>{purchaseTotal.toLocaleString()} DZD</strong>
+                <span>Total achats</span>
+              </div>
+              <div className="card stat">
+                <strong>{purchases.length}</strong>
+                <span>Lignes</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h2>Nouvel achat / équipement</h2>
+            <form onSubmit={onEquipPurchase} className="grid two">
+              <label>
+                Désignation
+                <input required value={equip.name} onChange={(e) => setEquip((x) => ({ ...x, name: e.target.value }))} />
+              </label>
+              <label>
+                Quantité
+                <input value={equip.quantity} onChange={(e) => setEquip((x) => ({ ...x, quantity: e.target.value }))} />
+              </label>
+              <label>
+                Coût unitaire
+                <input value={equip.unit_cost} onChange={(e) => setEquip((x) => ({ ...x, unit_cost: e.target.value }))} />
+              </label>
+              <label>
+                Joueur (optionnel)
+                <select value={equip.athlete_id} onChange={(e) => setEquip((x) => ({ ...x, athlete_id: e.target.value }))}>
+                  <option value="">—</option>
+                  {athletes.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.full_name}
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="field">
-                <label>Année</label>
-                <input
-                  className="ltr"
-                  value={pay.year}
-                  onChange={(e) => setPay({ ...pay, year: e.target.value })}
-                />
-              </div>
-            </>
-          )}
-          {pay.payment_type === "equipment" && (
-            <div className="field">
-              <label>Article (maillot, brassards…)</label>
-              <input
-                required
-                value={pay.equipment_label}
-                onChange={(e) => setPay({ ...pay, equipment_label: e.target.value })}
-                placeholder="Ex. maillot + brassards"
-              />
+              </label>
+              <button type="submit" className="primary">
+                Enregistrer l&apos;achat
+              </button>
+            </form>
+          </div>
+
+          <div className="card">
+            <h2>Tableau — Achats</h2>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <SortHeader label="N°" sortKey="number" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Réf" sortKey="reference" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Libellé" sortKey="label" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Montant" sortKey="amount" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Date" sortKey="date" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedPurchases.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.seq_no ?? "—"}</td>
+                      <td>
+                        <code>{row.reference || "—"}</code>
+                      </td>
+                      <td>{row.label}</td>
+                      <td>{Number(row.amount).toLocaleString()} DZD</td>
+                      <td>{row.entry_date}</td>
+                      <td>
+                        <button type="button" onClick={() => setEditLedger({ ...row })}>
+                          Modifier
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!sortedPurchases.length && (
+                    <tr>
+                      <td colSpan={6} className="muted">
+                        Aucun achat
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
-          )}
-          <div className="field">
-            <label>Montant DZD</label>
-            <input
-              required
-              className="ltr"
-              value={pay.amount}
-              onChange={(e) => setPay({ ...pay, amount: e.target.value })}
-            />
           </div>
-          <div className="field">
-            <label>Date</label>
-            <input
-              type="date"
-              className="ltr"
-              value={pay.paid_on}
-              onChange={(e) => setPay({ ...pay, paid_on: e.target.value })}
-            />
-          </div>
-        </div>
-        <button type="submit" disabled={savingPay}>
-          {savingPay ? "Enregistrement…" : "Enregistrer le paiement"}
-        </button>
-      </form>
+        </>
+      )}
 
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-        {/* Achat équipement stock */}
-        <form className="card" onSubmit={onEquipPurchase}>
-          <h3 style={{ marginTop: 0 }}>Achat équipement (stock)</h3>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Achat club (dépense) — optionnellement attribué à un joueur.
-          </p>
-          <div className="field">
-            <label>Article</label>
-            <input
-              required
-              value={equip.name}
-              onChange={(e) => setEquip({ ...equip, name: e.target.value })}
-              placeholder="Ballons, brassards, maillots…"
-            />
-          </div>
-          <div className="field">
-            <label>Quantité</label>
-            <input
-              className="ltr"
-              value={equip.quantity}
-              onChange={(e) => setEquip({ ...equip, quantity: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Coût unitaire DZD</label>
-            <input
-              className="ltr"
-              value={equip.unit_cost}
-              onChange={(e) => setEquip({ ...equip, unit_cost: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Attribuer à (optionnel)</label>
-            <select value={equip.athlete_id} onChange={(e) => setEquip({ ...equip, athlete_id: e.target.value })}>
-              <option value="">— Stock club —</option>
-              {athletes.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="submit">Enregistrer l’achat</button>
-        </form>
-
-        <form className="card" onSubmit={onSubmit}>
-          <h3 style={{ marginTop: 0 }}>Recette / Dépense libre</h3>
-          <div className="field">
-            <label>Type</label>
-            <select value={form.entry_type} onChange={(e) => setForm({ ...form, entry_type: e.target.value })}>
-              <option value="expense">Dépense</option>
-              <option value="income">Recette</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>Catégorie</label>
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              <option value="subscription">Abonnement</option>
-              <option value="insurance">Assurance</option>
-              <option value="equipment">Matériel / équipement</option>
-              <option value="transport">Transport / النقل</option>
-              <option value="salary">Salaire</option>
-              <option value="other">Autre</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>Libellé</label>
-            <input required value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Montant DZD</label>
-            <input required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Date</label>
-            <input
-              type="date"
-              value={form.entry_date}
-              onChange={(e) => setForm({ ...form, entry_date: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Lieu</label>
-            <input value={form.place} onChange={(e) => setForm({ ...form, place: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Tiers (ex. chauffeur)</label>
-            <input value={form.counterparty} onChange={(e) => setForm({ ...form, counterparty: e.target.value })} />
-          </div>
-          <button type="submit">Enregistrer</button>
-        </form>
-      </div>
-
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Derniers paiements joueurs</h3>
-          {editPay && (
-            <div style={{ marginBottom: "0.75rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: 8 }}>
-              <strong>Modifier — {editPay.athlete_name || `#${editPay.athlete_id}`}</strong>
-              <div className="field">
-                <label>Montant</label>
-                <input
-                  className="ltr"
-                  value={editPay.amount}
-                  onChange={(e) => setEditPay({ ...editPay, amount: Number(e.target.value) || 0 })}
-                />
+      {tab === "caisse" && (
+        <>
+          <div className="card">
+            <h2>Formule — Recettes / Dépenses</h2>
+            <p className="muted">Solde = recettes − dépenses (hors achats équipement).</p>
+            <div className="grid stats">
+              <div className="card stat">
+                <strong>{caisseIncome.toLocaleString()} DZD</strong>
+                <span>Recettes</span>
               </div>
-              <div className="field">
-                <label>Date</label>
-                <input
-                  type="date"
-                  className="ltr"
-                  value={editPay.paid_on || ""}
-                  onChange={(e) => setEditPay({ ...editPay, paid_on: e.target.value })}
-                />
+              <div className="card stat">
+                <strong>{caisseExpense.toLocaleString()} DZD</strong>
+                <span>Dépenses</span>
               </div>
-              <div className="field">
-                <label>Méthode</label>
-                <select value={editPay.method} onChange={(e) => setEditPay({ ...editPay, method: e.target.value })}>
-                  <option value="cash">Espèces</option>
-                  <option value="transfer">Virement</option>
-                  <option value="check">Chèque</option>
-                  <option value="other">Autre</option>
-                </select>
+              <div className="card stat">
+                <strong>{(caisseIncome - caisseExpense).toLocaleString()} DZD</strong>
+                <span>Solde</span>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button type="button" className="accent" onClick={savePaymentEdit}>
-                  Enregistrer
-                </button>
-                <button type="button" onClick={() => setEditPay(null)}>
-                  Annuler
-                </button>
-              </div>
+              {payroll.length > 0 && (
+                <div className="card stat">
+                  <strong>{payroll.reduce((s, x) => s + Number(x.amount || 0), 0).toLocaleString()} DZD</strong>
+                  <span>Masse salariale coachs</span>
+                </div>
+              )}
             </div>
-          )}
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Joueur</th>
-                <th>Montant</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.paid_on || "—"}</td>
-                  <td>{r.athlete_name || `#${r.athlete_id}`}</td>
-                  <td>{Number(r.amount).toLocaleString()} DZD</td>
-                  <td>
-                    <button type="button" onClick={() => setEditPay({ ...r })}>
-                      Modifier
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!recent.length && (
-                <tr>
-                  <td colSpan={4} className="muted">
-                    Aucun paiement
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Échéances en retard / dues</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Joueur</th>
-                <th>Libellé</th>
-                <th>Reste</th>
-              </tr>
-            </thead>
-            <tbody>
-              {unpaid.slice(0, 30).map((u) => (
-                <tr key={u.id}>
-                  <td>{u.athlete_name || `#${u.athlete_id}`}</td>
-                  <td>
-                    {u.label}
-                    {u.label_ar ? ` · ${u.label_ar}` : ""}
-                  </td>
-                  <td>{(Number(u.amount) - Number(u.amount_paid)).toLocaleString()} DZD</td>
-                </tr>
-              ))}
-              {!unpaid.length && (
-                <tr>
-                  <td colSpan={3} className="muted">
-                    Aucune échéance due
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          </div>
 
-      <div className="card">
-        <h3 style={{ marginTop: 0 }}>Journal de caisse</h3>
-        {editLedger && (
-          <div style={{ marginBottom: "0.75rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: 8 }}>
-            <strong>Modifier la ligne</strong>
-            <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-              <div className="field">
-                <label>Type</label>
-                <select
-                  value={editLedger.entry_type}
-                  onChange={(e) => setEditLedger({ ...editLedger, entry_type: e.target.value })}
-                >
+          <div className="card">
+            <h2>Nouvelle écriture</h2>
+            <form onSubmit={onSubmit} className="grid two">
+              <label>
+                Type
+                <select value={form.entry_type} onChange={(e) => setForm((f) => ({ ...f, entry_type: e.target.value }))}>
                   <option value="expense">Dépense</option>
                   <option value="income">Recette</option>
                 </select>
-              </div>
-              <div className="field">
-                <label>Catégorie</label>
-                <select
-                  value={editLedger.category}
-                  onChange={(e) => setEditLedger({ ...editLedger, category: e.target.value })}
-                >
-                  <option value="subscription">Abonnement</option>
-                  <option value="insurance">Assurance</option>
-                  <option value="equipment">Matériel</option>
+              </label>
+              <label>
+                Catégorie
+                <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
                   <option value="transport">Transport</option>
-                  <option value="salary">Salaire</option>
-                  <option value="other">Autre</option>
+                  <option value="arbitre">Arbitrage</option>
+                  <option value="location">Location</option>
+                  <option value="divers">Divers</option>
+                  <option value="don">Don / recette</option>
                 </select>
-              </div>
-              <div className="field">
-                <label>Libellé</label>
-                <input
-                  value={editLedger.label}
-                  onChange={(e) => setEditLedger({ ...editLedger, label: e.target.value })}
-                />
-              </div>
-              <div className="field">
-                <label>Montant</label>
-                <input
-                  className="ltr"
-                  value={editLedger.amount}
-                  onChange={(e) => setEditLedger({ ...editLedger, amount: Number(e.target.value) || 0 })}
-                />
-              </div>
-              <div className="field">
-                <label>Date</label>
+              </label>
+              <label>
+                Libellé
+                <input required value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
+              </label>
+              <label>
+                Montant
+                <input required value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} />
+              </label>
+              <label>
+                Date
                 <input
                   type="date"
-                  value={editLedger.entry_date}
-                  onChange={(e) => setEditLedger({ ...editLedger, entry_date: e.target.value })}
+                  value={form.entry_date}
+                  onChange={(e) => setForm((f) => ({ ...f, entry_date: e.target.value }))}
                 />
-              </div>
-              <div className="field">
-                <label>Lieu</label>
-                <input
-                  value={editLedger.place || ""}
-                  onChange={(e) => setEditLedger({ ...editLedger, place: e.target.value })}
-                />
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-              <button type="button" className="accent" onClick={saveLedgerEdit}>
+              </label>
+              <label>
+                Lieu
+                <input value={form.place} onChange={(e) => setForm((f) => ({ ...f, place: e.target.value }))} />
+              </label>
+              <button type="submit" className="primary">
                 Enregistrer
               </button>
-              <button type="button" onClick={() => setEditLedger(null)}>
-                Annuler
-              </button>
-              {canEditSettings && (
-                <button type="button" className="danger" onClick={() => deleteLedger(editLedger.id)}>
-                  Supprimer
-                </button>
-              )}
+            </form>
+          </div>
+
+          <div className="card">
+            <h2>Tableau — Caisse</h2>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <SortHeader label="N°" sortKey="number" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Réf" sortKey="reference" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Type" sortKey="type" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Catégorie" sortKey="category" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Libellé" sortKey="label" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Montant" sortKey="amount" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Date" sortKey="date" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedCaisse.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.seq_no ?? "—"}</td>
+                      <td>
+                        <code>{row.reference || "—"}</code>
+                      </td>
+                      <td>{row.entry_type === "income" ? "Recette" : "Dépense"}</td>
+                      <td>{row.category}</td>
+                      <td>{row.label}</td>
+                      <td>{Number(row.amount).toLocaleString()} DZD</td>
+                      <td>{row.entry_date}</td>
+                      <td style={{ display: "flex", gap: "0.35rem" }}>
+                        <button type="button" onClick={() => setEditLedger({ ...row })}>
+                          Modifier
+                        </button>
+                        {canEditSettings && (
+                          <button type="button" onClick={() => deleteLedger(row.id)}>
+                            Suppr.
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {!sortedCaisse.length && (
+                    <tr>
+                      <td colSpan={8} className="muted">
+                        Aucune écriture
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-        )}
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Libellé</th>
-              <th>Montant</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {ledger.slice(0, 40).map((r) => (
-              <tr key={r.id}>
-                <td>{r.entry_date}</td>
-                <td>
-                  {r.label} <span className="badge">{r.category}</span>
-                </td>
-                <td>
-                  {Number(r.amount).toLocaleString()} ({r.entry_type})
-                </td>
-                <td>
-                  <button type="button" onClick={() => setEditLedger({ ...r })}>
-                    Modifier
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        </>
+      )}
 
-      <div className="card">
-        <h3 style={{ marginTop: 0 }}>Paie coaches / حقوق المدرب</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Coach</th>
-              <th>Libellé</th>
-              <th>Type</th>
-              <th>Montant</th>
-              <th>Statut</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payroll.slice(0, 40).map((p) => (
-              <tr key={p.id}>
-                <td>#{p.user_id}</td>
-                <td>{p.label}</td>
-                <td>{p.pay_type}</td>
-                <td>{Number(p.amount).toLocaleString()} DZD</td>
-                <td>
-                  <span className="badge">{p.status}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {editInst && (
+        <div className="card" style={{ border: "2px solid var(--accent, #2563eb)" }}>
+          <h3>Modifier l&apos;échéance #{editInst.seq_no ?? editInst.id}</h3>
+          <p className="muted">
+            Réf <code>{editInst.reference || "—"}</code> (immuable)
+          </p>
+          <div className="grid two">
+            <label>
+              Libellé
+              <input value={editInst.label} onChange={(e) => setEditInst({ ...editInst, label: e.target.value })} />
+            </label>
+            <label>
+              Date d&apos;échéance
+              <input
+                type="date"
+                value={editInst.due_date || ""}
+                onChange={(e) => setEditInst({ ...editInst, due_date: e.target.value })}
+              />
+            </label>
+            <label>
+              Montant
+              <input
+                value={String(editInst.amount)}
+                onChange={(e) => setEditInst({ ...editInst, amount: Number(e.target.value) || 0 })}
+              />
+            </label>
+            <label>
+              Déjà payé
+              <input
+                value={String(editInst.amount_paid)}
+                onChange={(e) => setEditInst({ ...editInst, amount_paid: Number(e.target.value) || 0 })}
+              />
+            </label>
+            <label>
+              Statut
+              <select value={editInst.status} onChange={(e) => setEditInst({ ...editInst, status: e.target.value })}>
+                <option value="due">due</option>
+                <option value="partial">partial</option>
+                <option value="paid">paid</option>
+                <option value="overdue">overdue</option>
+                <option value="waived">waived</option>
+              </select>
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+            <button type="button" className="primary" onClick={saveInstallmentEdit}>
+              Enregistrer
+            </button>
+            <button type="button" onClick={() => setEditInst(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editPay && (
+        <div className="card" style={{ border: "2px solid var(--accent, #2563eb)" }}>
+          <h3>Modifier le paiement #{editPay.seq_no ?? editPay.id}</h3>
+          <p className="muted">
+            Réf <code>{editPay.reference || "—"}</code> (immuable)
+          </p>
+          <div className="grid two">
+            <label>
+              Montant
+              <input
+                value={String(editPay.amount)}
+                onChange={(e) => setEditPay({ ...editPay, amount: Number(e.target.value) || 0 })}
+              />
+            </label>
+            <label>
+              Mode
+              <input value={editPay.method} onChange={(e) => setEditPay({ ...editPay, method: e.target.value })} />
+            </label>
+            <label>
+              Date
+              <input
+                type="date"
+                value={editPay.paid_on || ""}
+                onChange={(e) => setEditPay({ ...editPay, paid_on: e.target.value })}
+              />
+            </label>
+            <label>
+              Notes
+              <input
+                value={editPay.notes || ""}
+                onChange={(e) => setEditPay({ ...editPay, notes: e.target.value })}
+              />
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+            <button type="button" className="primary" onClick={savePaymentEdit}>
+              Enregistrer
+            </button>
+            <button type="button" onClick={() => setEditPay(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editLedger && (
+        <div className="card" style={{ border: "2px solid var(--accent, #2563eb)" }}>
+          <h3>Modifier l&apos;écriture #{editLedger.seq_no ?? editLedger.id}</h3>
+          <p className="muted">
+            Réf <code>{editLedger.reference || "—"}</code> (immuable)
+          </p>
+          <div className="grid two">
+            <label>
+              Type
+              <select
+                value={editLedger.entry_type}
+                onChange={(e) => setEditLedger({ ...editLedger, entry_type: e.target.value })}
+              >
+                <option value="expense">Dépense</option>
+                <option value="income">Recette</option>
+              </select>
+            </label>
+            <label>
+              Catégorie
+              <input
+                value={editLedger.category}
+                onChange={(e) => setEditLedger({ ...editLedger, category: e.target.value })}
+              />
+            </label>
+            <label>
+              Libellé
+              <input value={editLedger.label} onChange={(e) => setEditLedger({ ...editLedger, label: e.target.value })} />
+            </label>
+            <label>
+              Montant
+              <input
+                value={String(editLedger.amount)}
+                onChange={(e) => setEditLedger({ ...editLedger, amount: Number(e.target.value) || 0 })}
+              />
+            </label>
+            <label>
+              Date
+              <input
+                type="date"
+                value={editLedger.entry_date}
+                onChange={(e) => setEditLedger({ ...editLedger, entry_date: e.target.value })}
+              />
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+            <button type="button" className="primary" onClick={saveLedgerEdit}>
+              Enregistrer
+            </button>
+            <button type="button" onClick={() => setEditLedger(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -85,6 +85,18 @@ def _ensure_schema() -> None:
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'club'",
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS trial_ends_on DATE",
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS is_platform BOOLEAN DEFAULT false",
+        # --- Références immuables (inscriptions / finance) ---
+        "ALTER TABLE registrations ADD COLUMN IF NOT EXISTS seq_no INTEGER",
+        "ALTER TABLE registrations ADD COLUMN IF NOT EXISTS reference VARCHAR(60)",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS seq_no INTEGER",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
+        "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS seq_no INTEGER",
+        "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
+        "ALTER TABLE fee_installments ADD COLUMN IF NOT EXISTS seq_no INTEGER",
+        "ALTER TABLE fee_installments ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
+        "CREATE INDEX IF NOT EXISTS ix_registrations_seq_no ON registrations (seq_no)",
+        "CREATE INDEX IF NOT EXISTS ix_registrations_reference ON registrations (reference)",
+        "CREATE INDEX IF NOT EXISTS ix_payments_reference ON payments (reference)",
     ]
     # club_id sur chaque table métier + index
     for _t in _TENANT_TABLES:
@@ -182,7 +194,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.9.0",
+    version="1.10.0",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,
@@ -225,6 +237,18 @@ if not settings.is_production:
 def on_startup():
     Base.metadata.create_all(bind=engine)
     _ensure_schema()
+    try:
+        from app.core.database import SessionLocal
+        from app.services.references import backfill_operation_identities, backfill_registration_identities
+
+        db = SessionLocal()
+        try:
+            backfill_registration_identities(db)
+            backfill_operation_identities(db)
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 @app.get("/health")

@@ -8,6 +8,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.models import Club, ClubSetting, FeeInstallment, Registration
+from app.services.references import assign_installment_identity
 
 # Constantes par défaut WRBH (modifiables via /finance/settings)
 DEFAULT_SETTINGS: dict[str, tuple[str, str, str]] = {
@@ -114,6 +115,7 @@ def ensure_subscription_installment(db: Session, reg: Registration) -> FeeInstal
     if existing:
         return existing
     row = FeeInstallment(
+        club_id=getattr(reg, "club_id", None),
         athlete_id=reg.athlete_id,
         season_id=reg.season_id,
         registration_id=reg.id,
@@ -125,6 +127,8 @@ def ensure_subscription_installment(db: Session, reg: Registration) -> FeeInstal
         status="due",
     )
     db.add(row)
+    db.flush()
+    assign_installment_identity(db, row, club_id=getattr(reg, "club_id", None))
     return row
 
 
@@ -146,6 +150,7 @@ def ensure_insurance_installment(db: Session, reg: Registration, amount: Decimal
     if existing:
         return existing
     row = FeeInstallment(
+        club_id=getattr(reg, "club_id", None),
         athlete_id=reg.athlete_id,
         season_id=reg.season_id,
         registration_id=reg.id,
@@ -157,6 +162,8 @@ def ensure_insurance_installment(db: Session, reg: Registration, amount: Decimal
         status="due",
     )
     db.add(row)
+    db.flush()
+    assign_installment_identity(db, row, club_id=getattr(reg, "club_id", None))
     return row
 
 
@@ -202,6 +209,7 @@ def ensure_monthly_installment(
     # le frontend mappe mensuel-YYYY-MM → mois.
     db.add(row)
     db.flush()
+    assign_installment_identity(db, row, club_id=getattr(row, "club_id", None))
     return row
 
 

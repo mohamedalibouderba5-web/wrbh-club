@@ -38,6 +38,8 @@ type Reg = {
   status: string;
   source: string;
   registered_on?: string;
+  seq_no?: number;
+  reference?: string;
 };
 
 const PAGE = 40;
@@ -563,6 +565,8 @@ export function RegistrationsPage() {
         <table>
           <thead>
             <tr>
+              <SortHeader label="N°" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader label="Réf." sortKey="reference" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th>Photo</th>
               <SortHeader label="Athlète" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Cat." sortKey="category" activeKey={sortKey} dir={sortDir} onSort={onSort} />
@@ -575,6 +579,10 @@ export function RegistrationsPage() {
           <tbody>
             {regs.map((r) => (
               <tr key={r.id}>
+                <td className="ltr">{r.seq_no ?? "—"}</td>
+                <td className="ltr" style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.9em" }}>
+                  {r.reference || "—"}
+                </td>
                 <td>
                   {r.athlete_photo ? (
                     <img

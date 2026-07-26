@@ -209,6 +209,9 @@ class Registration(Base, TimestampMixin):
     source: Mapped[str] = mapped_column(String(30), default="web")  # web / mobile / import
     subscription_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Numéro + référence joueur IMMUABLES (ex. 26-27/U13/0042)
+    seq_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    reference: Mapped[Optional[str]] = mapped_column(String(60), nullable=True, index=True)
 
 
 class Attachment(Base, TimestampMixin):
@@ -343,6 +346,8 @@ class FeeInstallment(Base, TimestampMixin):
     amount_paid: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     status: Mapped[str] = mapped_column(String(30), default="due")
     # due / partial / paid / waived / overdue
+    seq_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    reference: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
 
 
 class Payment(Base, TimestampMixin):
@@ -356,7 +361,8 @@ class Payment(Base, TimestampMixin):
     method: Mapped[str] = mapped_column(String(40), default="cash")
     paid_on: Mapped[date] = mapped_column(Date)
     recorded_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    reference: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    seq_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    reference: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
@@ -385,6 +391,8 @@ class LedgerEntry(Base, TimestampMixin):
     place: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    seq_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    reference: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
 
 
 class CoachPayroll(Base, TimestampMixin):
