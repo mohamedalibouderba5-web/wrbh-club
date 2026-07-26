@@ -17,7 +17,11 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === "string" ? err.detail : "Erreur API");
+    const msg = typeof err.detail === "string" ? err.detail : "Erreur API";
+    if (res.status === 401 && token) {
+      await logout();
+    }
+    throw new Error(msg);
   }
   return res.json();
 }

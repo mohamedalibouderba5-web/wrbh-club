@@ -1,5 +1,5 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { login as apiLogin, type TokenPayload } from "./api/client";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { api, login as apiLogin, type TokenPayload } from "./api/client";
 
 type AuthState = {
   token: string | null;
@@ -13,6 +13,13 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+function clearLocalAuth() {
+  localStorage.removeItem("wrbh_token");
+  localStorage.removeItem("wrbh_role");
+  localStorage.removeItem("wrbh_name");
+  localStorage.removeItem("wrbh_must_pwd");
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("wrbh_token"));
   const [role, setRole] = useState<string | null>(() => localStorage.getItem("wrbh_role"));
@@ -20,6 +27,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [mustChangePassword, setMustChangePassword] = useState(
     () => localStorage.getItem("wrbh_must_pwd") === "1",
   );
+
+  // Valide le JWT au démarrage : sinon pages entières affichent « Token invalide »
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void api<{ id: number }>("/api/v1/auth/me")
+      .then(() => undefined)
+      .catch(() => {
+        if (cancelled) return;
+        // 401 déjà géré par clearSessionAndRedirect dans le client API
+        clearLocalAuth();
+        setToken(null);
+        setRole(null);
+        setFullName(null);
+        setMustChangePassword(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -40,10 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMustChangePassword(must);
       },
       logout() {
-        localStorage.removeItem("wrbh_token");
-        localStorage.removeItem("wrbh_role");
-        localStorage.removeItem("wrbh_name");
-        localStorage.removeItem("wrbh_must_pwd");
+        clearLocalAuth();
         setToken(null);
         setRole(null);
         setFullName(null);

@@ -1,5 +1,5 @@
-import { FormEvent, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { FormEvent, useMemo, useState } from "react";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import { wakeServer } from "../api/client";
 import { useI18n } from "../i18n";
@@ -9,10 +9,20 @@ export function LoginPage() {
   const { token, login } = useAuth();
   const { t, lang, setLang } = useI18n();
   const { canInstall, installed, install } = useInstallPrompt();
+  const [params] = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const sessionHint = useMemo(() => {
+    if (params.get("session") === "1" || params.get("expired") === "1") {
+      return lang === "ar"
+        ? "انتهت صلاحية الجلسة — يرجى تسجيل الدخول من جديد"
+        : "Session expirée — reconnectez-vous pour continuer";
+    }
+    return "";
+  }, [params, lang]);
 
   if (token) return <Navigate to="/" replace />;
 
@@ -45,6 +55,7 @@ export function LoginPage() {
             ? "أدخل رقم هاتف الولي ثم كلمة المرور"
             : "Entrez le téléphone du parent, puis le mot de passe"}
         </p>
+        {sessionHint && <div className="error" style={{ marginBottom: 8 }}>{sessionHint}</div>}
 
         {!installed && (
           <button

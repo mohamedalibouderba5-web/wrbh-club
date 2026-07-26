@@ -13,6 +13,17 @@ type CacheEntry = { at: number; data: unknown };
 
 const mem = new Map<string, CacheEntry>();
 const SS_PREFIX = "wrbh_c:";
+const AUTH_KEYS = ["wrbh_token", "wrbh_role", "wrbh_name", "wrbh_must_pwd"] as const;
+
+/** Efface la session locale et renvoie au login (évite « Token invalide » en boucle). */
+export function clearSessionAndRedirect(reason: "session" | "expired" = "session") {
+  for (const k of AUTH_KEYS) localStorage.removeItem(k);
+  invalidateApiCache();
+  const path = window.location.pathname || "/";
+  if (path.startsWith("/login") || path.startsWith("/install") || path.startsWith("/download")) return;
+  const q = reason === "expired" ? "expired=1" : "session=1";
+  window.location.assign(`/login?${q}`);
+}
 
 function authHeader(): HeadersInit {
   const token = localStorage.getItem("wrbh_token");
@@ -102,7 +113,14 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, retries = 0)
           ...(options.headers || {}),
         },
       });
-      if (!res.ok) throw new HttpError(await parseError(res));
+      if (!res.ok) {
+        const msg = await parseError(res);
+        if (res.status === 401 && localStorage.getItem("wrbh_token")) {
+          // JWT expiré / secret changé / token corrompu → reconnecter au lieu d'afficher l'erreur
+          clearSessionAndRedirect(msg.toLowerCase().includes("expir") ? "expired" : "session");
+        }
+        throw new HttpError(msg);
+      }
       if (res.status === 204) return undefined as T;
       const ct = res.headers.get("content-type") || "";
       if (!ct.includes("application/json")) {
@@ -235,9 +253,13 @@ export async function loadAllSettled<T extends unknown[]>(
 ): Promise<{ data: { [K in keyof T]: T[K] | null }; errors: string[] }> {
   const results = await Promise.allSettled(loaders.map((fn) => fn()));
   const data = results.map((r) => (r.status === "fulfilled" ? r.value : null)) as { [K in keyof T]: T[K] | null };
-  const errors = results
-    .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-    .map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason)));
+  const errors = [
+    ...new Set(
+      results
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason))),
+    ),
+  ];
   return { data, errors };
 }
 
