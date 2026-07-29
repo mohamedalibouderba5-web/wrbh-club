@@ -56,7 +56,8 @@
         }
       ],
       "./plugins/withAndroidReleaseSigning",
-      "expo-asset"
+      "expo-asset",
+      "expo-font"
     ],
     "extra": {
       "apiUrl": "https://wrbh-api.onrender.com"
