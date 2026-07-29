@@ -347,6 +347,19 @@ export function RegistrationsPage() {
     }
   }
 
+  async function archiveReg(id: number, name?: string) {
+    if (!window.confirm(`Archiver le dossier « ${name || id} » ?\nIl restera dans l'historique (récupérable).`)) return;
+    try {
+      await api(`/api/v1/registrations/${id}/archive`, { method: "POST" });
+      setRegs((prev) => prev.filter((r) => r.id !== id));
+      toast("Dossier archivé", "success");
+    } catch (err) {
+      const m = err instanceof Error ? err.message : "Erreur";
+      setError(m);
+      toast(m, "error");
+    }
+  }
+
   async function onSyncNow() {
     setMsg("");
     const r = await syncPendingRegistrations();
@@ -364,7 +377,7 @@ export function RegistrationsPage() {
   }
 
   return (
-    <div className="grid" style={{ gridTemplateColumns: "1.1fr 1fr", gap: "1rem" }}>
+    <div className="split-layout">
       <form className="card" onSubmit={onSubmit}>
         <h3 style={{ marginTop: 0 }}>{t("newRegistration")}</h3>
         {!online && (
@@ -608,7 +621,20 @@ export function RegistrationsPage() {
                   <span className="badge">{r.status}</span>
                 </td>
                 <td>{r.registered_on ? formatDateFr(r.registered_on) : "—"}</td>
-                <td>{r.status === "pending" && <button type="button" onClick={() => approve(r.id)}>OK</button>}</td>
+                <td>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {r.status === "pending" && (
+                      <button type="button" onClick={() => approve(r.id)}>
+                        OK
+                      </button>
+                    )}
+                    {r.status !== "archived" && (
+                      <button type="button" className="danger" onClick={() => void archiveReg(r.id, r.athlete_name)}>
+                        Archiver
+                      </button>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

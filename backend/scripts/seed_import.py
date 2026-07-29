@@ -63,10 +63,12 @@ CATS_2526 = [
 
 # Affiche inscriptions 2026/2027
 CATS_2627 = [
+    ("U14", "U14", "تحت 14", 2012, 2013),
     ("U13", "U13", "تحت 13", 2014, 2015),
     ("U11", "U11", "تحت 11", 2016, 2017),
     ("U9", "U9", "تحت 9", 2018, 2019),
     ("U7", "U7", "تحت 7", 2020, 2021),
+    ("U5", "U5", "تحت 5", 2022, 2023),
 ]
 
 
@@ -163,7 +165,12 @@ def ensure_base(db: Session) -> tuple[Club, Season, Season, Discipline]:
             )
             db.add(cat)
             db.flush()
-            db.add(Team(category_id=cat.id, name=code, name_ar=name_ar, code=code.lower()))
+            # Groupes demandés par le club : U14G1/G2 … U7G1, U5G1
+            if code in {"U14", "U13", "U11", "U9"}:
+                db.add(Team(category_id=cat.id, name=f"{code} Groupe 1", name_ar=f"{code} مجموعة 1", code=f"{code}G1"))
+                db.add(Team(category_id=cat.id, name=f"{code} Groupe 2", name_ar=f"{code} مجموعة 2", code=f"{code}G2"))
+            else:
+                db.add(Team(category_id=cat.id, name=f"{code} Groupe 1", name_ar=f"{code} مجموعة 1", code=f"{code}G1"))
 
     if not db.query(User).filter(User.email == settings.default_admin_email).first():
         db.add(

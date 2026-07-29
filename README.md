@@ -1,12 +1,14 @@
 # WRBH Club — SaaS gestion club sportif
 
-**Widad Riadi Baladiat Hammadi** · الوداد الرياضي لبلدية حمادي  
+**Widad Riadi Baladiat Hammadi** · الوداد الرياضي لبلدية حمادي
 Projet **séparé d’ESTA** — une API, deux clients (Web + Mobile Expo).
 
 ## Inventaire source
 
-Voir [`docs/INVENTAIRE.md`](docs/INVENTAIRE.md) (Excel + logo + affiche).  
+Voir [`docs/INVENTAIRE.md`](docs/INVENTAIRE.md) (Excel + logo + affiche).
 ERD : [`docs/ERD.md`](docs/ERD.md) · Plan : [`docs/PLAN.md`](docs/PLAN.md)
+**Cahier des charges (passation développeur humain) :** [`docs/CAHIER_DES_CHARGES.md`](docs/CAHIER_DES_CHARGES.md)
+**PDF pro :** [`docs/CAHIER_DES_CHARGES_WRBH.pdf`](docs/CAHIER_DES_CHARGES_WRBH.pdf)
 
 ## Architecture
 
@@ -42,8 +44,8 @@ python scripts\seed_import.py
 uvicorn app.main:app --reload --port 8000
 ```
 
-- Docs : http://127.0.0.1:8000/api/docs  
-- Health : http://127.0.0.1:8000/health  
+- Docs : http://127.0.0.1:8000/api/docs
+- Health : http://127.0.0.1:8000/health
 - Wake : `POST /api/v1/system/wake`
 
 ### 2. Web admin
@@ -85,9 +87,9 @@ Sur téléphone : mettre `extra.apiUrl` dans `app.json` sur l’IP LAN du PC (pa
 
 ## Déploiement gratuit
 
-- `render.yaml` — API + static web  
-- DB : Neon / Aiven Postgres → `DATABASE_URL`  
-- Cold start : boutons **Actualiser / Réveiller le serveur** (web + mobile)  
+- `render.yaml` — API + static web
+- DB : Neon / Aiven Postgres → `DATABASE_URL`
+- Cold start : boutons **Actualiser / Réveiller le serveur** (web + mobile)
 - Mobile builds : voir [`mobile/README.md`](mobile/README.md)
 
 ## Secrets

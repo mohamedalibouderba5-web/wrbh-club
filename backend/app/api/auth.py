@@ -13,7 +13,7 @@ from app.core.database import get_db
 from app.core.roles import Role
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import Athlete, Club, ParentChild, Registration, User
-from app.schemas import ClubOut, PasswordChangeIn, TokenOut, UserCreate, UserOut
+from app.schemas import ClubOut, PasswordChangeIn, TokenOut, UserCreate, UserOut, UserUpdate
 from app.services.parents import find_user_by_phone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -160,6 +160,56 @@ def list_users(
     return q.order_by(User.full_name).all()
 
 
+@router.patch("/users/{user_id}", response_model=UserOut)
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+):
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "Utilisateur introuvable")
+    actor_club = getattr(actor, "club_id", None)
+    target_club = getattr(target, "club_id", None)
+    if actor_club and target_club not in (None, actor_club):
+        raise HTTPException(404, "Utilisateur introuvable")
+    if target.role == Role.SUPERADMIN:
+        raise HTTPException(403, "Impossible de modifier un super-admin")
+    if target.role == Role.ADMIN and actor.role != Role.ADMIN:
+        raise HTTPException(403, "Seul un admin peut modifier un compte admin")
+
+    data = payload.model_dump(exclude_unset=True)
+    new_password = data.pop("password", None)
+    if "email" in data and data["email"]:
+        other = db.query(User).filter(User.email == data["email"], User.id != user_id).first()
+        if other:
+            raise HTTPException(400, "Email déjà utilisé")
+    if "phone" in data and data["phone"]:
+        other = db.query(User).filter(User.phone == data["phone"], User.id != user_id).first()
+        if other:
+            raise HTTPException(400, "Téléphone déjà utilisé")
+    for key, value in data.items():
+        setattr(target, key, value)
+    if new_password:
+        target.password_hash = hash_password(new_password)
+        target.must_change_password = True
+    from app.services.audit import write_audit
+
+    write_audit(
+        db,
+        action="update",
+        entity="user",
+        entity_id=target.id,
+        user_id=actor.id,
+        club_id=actor_club,
+        detail=f"role={target.role} name={target.full_name} active={target.is_active}",
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
 club_router = APIRouter(prefix="/club", tags=["club"])
 
 
@@ -195,7 +245,7 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "1.11.0",
+        "version": "1.12.0",
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,

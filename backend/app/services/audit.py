@@ -13,10 +13,12 @@ def write_audit(
     entity: str,
     entity_id: int | None = None,
     user_id: int | None = None,
+    club_id: int | None = None,
     detail: str | None = None,
     commit: bool = False,
 ) -> AuditLog:
     row = AuditLog(
+        club_id=club_id,
         user_id=user_id,
         action=action,
         entity=entity,

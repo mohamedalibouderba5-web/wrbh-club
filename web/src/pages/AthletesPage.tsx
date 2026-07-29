@@ -4,6 +4,7 @@ import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { SortHeader, type SortDir } from "../components/SortHeader";
 import { toast } from "../components/Toast";
+import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
 
 type Category = {
@@ -33,6 +34,8 @@ const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export function AthletesPage() {
   const { t, lang } = useI18n();
+  const { role } = useAuth();
+  const canDelete = role === "admin" || role === "direction";
   const [rows, setRows] = useState<Athlete[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [q, setQ] = useState("");
@@ -293,6 +296,54 @@ export function AthletesPage() {
       const m = err instanceof Error ? err.message : "Erreur";
       setError(m);
       toast(m, "error");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function onArchiveAthlete() {
+    if (!editId) return;
+    if (!window.confirm("Archiver ce joueur (statut Abandonne) ? Il reste récupérable via le filtre statut.")) return;
+    setEditStatus("Abandonne");
+    if (!editNote.trim()) setEditNote("Archivé depuis la fiche joueur");
+    // save after state updates — call API directly
+    setEditSaving(true);
+    try {
+      await api(`/api/v1/athletes/${editId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "Abandonne",
+          notes: editNote.trim() || "Archivé depuis la fiche joueur",
+          confirm_status: true,
+        }),
+      });
+      setEditId(null);
+      toast("Joueur archivé", "success");
+      load({ offset: 0 });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function onDeleteAthlete() {
+    if (!editId || !canDelete) return;
+    if (
+      !window.confirm(
+        "SUPPRESSION DÉFINITIVE de ce joueur et de ses données liées ?\nPréférez Archiver si possible. Cette action est tracée dans l'historique.",
+      )
+    ) {
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await api(`/api/v1/athletes/${editId}`, { method: "DELETE" });
+      setEditId(null);
+      toast("Joueur supprimé (tracé dans l'historique)", "success");
+      load({ offset: 0 });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
     } finally {
       setEditSaving(false);
     }
@@ -621,13 +672,23 @@ export function AthletesPage() {
             )}
           </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" disabled={editSaving} onClick={onEditSave}>
               {editSaving ? t("saving") : t("save")}
             </button>
             <button type="button" className="secondary" onClick={() => setEditId(null)}>
               {t("cancel")}
             </button>
+            {editStatus !== "Abandonne" && (
+              <button type="button" className="secondary" disabled={editSaving} onClick={() => void onArchiveAthlete()}>
+                Archiver
+              </button>
+            )}
+            {canDelete && (
+              <button type="button" className="danger" disabled={editSaving} onClick={() => void onDeleteAthlete()}>
+                Supprimer
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -29,6 +29,16 @@ class UserCreate(BaseModel):
     locale: str = "fr"
 
 
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    full_name: Optional[str] = None
+    full_name_ar: Optional[str] = None
+    is_active: Optional[bool] = None
+    locale: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=8)
+
+
 class UserOut(ORMModel):
     id: int
     club_id: Optional[int] = None

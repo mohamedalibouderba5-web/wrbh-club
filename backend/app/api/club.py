@@ -15,8 +15,10 @@ from app.models import (
     Announcement,
     Athlete,
     Attendance,
+    AuditLog,
     Category,
     Convocation,
+    Discipline,
     EmergencyContact,
     Event,
     FeeInstallment,
@@ -295,21 +297,19 @@ def assign_team_coaches(
 
 @router.get("/coaches", response_model=list)
 def list_coaches(
+    include_inactive: bool = Query(False),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
     club_id: int = Depends(get_current_club_id),
 ):
     """Liste des utilisateurs rôle coach (pour sélection agenda / équipes)."""
-    rows = (
-        db.query(User)
-        .filter(
-            User.role == Role.COACH,
-            User.is_active.is_(True),
-            or_(User.club_id == club_id, User.club_id.is_(None)),
-        )
-        .order_by(User.full_name)
-        .all()
+    q = db.query(User).filter(
+        User.role == Role.COACH,
+        or_(User.club_id == club_id, User.club_id.is_(None)),
     )
+    if not include_inactive:
+        q = q.filter(User.is_active.is_(True))
+    rows = q.order_by(User.full_name).all()
     return [
         {
             "id": u.id,
@@ -317,9 +317,125 @@ def list_coaches(
             "full_name_ar": u.full_name_ar,
             "phone": u.phone,
             "email": u.email,
+            "is_active": u.is_active,
         }
         for u in rows
     ]
+
+
+# Structure saison 2026/2027 demandée par le gérant du club (ABDO H)
+# Chaque coach a une équipe / groupe (G1, G2…).
+_SEASON_TEAM_STRUCTURE = [
+    ("U14", "U14", "تحت 14", 2012, 2013, [("U14G1", "U14 Groupe 1", "U14 مجموعة 1"), ("U14G2", "U14 Groupe 2", "U14 مجموعة 2")]),
+    ("U13", "U13", "تحت 13", 2014, 2015, [("U13G1", "U13 Groupe 1", "U13 مجموعة 1"), ("U13G2", "U13 Groupe 2", "U13 مجموعة 2")]),
+    ("U11", "U11", "تحت 11", 2016, 2017, [("U11G1", "U11 Groupe 1", "U11 مجموعة 1"), ("U11G2", "U11 Groupe 2", "U11 مجموعة 2")]),
+    ("U9", "U9", "تحت 9", 2018, 2019, [("U9G1", "U9 Groupe 1", "U9 مجموعة 1"), ("U9G2", "U9 Groupe 2", "U9 مجموعة 2")]),
+    ("U7", "U7", "تحت 7", 2020, 2021, [("U7G1", "U7 Groupe 1", "U7 مجموعة 1")]),
+    ("U5", "U5", "تحت 5", 2022, 2023, [("U5G1", "U5 Groupe 1", "U5 مجموعة 1")]),
+]
+
+
+@router.post("/teams/sync-structure")
+def sync_season_team_structure(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Crée / complète catégories + équipes G1/G2 (U14…U5) pour la saison courante."""
+    season = db.query(Season).filter(Season.is_current.is_(True)).first()
+    if not season:
+        raise HTTPException(400, "Aucune saison courante")
+    disc = db.query(Discipline).order_by(Discipline.id).first()
+    if not disc:
+        raise HTTPException(400, "Aucune discipline configurée")
+
+    created_cats = 0
+    created_teams = 0
+    updated = 0
+    for code, name, name_ar, y1, y2, teams in _SEASON_TEAM_STRUCTURE:
+        cat = (
+            db.query(Category)
+            .filter(Category.season_id == season.id, Category.code == code)
+            .first()
+        )
+        if not cat:
+            cat = Category(
+                club_id=club_id,
+                season_id=season.id,
+                discipline_id=disc.id,
+                code=code,
+                name=name,
+                name_ar=name_ar,
+                birth_year_min=y1,
+                birth_year_max=y2,
+                is_active=True,
+            )
+            db.add(cat)
+            db.flush()
+            created_cats += 1
+        else:
+            cat.birth_year_min = y1
+            cat.birth_year_max = y2
+            cat.name = name
+            cat.name_ar = name_ar
+            cat.is_active = True
+            if cat.club_id is None:
+                cat.club_id = club_id
+            updated += 1
+
+        existing = db.query(Team).filter(Team.category_id == cat.id).all()
+        by_code = {(t.code or "").upper().replace(" ", ""): t for t in existing}
+        by_name = {t.name.strip().lower(): t for t in existing}
+        for tcode, tname, tname_ar in teams:
+            key = tcode.upper().replace(" ", "")
+            team = by_code.get(key)
+            if not team:
+                # compat anciens noms (ex. "U13 Groupe 1", "u13 1")
+                team = by_name.get(tname.lower())
+            if not team:
+                for t in existing:
+                    raw = (t.code or t.name or "").upper().replace(" ", "")
+                    if key in raw or raw in key:
+                        team = t
+                        break
+            if team:
+                team.name = tname
+                team.name_ar = tname_ar
+                team.code = tcode
+                if team.club_id is None:
+                    team.club_id = club_id
+                updated += 1
+            else:
+                db.add(
+                    Team(
+                        club_id=club_id,
+                        category_id=cat.id,
+                        name=tname,
+                        name_ar=tname_ar,
+                        code=tcode,
+                    )
+                )
+                created_teams += 1
+
+    write_audit(
+        db,
+        action="sync",
+        entity="teams",
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"cats+{created_cats} teams+{created_teams} upd={updated}",
+        commit=False,
+    )
+    db.commit()
+    _bust_club_caches()
+    return {
+        "season_id": season.id,
+        "season": season.name,
+        "categories_created": created_cats,
+        "teams_created": created_teams,
+        "updated": updated,
+        "structure": [code for code, *_ in _SEASON_TEAM_STRUCTURE],
+    }
 
 
 @router.get("/stats/club")
@@ -802,6 +918,7 @@ def delete_athlete(
         entity="athlete",
         entity_id=athlete_id,
         user_id=user.id,
+        club_id=club_id,
         detail=athlete.full_name,
     )
     db.delete(athlete)
@@ -1047,6 +1164,9 @@ def list_registrations(
         q = q.filter(Registration.season_id == season_id)
     if status:
         q = q.filter(Registration.status == status)
+    else:
+        # Masquer les dossiers archivés par défaut (récupérables via status=archived)
+        q = q.filter(Registration.status != "archived")
     if category_id:
         q = q.filter(Registration.category_id == category_id)
     if user.role == Role.PARENT:
@@ -1378,3 +1498,103 @@ def reject_registration(
     db.refresh(reg)
     _bust_club_caches()
     return _reg_out(db, reg)
+
+
+@reg_router.post("/{reg_id}/archive", response_model=RegistrationOut)
+def archive_registration(
+    reg_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Archive une inscription (soft-delete) — reste dans l'historique."""
+    reg = db.get(Registration, reg_id)
+    if not reg:
+        raise HTTPException(404, "Inscription introuvable")
+    assert_same_club(reg, club_id)
+    prev = reg.status
+    reg.status = "archived"
+    write_audit(
+        db,
+        action="archive",
+        entity="registration",
+        entity_id=reg.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"from={prev} athlete={reg.athlete_id}",
+    )
+    db.commit()
+    db.refresh(reg)
+    _bust_club_caches()
+    return _reg_out(db, reg)
+
+
+@reg_router.post("/{reg_id}/restore", response_model=RegistrationOut)
+def restore_registration(
+    reg_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Restaure une inscription archivée → pending."""
+    reg = db.get(Registration, reg_id)
+    if not reg:
+        raise HTTPException(404, "Inscription introuvable")
+    assert_same_club(reg, club_id)
+    if reg.status != "archived":
+        raise HTTPException(400, "Seules les inscriptions archivées peuvent être restaurées")
+    reg.status = "pending"
+    write_audit(
+        db,
+        action="restore",
+        entity="registration",
+        entity_id=reg.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"athlete={reg.athlete_id}",
+    )
+    db.commit()
+    db.refresh(reg)
+    _bust_club_caches()
+    return _reg_out(db, reg)
+
+
+audit_router = APIRouter(prefix="/audit", tags=["audit"])
+
+
+@audit_router.get("")
+def list_audit(
+    entity: str | None = None,
+    action: str | None = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Historique des opérations (récupération / traçabilité)."""
+    q = db.query(AuditLog).filter(or_(AuditLog.club_id == club_id, AuditLog.club_id.is_(None)))
+    if entity:
+        q = q.filter(AuditLog.entity == entity)
+    if action:
+        q = q.filter(AuditLog.action == action)
+    rows = q.order_by(AuditLog.id.desc()).offset(skip).limit(limit).all()
+    user_ids = {r.user_id for r in rows if r.user_id}
+    names = (
+        {u.id: u.full_name for u in db.query(User).filter(User.id.in_(user_ids)).all()}
+        if user_ids
+        else {}
+    )
+    return [
+        {
+            "id": r.id,
+            "action": r.action,
+            "entity": r.entity,
+            "entity_id": r.entity_id,
+            "detail": r.detail,
+            "user_id": r.user_id,
+            "user_name": names.get(r.user_id) if r.user_id else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]

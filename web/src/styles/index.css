@@ -329,7 +329,8 @@ th { color: var(--muted); font-weight: 600; }
   .stat strong { font-size: 1.25rem; }
 
   /* Force single column layouts on phone */
-  .page-content .grid[style*="grid-template-columns"] {
+  .page-content .grid[style*="grid-template-columns"],
+  .split-layout {
     grid-template-columns: 1fr !important;
   }
 
@@ -341,6 +342,28 @@ th { color: var(--muted); font-weight: 600; }
   .page-content .grid[style*="140px"] {
     grid-template-columns: 1fr !important;
     justify-items: center;
+  }
+
+  /* Formulaire inscription : colonne unique dès tablette/téléphone */
+  .form-split {
+    grid-template-columns: 1fr !important;
+  }
+  .form-split .photo-capture,
+  .form-split .photo-block {
+    justify-self: center;
+  }
+
+  .field label {
+    white-space: normal;
+    line-height: 1.25;
+    font-size: 0.92rem;
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    min-height: 44px;
+    font-size: 16px; /* évite le zoom iOS / Android */
   }
 
   .bar-row { grid-template-columns: 64px 1fr 48px; }
@@ -504,6 +527,19 @@ html[dir="rtl"] .field { text-align: right; }
   align-items: start;
 }
 .form-split > * { min-width: 0; }
+
+.split-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+.split-layout > * { min-width: 0; }
+
+@media (max-width: 900px) {
+  .form-split { grid-template-columns: 1fr; }
+  .split-layout { grid-template-columns: 1fr; }
+}
 @media (max-width: 700px) {
   .form-split { grid-template-columns: 1fr; }
 }
