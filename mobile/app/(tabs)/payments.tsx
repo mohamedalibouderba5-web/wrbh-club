@@ -1,8 +1,17 @@
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/context/AuthContext";
+import { colors, fmtMoney, statusColor, statusLabel } from "../../src/theme";
 
 type Inst = {
   id: number;
@@ -13,6 +22,8 @@ type Inst = {
   amount: number;
   amount_paid: number;
   status: string;
+  due_date?: string;
+  reference?: string;
 };
 
 type FeeSettings = {
@@ -31,20 +42,7 @@ const TYPES: { id: string; label: string }[] = [
   { id: "equipment", label: "Équipement" },
 ];
 
-const MONTHS = [
-  "Jan",
-  "Fév",
-  "Mar",
-  "Avr",
-  "Mai",
-  "Juin",
-  "Juil",
-  "Aoû",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Déc",
-];
+const MONTHS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc"];
 
 export default function PaymentsScreen() {
   const { role } = useAuth();
@@ -53,8 +51,13 @@ export default function PaymentsScreen() {
   const [settings, setSettings] = useState<FeeSettings | null>(null);
   const [cats, setCats] = useState<Category[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
+  const [filter, setFilter] = useState<"all" | "unpaid" | "paid">("all");
+  const [search, setSearch] = useState("");
   const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [athleteSearch, setAthleteSearch] = useState("");
   const now = new Date();
   const [pay, setPay] = useState({
     payment_type: "monthly",
@@ -66,26 +69,35 @@ export default function PaymentsScreen() {
   });
 
   const refresh = useCallback(() => {
-    api<Inst[]>("/api/v1/installments?limit=100")
-      .then(setRows)
-      .catch(() => setRows([]));
-    api<FeeSettings>("/api/v1/finance/settings")
-      .then((s) => {
-        setSettings(s);
-        setPay((p) => ({
-          ...p,
-          amount:
-            p.payment_type === "monthly"
-              ? String(s.monthly_subscription_dzd)
-              : p.payment_type === "insurance"
-                ? String(s.annual_insurance_dzd)
-                : p.amount,
-        }));
+    setLoading(true);
+    setErr("");
+    Promise.all([
+      api<Inst[]>("/api/v1/installments?limit=200").catch(() => [] as Inst[]),
+      api<FeeSettings>("/api/v1/finance/settings").catch(() => null),
+    ])
+      .then(([inst, s]) => {
+        setRows(inst);
+        if (s) {
+          setSettings(s);
+          setPay((p) => ({
+            ...p,
+            amount:
+              p.payment_type === "monthly"
+                ? String(s.monthly_subscription_dzd)
+                : p.payment_type === "insurance"
+                  ? String(s.annual_insurance_dzd)
+                  : p.payment_type === "inscription"
+                    ? String(s.inscription_fee_dzd)
+                    : p.amount,
+          }));
+        }
       })
-      .catch(() => undefined);
+      .catch((e) => setErr(e instanceof Error ? e.message : "Erreur"))
+      .finally(() => setLoading(false));
+
     if (isStaff) {
       api<Category[]>("/api/v1/categories").then(setCats).catch(() => setCats([]));
-      api<Athlete[]>("/api/v1/athletes?limit=200&sort=name&order=asc")
+      api<Athlete[]>("/api/v1/athletes?limit=300&sort=name&order=asc")
         .then(setAthletes)
         .catch(() => setAthletes([]));
     }
@@ -97,10 +109,32 @@ export default function PaymentsScreen() {
     }, [refresh]),
   );
 
-  const filteredAthletes = useMemo(
-    () => (pay.category_id ? athletes.filter((a) => a.category_id === pay.category_id) : athletes),
-    [athletes, pay.category_id],
-  );
+  const filteredAthletes = useMemo(() => {
+    const q = athleteSearch.trim().toLowerCase();
+    return athletes
+      .filter((a) => (!pay.category_id || a.category_id === pay.category_id))
+      .filter((a) => !q || a.full_name.toLowerCase().includes(q) || (a.category_code || "").toLowerCase().includes(q));
+  }, [athletes, pay.category_id, athleteSearch]);
+
+  const visibleRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (filter === "paid" && r.status !== "paid") return false;
+      if (filter === "unpaid" && r.status === "paid") return false;
+      if (!q) return true;
+      return (
+        (r.label || "").toLowerCase().includes(q) ||
+        (r.athlete_name || "").toLowerCase().includes(q) ||
+        (r.reference || "").toLowerCase().includes(q)
+      );
+    });
+  }, [rows, filter, search]);
+
+  const totals = useMemo(() => {
+    const due = rows.filter((r) => r.status !== "paid");
+    const left = due.reduce((s, r) => s + Math.max(0, Number(r.amount) - Number(r.amount_paid)), 0);
+    return { unpaidCount: due.length, left };
+  }, [rows]);
 
   function onType(type: string) {
     const amount =
@@ -118,6 +152,7 @@ export default function PaymentsScreen() {
     if (!pay.athlete_id || saving) return;
     setSaving(true);
     setMsg("");
+    setErr("");
     try {
       const body: Record<string, unknown> = {
         payment_type: pay.payment_type,
@@ -136,25 +171,40 @@ export default function PaymentsScreen() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      setMsg(`✓ ${res.label} — ${Number(res.amount).toLocaleString()} DZD`);
+      setMsg(`✓ ${res.label} — ${fmtMoney(res.amount)}${res.receipt_number ? ` · ${res.receipt_number}` : ""}`);
       setPay((p) => ({ ...p, athlete_id: 0, equipment_label: "" }));
       refresh();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erreur");
+      setErr(e instanceof Error ? e.message : "Erreur");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <ScrollView style={styles.page} contentContainerStyle={{ padding: 16, gap: 12 }}>
+    <ScrollView style={styles.page} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
       <Text style={styles.h}>Cotisations / الاشتراكات</Text>
+      {loading && <ActivityIndicator color={colors.blue} />}
+      {!!err && <Text style={styles.err}>{err}</Text>}
+      {!!msg && <Text style={styles.ok}>{msg}</Text>}
+
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryN}>{totals.unpaidCount}</Text>
+          <Text style={styles.summaryL}>Échéances ouvertes</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryN}>{fmtMoney(totals.left)}</Text>
+          <Text style={styles.summaryL}>Reste à payer</Text>
+        </View>
+      </View>
 
       {settings && (
         <View style={styles.card}>
-          <Text style={styles.title}>Constantes club</Text>
-          <Text style={styles.muted}>Mensuel : {Number(settings.monthly_subscription_dzd).toLocaleString()} DZD</Text>
-          <Text style={styles.muted}>Assurance : {Number(settings.annual_insurance_dzd).toLocaleString()} DZD</Text>
+          <Text style={styles.title}>Tarifs club</Text>
+          <Text style={styles.line}>Mensuel : {fmtMoney(settings.monthly_subscription_dzd)}</Text>
+          <Text style={styles.line}>Assurance : {fmtMoney(settings.annual_insurance_dzd)}</Text>
+          <Text style={styles.line}>Inscription : {fmtMoney(settings.inscription_fee_dzd)}</Text>
         </View>
       )}
 
@@ -192,9 +242,15 @@ export default function PaymentsScreen() {
             ))}
           </View>
 
-          <Text style={styles.label}>Joueur</Text>
+          <Text style={styles.label}>Rechercher un joueur</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Nom…"
+            value={athleteSearch}
+            onChangeText={setAthleteSearch}
+          />
           <View style={styles.list}>
-            {filteredAthletes.slice(0, 40).map((a) => (
+            {filteredAthletes.slice(0, 60).map((a) => (
               <Pressable
                 key={a.id}
                 style={[styles.row, pay.athlete_id === a.id && styles.rowOn]}
@@ -202,10 +258,11 @@ export default function PaymentsScreen() {
               >
                 <Text style={styles.rowText}>
                   {a.full_name}
-                  {a.category_code ? ` (${a.category_code})` : ""}
+                  {a.category_code ? `  ·  ${a.category_code}` : ""}
                 </Text>
               </Pressable>
             ))}
+            {!filteredAthletes.length && <Text style={styles.muted}>Aucun joueur</Text>}
           </View>
 
           {pay.payment_type === "monthly" && (
@@ -237,7 +294,7 @@ export default function PaymentsScreen() {
             </>
           )}
 
-          <Text style={styles.label}>Montant DZD</Text>
+          <Text style={styles.label}>Montant (DZD)</Text>
           <TextInput
             style={styles.input}
             keyboardType="numeric"
@@ -246,71 +303,129 @@ export default function PaymentsScreen() {
           />
 
           <Pressable style={styles.btn} onPress={onQuickPay} disabled={saving || !pay.athlete_id}>
-            <Text style={styles.btnText}>{saving ? "…" : "Enregistrer le paiement"}</Text>
+            <Text style={styles.btnText}>{saving ? "Enregistrement…" : "Enregistrer le paiement"}</Text>
           </Pressable>
-          {!!msg && <Text style={styles.ok}>{msg}</Text>}
+        </View>
+      )}
+
+      {!isStaff && (
+        <View style={styles.card}>
+          <Text style={styles.muted}>
+            Consultation des échéances de vos enfants. Pour payer, contactez le secrétariat du club.
+          </Text>
         </View>
       )}
 
       <Text style={styles.h2}>Échéances</Text>
-      {rows.map((r) => (
-        <View key={r.id} style={styles.card}>
-          <Text style={styles.title}>
-            {r.label} {r.label_ar ? `· ${r.label_ar}` : ""}
-          </Text>
-          <Text style={styles.muted}>{r.athlete_name || `Joueur #${r.athlete_id}`}</Text>
-          <Text style={styles.amount}>
-            {Number(r.amount_paid).toLocaleString()} / {Number(r.amount).toLocaleString()} DZD
-          </Text>
-          <Text style={styles.badge}>{r.status}</Text>
-        </View>
-      ))}
-      {!rows.length && <Text style={styles.muted}>Aucune échéance</Text>}
+      <TextInput
+        style={styles.input}
+        placeholder="Filtrer nom / libellé / référence…"
+        value={search}
+        onChangeText={setSearch}
+      />
+      <View style={styles.chips}>
+        {(
+          [
+            ["all", "Toutes"],
+            ["unpaid", "À payer"],
+            ["paid", "Payées"],
+          ] as const
+        ).map(([id, label]) => (
+          <Pressable key={id} style={[styles.chip, filter === id && styles.chipOn]} onPress={() => setFilter(id)}>
+            <Text style={[styles.chipText, filter === id && styles.chipTextOn]}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {visibleRows.map((r) => {
+        const left = Math.max(0, Number(r.amount) - Number(r.amount_paid));
+        return (
+          <View key={r.id} style={styles.card}>
+            <View style={styles.cardHead}>
+              <Text style={styles.title}>{r.label}</Text>
+              <Text style={[styles.badge, { color: statusColor(r.status) }]}>{statusLabel(r.status)}</Text>
+            </View>
+            {!!r.label_ar && <Text style={styles.ar}>{r.label_ar}</Text>}
+            <Text style={styles.line}>{r.athlete_name || `Joueur #${r.athlete_id}`}</Text>
+            {!!r.reference && <Text style={styles.ref}>Réf. {r.reference}</Text>}
+            <View style={styles.amountRow}>
+              <Text style={styles.amount}>{fmtMoney(r.amount_paid)} / {fmtMoney(r.amount)}</Text>
+              {left > 0 && <Text style={styles.left}>Reste {fmtMoney(left)}</Text>}
+            </View>
+          </View>
+        );
+      })}
+      {!visibleRows.length && !loading && <Text style={styles.muted}>Aucune échéance à afficher</Text>}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#eef2fb" },
-  h: { fontSize: 18, fontWeight: "800", color: "#1E3A8A" },
-  h2: { fontSize: 15, fontWeight: "800", color: "#1E3A8A", marginTop: 4 },
-  card: { backgroundColor: "white", borderRadius: 14, padding: 12, gap: 4 },
-  title: { fontWeight: "700" },
-  muted: { color: "#5b6478" },
-  amount: { marginTop: 6, color: "#1E3A8A", fontWeight: "800" },
-  badge: { marginTop: 4, color: "#5b6478", fontWeight: "700" },
-  label: { marginTop: 10, fontWeight: "700", color: "#334155" },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
-  chip: {
-    borderWidth: 1,
-    borderColor: "#d7deee",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: "#f8fafc",
-  },
-  chipOn: { backgroundColor: "#1E3A8A", borderColor: "#1E3A8A" },
-  chipText: { color: "#334155", fontWeight: "700", fontSize: 12 },
-  chipTextOn: { color: "white" },
-  list: { maxHeight: 180, marginTop: 6 },
-  row: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "#f8fafc", marginBottom: 4 },
-  rowOn: { backgroundColor: "#dbeafe" },
-  rowText: { fontWeight: "600", color: "#0f172a" },
-  input: {
-    borderWidth: 1,
-    borderColor: "#d7deee",
-    borderRadius: 10,
-    padding: 10,
-    backgroundColor: "#f8fafc",
-    marginTop: 4,
-  },
-  btn: {
-    marginTop: 12,
-    backgroundColor: "#1E3A8A",
-    borderRadius: 12,
-    padding: 12,
+  page: { flex: 1, backgroundColor: colors.bg },
+  h: { fontSize: 20, fontWeight: "800", color: colors.blue },
+  h2: { fontSize: 16, fontWeight: "800", color: colors.blue, marginTop: 4 },
+  card: { backgroundColor: colors.card, borderRadius: 16, padding: 14, gap: 6 },
+  cardHead: { flexDirection: "row", justifyContent: "space-between", gap: 8, alignItems: "flex-start" },
+  title: { fontWeight: "800", color: colors.navy, fontSize: 15, flex: 1 },
+  muted: { color: colors.muted, lineHeight: 20 },
+  line: { color: "#334155", fontSize: 14, lineHeight: 20 },
+  ar: { color: colors.muted, fontSize: 13 },
+  ref: { color: colors.muted, fontSize: 12 },
+  amount: { marginTop: 4, color: colors.blue, fontWeight: "800", fontSize: 15 },
+  amountRow: { marginTop: 4, gap: 2 },
+  left: { color: "#a16207", fontWeight: "700", fontSize: 13 },
+  badge: { fontWeight: "800", fontSize: 12 },
+  summaryRow: { flexDirection: "row", gap: 10 },
+  summaryCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 14,
     alignItems: "center",
   },
-  btnText: { color: "white", fontWeight: "800" },
-  ok: { marginTop: 8, color: "#16a34a", fontWeight: "700" },
+  summaryN: { fontWeight: "800", color: colors.blue, fontSize: 16, textAlign: "center" },
+  summaryL: { color: colors.muted, fontSize: 12, marginTop: 4, textAlign: "center" },
+  label: { marginTop: 12, fontWeight: "700", color: "#334155", fontSize: 13 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  chip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.softGray,
+  },
+  chipOn: { backgroundColor: colors.blue, borderColor: colors.blue },
+  chipText: { color: "#334155", fontWeight: "700", fontSize: 13 },
+  chipTextOn: { color: "white" },
+  list: { maxHeight: 220, marginTop: 8 },
+  row: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: colors.softGray,
+    marginBottom: 6,
+  },
+  rowOn: { backgroundColor: colors.softBlue },
+  rowText: { fontWeight: "600", color: "#0f172a", fontSize: 14 },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: colors.softGray,
+    marginTop: 6,
+    fontSize: 15,
+  },
+  btn: {
+    marginTop: 14,
+    backgroundColor: colors.blue,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+  },
+  btnText: { color: "white", fontWeight: "800", fontSize: 15 },
+  ok: { color: "#16a34a", fontWeight: "700", textAlign: "center" },
+  err: { color: colors.danger, fontWeight: "700", textAlign: "center" },
 });

@@ -14,7 +14,8 @@ function Guard({ children }: { children: React.ReactNode }) {
     const onChange = segments[0] === "change-password";
     if (!token && !onLogin) router.replace("/login");
     else if (token && mustChangePassword && !onChange) router.replace("/change-password");
-    else if (token && !mustChangePassword && (onLogin || onChange)) router.replace("/(tabs)");
+    else if (token && !mustChangePassword && onLogin) router.replace("/(tabs)");
+    // voluntary change-password from Profil is allowed when already authenticated
   }, [ready, token, mustChangePassword, segments]);
 
   if (!ready) {

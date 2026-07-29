@@ -34,10 +34,28 @@ from app.schemas import (
     EventOut,
     EventUpdate,
     RosterAthleteOut,
+    ThreadCreate,
+    ThreadReplyIn,
 )
 from app.services.notify import notify_team_parents
 
 router = APIRouter(tags=["agenda"])
+
+
+def _enrich_convocation(db: Session, conv: Convocation) -> ConvocationOut:
+    athlete = db.get(Athlete, conv.athlete_id)
+    event = db.get(Event, conv.event_id)
+    return ConvocationOut(
+        id=conv.id,
+        event_id=conv.event_id,
+        athlete_id=conv.athlete_id,
+        status=conv.status,
+        note=conv.note,
+        athlete_name=athlete.full_name if athlete else None,
+        event_title=event.title if event else None,
+        event_starts_at=event.starts_at if event else None,
+        event_type=event.event_type if event else None,
+    )
 
 
 def _primary_coach_id(db: Session, team_id: int | None) -> int | None:
@@ -173,12 +191,18 @@ def create_convocations(
     athlete_ids: list[int],
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
 ):
     event = db.get(Event, event_id)
     if not event:
         raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
     created = []
     for aid in athlete_ids:
+        athlete = db.get(Athlete, aid)
+        if not athlete:
+            raise HTTPException(404, "Athlète introuvable")
+        assert_same_club(athlete, club_id)
         existing = db.query(Convocation).filter_by(event_id=event_id, athlete_id=aid).first()
         if existing:
             created.append(existing)
@@ -195,16 +219,21 @@ def create_convocations(
 @router.get("/convocations", response_model=list[ConvocationOut])
 def list_convocations(
     event_id: int | None = None,
+    status: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
-    q = db.query(Convocation)
+    q = db.query(Convocation).join(Event, Event.id == Convocation.event_id).filter(Event.club_id == club_id)
     if event_id:
         q = q.filter(Convocation.event_id == event_id)
+    if status:
+        q = q.filter(Convocation.status == status)
     if user.role == Role.PARENT:
         ids = {r[0] for r in db.query(ParentChild.athlete_id).filter(ParentChild.parent_id == user.id)}
         q = q.filter(Convocation.athlete_id.in_(ids or {-1}))
-    return q.order_by(Convocation.id.desc()).limit(200).all()
+    rows = q.order_by(Convocation.id.desc()).limit(200).all()
+    return [_enrich_convocation(db, c) for c in rows]
 
 
 @router.post("/convocations/{conv_id}/respond", response_model=ConvocationOut)
@@ -232,7 +261,7 @@ def respond_convocation(
     conv.responded_by = user.id
     db.commit()
     db.refresh(conv)
-    return conv
+    return _enrich_convocation(db, conv)
 
 
 @router.get("/events/{event_id}", response_model=EventOut)
@@ -423,30 +452,150 @@ def register_push(
 
 @comms_router.post("/threads")
 def create_thread(
-    subject: str,
-    body: str,
-    athlete_id: int | None = None,
+    payload: ThreadCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
-    thread = MessageThread(subject=subject, created_by=user.id, athlete_id=athlete_id)
+    subject = (payload.subject or "").strip()
+    body = (payload.body or "").strip()
+    if not subject or not body:
+        raise HTTPException(400, "Sujet et message requis")
+    if payload.athlete_id:
+        athlete = db.get(Athlete, payload.athlete_id)
+        if not athlete:
+            raise HTTPException(404, "Athlète introuvable")
+        assert_same_club(athlete, club_id)
+    thread = MessageThread(
+        club_id=club_id,
+        subject=subject[:200],
+        created_by=user.id,
+        athlete_id=payload.athlete_id,
+    )
     db.add(thread)
     db.flush()
-    db.add(Message(thread_id=thread.id, sender_id=user.id, body=body))
+    db.add(Message(club_id=club_id, thread_id=thread.id, sender_id=user.id, body=body))
     db.commit()
-    return {"id": thread.id, "subject": thread.subject}
+    return {"id": thread.id, "subject": thread.subject, "status": thread.status}
 
 
 @comms_router.get("/threads")
-def list_threads(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role in {Role.ADMIN, Role.DIRECTION, Role.STAFF}:
-        threads = db.query(MessageThread).order_by(MessageThread.id.desc()).limit(100).all()
+def list_threads(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    club_threads = db.query(MessageThread).filter(MessageThread.club_id == club_id)
+    if user.role in {Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH}:
+        threads = club_threads.order_by(MessageThread.id.desc()).limit(100).all()
     else:
         threads = (
-            db.query(MessageThread)
-            .filter(MessageThread.created_by == user.id)
+            club_threads.filter(MessageThread.created_by == user.id)
             .order_by(MessageThread.id.desc())
             .limit(100)
             .all()
         )
-    return [{"id": t.id, "subject": t.subject, "status": t.status, "athlete_id": t.athlete_id} for t in threads]
+    out = []
+    for t in threads:
+        last = (
+            db.query(Message)
+            .filter(Message.thread_id == t.id)
+            .order_by(Message.id.desc())
+            .first()
+        )
+        creator = db.get(User, t.created_by)
+        out.append(
+            {
+                "id": t.id,
+                "subject": t.subject,
+                "status": t.status,
+                "athlete_id": t.athlete_id,
+                "created_by": t.created_by,
+                "created_by_name": creator.full_name if creator else None,
+                "last_message": last.body if last else None,
+                "updated_at": last.created_at if last else t.created_at,
+            }
+        )
+    return out
+
+
+def _can_access_thread(db: Session, user: User, thread: MessageThread) -> bool:
+    if user.role in {Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH}:
+        return True
+    return thread.created_by == user.id
+
+
+@comms_router.get("/threads/{thread_id}")
+def get_thread(
+    thread_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    thread = db.get(MessageThread, thread_id)
+    if not thread:
+        raise HTTPException(404, "Fil introuvable")
+    assert_same_club(thread, club_id)
+    if not _can_access_thread(db, user, thread):
+        raise HTTPException(404, "Fil introuvable")
+    msgs = (
+        db.query(Message)
+        .filter(Message.thread_id == thread_id)
+        .order_by(Message.id.asc())
+        .all()
+    )
+    sender_ids = {m.sender_id for m in msgs}
+    names = {
+        u.id: u.full_name
+        for u in db.query(User).filter(User.id.in_(sender_ids or {-1})).all()
+    }
+    return {
+        "id": thread.id,
+        "subject": thread.subject,
+        "status": thread.status,
+        "athlete_id": thread.athlete_id,
+        "messages": [
+            {
+                "id": m.id,
+                "sender_id": m.sender_id,
+                "sender_name": names.get(m.sender_id),
+                "body": m.body,
+                "created_at": m.created_at,
+                "is_mine": m.sender_id == user.id,
+            }
+            for m in msgs
+        ],
+    }
+
+
+@comms_router.post("/threads/{thread_id}/messages")
+def reply_thread(
+    thread_id: int,
+    payload: ThreadReplyIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    thread = db.get(MessageThread, thread_id)
+    if not thread:
+        raise HTTPException(404, "Fil introuvable")
+    assert_same_club(thread, club_id)
+    if not _can_access_thread(db, user, thread):
+        raise HTTPException(404, "Fil introuvable")
+    body = (payload.body or "").strip()
+    if not body:
+        raise HTTPException(400, "Message vide")
+    msg = Message(club_id=club_id, thread_id=thread.id, sender_id=user.id, body=body)
+    db.add(msg)
+    if thread.status == "closed":
+        thread.status = "open"
+    db.commit()
+    db.refresh(msg)
+    return {
+        "id": msg.id,
+        "sender_id": msg.sender_id,
+        "sender_name": user.full_name,
+        "body": msg.body,
+        "created_at": msg.created_at,
+        "is_mine": True,
+    }

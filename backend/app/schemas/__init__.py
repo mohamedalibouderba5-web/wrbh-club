@@ -304,6 +304,10 @@ class ConvocationOut(ORMModel):
     athlete_id: int
     status: str
     note: Optional[str]
+    athlete_name: Optional[str] = None
+    event_title: Optional[str] = None
+    event_starts_at: Optional[datetime] = None
+    event_type: Optional[str] = None
 
 
 class AttendanceIn(BaseModel):
@@ -438,6 +442,16 @@ class AnnouncementCreate(BaseModel):
     body_ar: Optional[str] = None
     audience: str = "all"
     is_pinned: bool = False
+
+
+class ThreadCreate(BaseModel):
+    subject: str
+    body: str
+    athlete_id: Optional[int] = None
+
+
+class ThreadReplyIn(BaseModel):
+    body: str
 
 
 class AnnouncementOut(ORMModel):
