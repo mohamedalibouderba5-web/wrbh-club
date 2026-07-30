@@ -263,6 +263,25 @@ export function TeamsPage() {
     }
   }
 
+  async function repairCoachAgenda() {
+    if (!canManageCoaches || syncBusy) return;
+    setSyncBusy(true);
+    try {
+      const res = await api<{ events_updated: number; teams_with_coach: number }>(
+        "/api/v1/teams/backfill-event-coaches",
+        { method: "POST" },
+      );
+      toast(
+        `Agenda coachs réparé — ${res.events_updated} séance(s) liées · ${res.teams_with_coach} équipe(s)`,
+        "success",
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
   return (
     <div className="grid" style={{ gap: "1rem" }}>
       {canManageCoaches && (
@@ -274,9 +293,14 @@ export function TeamsPage() {
                 Ajouter ou modifier un coach comme pour un joueur, puis l’assigner à une équipe (U14G1, U11G2…).
               </p>
             </div>
-            <button type="button" className="accent" disabled={syncBusy} onClick={() => void syncStructure()}>
-              {syncBusy ? "…" : "Créer équipes U14G1…U5G1"}
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" className="accent" disabled={syncBusy} onClick={() => void syncStructure()}>
+                {syncBusy ? "…" : "Créer équipes U14G1…U5G1"}
+              </button>
+              <button type="button" className="secondary" disabled={syncBusy} onClick={() => void repairCoachAgenda()}>
+                Réparer agenda coachs
+              </button>
+            </div>
           </div>
 
           <form className="grid" style={{ gap: "0.75rem", marginTop: "1rem" }} onSubmit={onCreateCoach}>

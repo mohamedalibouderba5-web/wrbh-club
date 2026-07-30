@@ -282,6 +282,19 @@ def assign_team_coaches(
     db.query(TeamCoach).filter(TeamCoach.team_id == team_id).delete(synchronize_session=False)
     for uid, lab in cleaned:
         db.add(TeamCoach(club_id=club_id, team_id=team_id, user_id=uid, role_label=lab))
+
+    # Rendre l'agenda coach cohérent : rattacher le titulaire aux séances sans coach_id
+    primary_uid = next((uid for uid, lab in cleaned if lab == "primary"), cleaned[0][0] if cleaned else None)
+    if primary_uid:
+        (
+            db.query(Event)
+            .filter(
+                Event.team_id == team_id,
+                or_(Event.coach_id.is_(None), Event.coach_id == 0),
+            )
+            .update({Event.coach_id: primary_uid}, synchronize_session=False)
+        )
+
     db.commit()
     write_audit(
         db,
@@ -293,6 +306,59 @@ def assign_team_coaches(
         commit=True,
     )
     return _team_coach_rows(db, team_id)
+
+
+@router.post("/teams/backfill-event-coaches")
+def backfill_event_coaches(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Remplit Event.coach_id depuis TeamCoach (titulaire) pour les séances orphelines.
+
+    Corrige l'agenda coach vide quand les séances existent mais sans coach lié.
+    """
+    links = (
+        db.query(TeamCoach)
+        .filter(or_(TeamCoach.club_id == club_id, TeamCoach.club_id.is_(None)))
+        .all()
+    )
+    primary_by_team: dict[int, int] = {}
+    for row in links:
+        if row.role_label == "primary" or row.team_id not in primary_by_team:
+            if row.role_label == "primary":
+                primary_by_team[row.team_id] = row.user_id
+            elif row.team_id not in primary_by_team:
+                primary_by_team[row.team_id] = row.user_id
+    # Prefer explicit primary
+    for row in links:
+        if row.role_label == "primary":
+            primary_by_team[row.team_id] = row.user_id
+
+    updated = 0
+    for team_id, coach_id in primary_by_team.items():
+        n = (
+            db.query(Event)
+            .filter(
+                Event.team_id == team_id,
+                or_(Event.club_id == club_id, Event.club_id.is_(None)),
+                Event.coach_id.is_(None),
+            )
+            .update({Event.coach_id: coach_id}, synchronize_session=False)
+        )
+        updated += int(n or 0)
+
+    write_audit(
+        db,
+        action="backfill",
+        entity="event_coaches",
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"updated={updated} teams={len(primary_by_team)}",
+        commit=False,
+    )
+    db.commit()
+    return {"events_updated": updated, "teams_with_coach": len(primary_by_team)}
 
 
 @router.get("/coaches", response_model=list)

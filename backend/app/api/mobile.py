@@ -122,14 +122,17 @@ def mobile_home(db: Session = Depends(get_db), user: User = Depends(get_current_
             .all()
         )
     elif user.role == Role.COACH:
-        team_ids = [r[0] for r in db.query(TeamCoach.team_id).filter(TeamCoach.user_id == user.id)]
+        team_ids = {r[0] for r in db.query(TeamCoach.team_id).filter(TeamCoach.user_id == user.id)}
+        clauses = [Event.coach_id == user.id, Event.substitute_coach_id == user.id]
+        if team_ids:
+            clauses.insert(0, Event.team_id.in_(team_ids))
         events = (
             db.query(Event)
             .filter(
-                Event.team_id.in_(team_ids or {-1}),
                 Event.starts_at >= now,
                 Event.starts_at <= soon,
                 Event.is_cancelled.is_(False),
+                or_(*clauses),
             )
             .order_by(Event.starts_at)
             .limit(40)

@@ -107,14 +107,19 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, retries = 0)
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
+      const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timeoutMs = path.includes("/system/wake") || path.includes("/system/health") ? 45_000 : 25_000;
+      const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : 0;
       const res = await fetch(`${API_BASE}${path}`, {
         ...options,
+        signal: controller?.signal,
         headers: {
           ...(options.body instanceof URLSearchParams || isForm ? {} : { "Content-Type": "application/json" }),
           ...authHeader(),
           ...(options.headers || {}),
         },
       });
+      if (timer) window.clearTimeout(timer);
       if (!res.ok) {
         const msg = await parseError(res);
         if (res.status === 401 && localStorage.getItem("wrbh_token")) {
@@ -139,23 +144,30 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, retries = 0)
       lastErr = e instanceof Error ? e : new Error(String(e));
       if (e instanceof HttpError) throw e;
       if (attempt < retries) {
-        try {
-          await wakeServer();
-        } catch {
-          /* ignore */
+        window.dispatchEvent(new CustomEvent("wrbh:cold-start", { detail: { attempt: attempt + 1 } }));
+        const isWakePath = path.includes("/system/wake") || path.includes("/system/health");
+        if (!isWakePath) {
+          try {
+            await wakeServer();
+          } catch {
+            /* ignore */
+          }
         }
-        await new Promise((r) => setTimeout(r, 400));
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
         continue;
       }
     }
   }
-  throw lastErr || new Error("Erreur réseau");
+  window.dispatchEvent(new CustomEvent("wrbh:cold-start-failed"));
+  throw lastErr || new Error("Erreur réseau — utilisez Actualiser / Réveiller le serveur");
 }
 
 /** GET/POST générique (mutations invalident le cache lié). */
-export async function api<T>(path: string, options: RequestInit = {}, retries = 0): Promise<T> {
+export async function api<T>(path: string, options: RequestInit = {}, retries?: number): Promise<T> {
   const method = (options.method || "GET").toUpperCase();
-  const data = await rawFetch<T>(path, options, retries);
+  // Cold start Render : 2 retries réseau par défaut sur les lectures
+  const retryCount = retries ?? (method === "GET" || method === "HEAD" ? 2 : 0);
+  const data = await rawFetch<T>(path, options, retryCount);
   if (method !== "GET" && method !== "HEAD") {
     if (path.includes("/athletes")) invalidateApiCache("/athletes");
     if (path.includes("/registrations")) invalidateApiCache("/registrations");
@@ -228,14 +240,27 @@ export async function login(username: string, password: string): Promise<TokenPa
 }
 
 export async function wakeServer() {
-  return rawFetch<{ status: string; woken_at: string }>("/api/v1/system/wake", { method: "POST" }, 0);
+  // Appel direct (sans rawFetch) pour éviter une boucle wake→retry→wake
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? window.setTimeout(() => controller.abort(), 45_000) : 0;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/system/wake`, {
+      method: "POST",
+      signal: controller?.signal,
+      headers: { "Content-Type": "application/json", ...authHeader() },
+    });
+    if (!res.ok) throw new Error("Wake failed");
+    return (await res.json()) as { status: string; woken_at: string };
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
 }
 
 export async function health() {
-  return rawFetch<{ status: string; time: string; environment?: string; warnings?: string[] }>(
+  return rawFetch<{ status: string; time: string; environment?: string; warnings?: string[]; version?: string }>(
     "/api/v1/system/health",
     {},
-    0,
+    1,
   );
 }
 
@@ -246,6 +271,8 @@ export function prefetchHotPaths() {
     "/api/v1/categories",
     "/api/v1/athletes?limit=40&skip=0",
     "/api/v1/registrations?limit=40",
+    "/api/v1/events?include_cancelled=true",
+    "/api/v1/teams",
   ];
   paths.forEach((p) => {
     void apiGetFast(p, { ttlMs: 60_000 }).catch(() => undefined);

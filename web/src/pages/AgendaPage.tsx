@@ -42,13 +42,16 @@ export function AgendaPage() {
   const { t } = useI18n();
   const { role } = useAuth();
   const canEdit = role === "admin" || role === "direction" || role === "staff" || role === "coach";
+  const isCoach = role === "coach";
   const [events, setEvents] = useState<EventRow[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [myTeams, setMyTeams] = useState<{ team_id: number; name: string; role_label: string }[]>([]);
   const [teamCoaches, setTeamCoaches] = useState<TeamCoach[]>([]);
   const [selected, setSelected] = useState<EventRow | null>(null);
   const [roster, setRoster] = useState<Roster[]>([]);
   const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     event_type: "training",
     title: "Entraînement",
@@ -75,27 +78,49 @@ export function AgendaPage() {
   const [msg, setMsg] = useState("");
 
   async function load() {
+    setLoading(true);
     try {
-      const { data, errors } = await loadAllSettled<[EventRow[], Team[], Coach[]]>([
-        () => api<EventRow[]>("/api/v1/events?include_cancelled=true"),
-        () => api<Team[]>("/api/v1/teams"),
-        () => api<Coach[]>("/api/v1/coaches").catch(() => []),
-      ]);
-      const [e, tms, ch] = data;
+      const loaders: Array<() => Promise<unknown>> = [
+        () => api<EventRow[]>("/api/v1/events?include_cancelled=true", {}, 2),
+        () => api<Team[]>("/api/v1/teams", {}, 2),
+        () => api<Coach[]>("/api/v1/coaches", {}, 2).catch(() => []),
+      ];
+      if (isCoach) {
+        loaders.push(() =>
+          api<{ teams: { team_id: number; name: string; role_label: string }[] }>(
+            "/api/v1/coach/my-teams",
+            {},
+            2,
+          ).catch(() => ({ teams: [] })),
+        );
+      }
+      const { data, errors } = await loadAllSettled(loaders);
+      const e = data[0] as EventRow[] | null;
+      const tms = data[1] as Team[] | null;
+      const ch = data[2] as Coach[] | null;
       if (e) setEvents(e);
       if (tms) {
         setTeams(tms);
         if (tms[0] && !form.team_id) setForm((f) => ({ ...f, team_id: tms[0].id }));
       }
       if (ch) setCoaches(ch);
+      if (isCoach && data[3]) {
+        setMyTeams((data[3] as { teams: typeof myTeams }).teams || []);
+      }
       if (errors.length) setMsg(errors.join(" · "));
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Erreur chargement");
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
     load();
+    const onAwake = () => void load();
+    window.addEventListener("wrbh:server-awake", onAwake);
+    return () => window.removeEventListener("wrbh:server-awake", onAwake);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadTeamCoaches(teamId: number) {
@@ -335,6 +360,19 @@ export function AgendaPage() {
       )}
 
       <div className="grid" style={{ gap: "1rem" }}>
+        {isCoach && (
+          <div className={`offline-banner ${myTeams.length ? "pending" : "offline"}`}>
+            <span>
+              {myTeams.length
+                ? `Vos équipes : ${myTeams.map((x) => x.name).join(" · ")}`
+                : "Aucune équipe liée à votre compte — l’admin doit vous assigner dans Équipes / Coachs (sinon l’agenda reste vide)."}
+            </span>
+            <button type="button" className="secondary" onClick={() => void load()}>
+              {loading ? "…" : "Actualiser"}
+            </button>
+          </div>
+        )}
+        {msg && <p className="error">{msg}</p>}
         <div className="session-board">
           {events.map((ev) => (
             <button
@@ -362,7 +400,14 @@ export function AgendaPage() {
               </div>
             </button>
           ))}
-          {!events.length && <p style={{ color: "var(--muted)" }}>Aucune séance</p>}
+          {loading && !events.length && <p className="muted">{t("loading")}</p>}
+          {!loading && !events.length && (
+            <p style={{ color: "var(--muted)" }}>
+              {isCoach && !myTeams.length
+                ? "0 séance — liez d’abord le coach à une équipe (U11G1, U13G2…)."
+                : "Aucune séance"}
+            </p>
+          )}
         </div>
 
         {selected && (

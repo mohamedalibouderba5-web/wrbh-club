@@ -18,6 +18,8 @@ export function AppLayout() {
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncBusy, setSyncBusy] = useState(false);
+  const [coldStart, setColdStart] = useState(false);
+  const [waking, setWaking] = useState(false);
   const location = useLocation();
   const { updateReady, checking, checkForUpdate, applyUpdate } = useAppUpdate();
 
@@ -78,11 +80,23 @@ export function AppLayout() {
         prefetchHotPaths();
       }
     };
+    const onCold = () => setColdStart(true);
+    const onColdFail = () => setColdStart(true);
+    const onAwake = () => {
+      setColdStart(false);
+      prefetchHotPaths();
+    };
     document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("wrbh:cold-start", onCold);
+    window.addEventListener("wrbh:cold-start-failed", onColdFail);
+    window.addEventListener("wrbh:server-awake", onAwake);
     return () => {
       cancelled = true;
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("wrbh:cold-start", onCold);
+      window.removeEventListener("wrbh:cold-start-failed", onColdFail);
+      window.removeEventListener("wrbh:server-awake", onAwake);
     };
   }, []);
 
@@ -102,17 +116,26 @@ export function AppLayout() {
   const bottom = [links[0], links[1], links[2], links[3], links[links.length - 1]].filter(Boolean);
 
   async function onWake() {
-    setWakeMsg("…");
+    setWaking(true);
+    setColdStart(true);
+    setWakeMsg(lang === "ar" ? "جاري الإيقاظ…" : "Réveil du serveur…");
     try {
       await wakeServer();
       const h = await health();
-      setWakeMsg(`OK — ${h.environment || "?"} · ${h.time}`);
+      setWakeMsg(
+        lang === "ar"
+          ? `تم — ${h.version || "?"} · أعد تحميل الصفحات`
+          : `OK — ${h.version || h.environment || "?"} · pages rechargées`,
+      );
+      setColdStart(false);
       window.dispatchEvent(new CustomEvent("wrbh:server-awake"));
       const r = await syncPendingRegistrations();
       if (r.synced) setWakeMsg((m) => `${m} · sync ${r.synced}`);
       await checkForUpdate();
     } catch {
-      setWakeMsg("Échec — réessayez");
+      setWakeMsg(lang === "ar" ? "فشل — أعد المحاولة" : "Échec — réessayez (serveur endormi ~30–60 s)");
+    } finally {
+      setWaking(false);
     }
   }
 
@@ -184,8 +207,8 @@ export function AppLayout() {
             <div className="topbar-sub">{t("season")}</div>
           </div>
           <div className="wake-bar">
-            <button className="accent wake-btn" onClick={onWake}>
-              {t("wake")}
+            <button className="accent wake-btn" disabled={waking} onClick={() => void onWake()}>
+              {waking ? (lang === "ar" ? "…" : "Réveil…") : t("wake")}
             </button>
             {wakeMsg && <span className="wake-msg">{wakeMsg}</span>}
           </div>
@@ -196,6 +219,18 @@ export function AppLayout() {
               <span>{t("updateAvailable")}</span>
               <button type="button" onClick={applyUpdate}>
                 {t("updateNow")}
+              </button>
+            </div>
+          )}
+          {coldStart && (
+            <div className="offline-banner pending">
+              <span>
+                {lang === "ar"
+                  ? "الخادم يستيقظ (Render) — انتظر 30–60 ثانية ثم اضغط تحديث"
+                  : "Serveur en réveil (Render free) — 30–60 s. Cliquez Actualiser si la page reste vide."}
+              </span>
+              <button type="button" disabled={waking} onClick={() => void onWake()}>
+                {waking ? "…" : t("wake")}
               </button>
             </div>
           )}

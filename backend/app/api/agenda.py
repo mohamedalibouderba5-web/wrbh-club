@@ -20,6 +20,7 @@ from app.models import (
     Notification,
     ParentChild,
     PushToken,
+    Team,
     TeamCoach,
     TeamMembership,
     User,
@@ -123,18 +124,52 @@ def list_events(
         }
         q = q.filter(Event.team_id.in_(team_ids or {-1}))
     elif user.role == Role.COACH:
-        team_ids = {r[0] for r in db.query(TeamCoach.team_id).filter(TeamCoach.user_id == user.id)}
-        # Coach voit aussi les séances où il est titulaire ou remplaçant
-        q = q.filter(
-            or_(
-                Event.team_id.in_(team_ids or {-1}),
-                Event.coach_id == user.id,
-                Event.substitute_coach_id == user.id,
-            )
-        )
+        q = q.filter(_coach_event_visibility(db, user.id))
 
     rows = q.order_by(Event.starts_at).offset(skip).limit(limit).all()
     return [_enrich_event(db, e) for e in rows]
+
+
+def _coach_team_ids(db: Session, user_id: int) -> set[int]:
+    return {r[0] for r in db.query(TeamCoach.team_id).filter(TeamCoach.user_id == user_id)}
+
+
+def _coach_event_visibility(db: Session, user_id: int):
+    """Séances visibles pour un coach : équipes assignées OU titulaire/remplaçant sur l'événement."""
+    team_ids = _coach_team_ids(db, user_id)
+    clauses = [Event.coach_id == user_id, Event.substitute_coach_id == user_id]
+    if team_ids:
+        clauses.insert(0, Event.team_id.in_(team_ids))
+    return or_(*clauses)
+
+
+@router.get("/coach/my-teams")
+def my_coach_teams(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.COACH, Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Équipes liées au coach connecté (diagnostic agenda vide)."""
+    uid = user.id
+    if user.role != Role.COACH:
+        return {"user_id": uid, "teams": [], "note": "Réservé aux comptes coach pour le diagnostic"}
+    rows = (
+        db.query(TeamCoach, Team)
+        .join(Team, Team.id == TeamCoach.team_id)
+        .filter(TeamCoach.user_id == uid, or_(Team.club_id == club_id, Team.club_id.is_(None)))
+        .all()
+    )
+    teams = [
+        {
+            "team_id": t.id,
+            "name": t.name,
+            "code": t.code,
+            "role_label": tc.role_label,
+            "category_id": t.category_id,
+        }
+        for tc, t in rows
+    ]
+    return {"user_id": uid, "teams": teams, "count": len(teams)}
 
 
 @router.post("/events", response_model=EventOut)
