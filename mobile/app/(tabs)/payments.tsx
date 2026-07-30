@@ -34,6 +34,24 @@ type FeeSettings = {
 
 type Athlete = { id: number; full_name: string; category_code?: string; category_id?: number };
 type Category = { id: number; code: string };
+type Ledger = {
+  id: number;
+  entry_type: string;
+  category: string;
+  label: string;
+  amount: number;
+  entry_date: string;
+  counterparty?: string;
+  reference?: string;
+};
+type Dash = {
+  cotisations_due: number;
+  cotisations_paid: number;
+  ledger_income: number;
+  ledger_expense: number;
+  coach_payroll_total: number;
+  overdue_count: number;
+};
 
 const TYPES: { id: string; label: string }[] = [
   { id: "monthly", label: "Mensuel" },
@@ -47,7 +65,10 @@ const MONTHS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Aoû", "Sep
 export default function PaymentsScreen() {
   const { role } = useAuth();
   const isStaff = role === "admin" || role === "direction" || role === "staff";
+  const [tab, setTab] = useState<"fees" | "ledger">("fees");
   const [rows, setRows] = useState<Inst[]>([]);
+  const [ledger, setLedger] = useState<Ledger[]>([]);
+  const [dash, setDash] = useState<Dash | null>(null);
   const [settings, setSettings] = useState<FeeSettings | null>(null);
   const [cats, setCats] = useState<Category[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -59,6 +80,7 @@ export default function PaymentsScreen() {
   const [saving, setSaving] = useState(false);
   const [athleteSearch, setAthleteSearch] = useState("");
   const now = new Date();
+  const today = now.toISOString().slice(0, 10);
   const [pay, setPay] = useState({
     payment_type: "monthly",
     category_id: 0 as number,
@@ -66,6 +88,14 @@ export default function PaymentsScreen() {
     month: now.getMonth() + 1,
     amount: "800",
     equipment_label: "",
+  });
+  const [entry, setEntry] = useState({
+    entry_type: "expense",
+    category: "divers",
+    label: "",
+    amount: "",
+    entry_date: today,
+    counterparty: "",
   });
 
   const refresh = useCallback(() => {
@@ -100,6 +130,12 @@ export default function PaymentsScreen() {
       api<Athlete[]>("/api/v1/athletes?limit=300&sort=name&order=asc")
         .then(setAthletes)
         .catch(() => setAthletes([]));
+      api<Ledger[]>("/api/v1/ledger?limit=80")
+        .then(setLedger)
+        .catch(() => setLedger([]));
+      api<Dash>("/api/v1/dashboard")
+        .then(setDash)
+        .catch(() => setDash(null));
     }
   }, [isStaff]);
 
@@ -181,12 +217,160 @@ export default function PaymentsScreen() {
     }
   }
 
+  async function onLedgerSave() {
+    if (!entry.label.trim() || !entry.amount || saving) return;
+    setSaving(true);
+    setMsg("");
+    setErr("");
+    try {
+      await api("/api/v1/ledger", {
+        method: "POST",
+        body: JSON.stringify({
+          entry_type: entry.entry_type,
+          category: entry.category,
+          label: entry.label.trim(),
+          amount: Number(entry.amount),
+          entry_date: entry.entry_date || today,
+          counterparty: entry.counterparty.trim() || null,
+        }),
+      });
+      setMsg("Écriture caisse enregistrée");
+      setEntry({
+        entry_type: "expense",
+        category: "divers",
+        label: "",
+        amount: "",
+        entry_date: today,
+        counterparty: "",
+      });
+      refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <ScrollView style={styles.page} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
-      <Text style={styles.h}>Cotisations / الاشتراكات</Text>
+      <Text style={styles.h}>Finance</Text>
+      {isStaff && (
+        <View style={styles.chips}>
+          <Pressable style={[styles.chip, tab === "fees" && styles.chipOn]} onPress={() => setTab("fees")}>
+            <Text style={[styles.chipText, tab === "fees" && styles.chipTextOn]}>Cotisations</Text>
+          </Pressable>
+          <Pressable style={[styles.chip, tab === "ledger" && styles.chipOn]} onPress={() => setTab("ledger")}>
+            <Text style={[styles.chipText, tab === "ledger" && styles.chipTextOn]}>Caisse</Text>
+          </Pressable>
+        </View>
+      )}
       {loading && <ActivityIndicator color={colors.blue} />}
       {!!err && <Text style={styles.err}>{err}</Text>}
       {!!msg && <Text style={styles.ok}>{msg}</Text>}
+
+      {tab === "ledger" && isStaff ? (
+        <>
+          {dash && (
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryN}>{fmtMoney(dash.ledger_income)}</Text>
+                <Text style={styles.summaryL}>Recettes</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryN}>{fmtMoney(dash.ledger_expense)}</Text>
+                <Text style={styles.summaryL}>Dépenses</Text>
+              </View>
+            </View>
+          )}
+          {dash && (
+            <View style={styles.card}>
+              <Text style={styles.title}>Tableau de bord</Text>
+              <Text style={styles.line}>Cotisations encaissées : {fmtMoney(dash.cotisations_paid)}</Text>
+              <Text style={styles.line}>Reste cotisations : {fmtMoney(dash.cotisations_due)}</Text>
+              <Text style={styles.line}>Paie coachs : {fmtMoney(dash.coach_payroll_total)}</Text>
+              <Text style={styles.line}>Échéances en retard : {dash.overdue_count}</Text>
+            </View>
+          )}
+          <View style={styles.card}>
+            <Text style={styles.title}>Nouvelle écriture</Text>
+            <View style={styles.chips}>
+              {(
+                [
+                  ["income", "Recette"],
+                  ["expense", "Dépense"],
+                ] as const
+              ).map(([id, label]) => (
+                <Pressable
+                  key={id}
+                  style={[styles.chip, entry.entry_type === id && styles.chipOn]}
+                  onPress={() => setEntry((e) => ({ ...e, entry_type: id }))}
+                >
+                  <Text style={[styles.chipText, entry.entry_type === id && styles.chipTextOn]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.label}>Catégorie</Text>
+            <View style={styles.chips}>
+              {["divers", "equipment", "transport", "salaires", "location", "autre"].map((c) => (
+                <Pressable
+                  key={c}
+                  style={[styles.chip, entry.category === c && styles.chipOn]}
+                  onPress={() => setEntry((e) => ({ ...e, category: c }))}
+                >
+                  <Text style={[styles.chipText, entry.category === c && styles.chipTextOn]}>{c}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Libellé *"
+              value={entry.label}
+              onChangeText={(t) => setEntry((e) => ({ ...e, label: t }))}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Montant DZD *"
+              keyboardType="numeric"
+              value={entry.amount}
+              onChangeText={(t) => setEntry((e) => ({ ...e, amount: t }))}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Date AAAA-MM-JJ"
+              value={entry.entry_date}
+              onChangeText={(t) => setEntry((e) => ({ ...e, entry_date: t }))}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Tiers / fournisseur"
+              value={entry.counterparty}
+              onChangeText={(t) => setEntry((e) => ({ ...e, counterparty: t }))}
+            />
+            <Pressable style={styles.btn} onPress={onLedgerSave} disabled={saving}>
+              <Text style={styles.btnText}>{saving ? "…" : "Enregistrer"}</Text>
+            </Pressable>
+          </View>
+          {ledger.map((l) => (
+            <View key={l.id} style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.title}>{l.label}</Text>
+                <Text style={{ fontWeight: "800", color: l.entry_type === "income" ? colors.success : colors.danger }}>
+                  {l.entry_type === "income" ? "+" : "−"}
+                  {fmtMoney(l.amount)}
+                </Text>
+              </View>
+              <Text style={styles.line}>
+                {l.category} · {l.entry_date}
+                {l.counterparty ? ` · ${l.counterparty}` : ""}
+              </Text>
+              {!!l.reference && <Text style={styles.ref}>Réf. {l.reference}</Text>}
+            </View>
+          ))}
+          {!ledger.length && !loading && <Text style={styles.muted}>Aucune écriture</Text>}
+        </>
+      ) : (
+        <>
+      <Text style={styles.h2}>Cotisations / الاشتراكات</Text>
 
       <View style={styles.summaryRow}>
         <View style={styles.summaryCard}>
@@ -356,6 +540,8 @@ export default function PaymentsScreen() {
         );
       })}
       {!visibleRows.length && !loading && <Text style={styles.muted}>Aucune échéance à afficher</Text>}
+        </>
+      )}
     </ScrollView>
   );
 }

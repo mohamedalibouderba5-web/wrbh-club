@@ -103,15 +103,30 @@ export default function HomeScreen() {
         <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/messages")}>
           <Text style={styles.shortcutT}>Messages</Text>
         </Pressable>
+        <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/more")}>
+          <Text style={styles.shortcutT}>Plus</Text>
+        </Pressable>
       </View>
 
       {isCoach && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Espace coach / staff</Text>
           <Text style={styles.muted}>
-            Créez des séances dans Agenda, marquez les présences, publiez des annonces et encaisez depuis Paiements
-            (staff).
+            Agenda, présences, paiements, athlètes, inscriptions et matériel via l’onglet Plus.
           </Text>
+          <View style={[styles.shortcuts, { marginTop: 10 }]}>
+            <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/athletes")}>
+              <Text style={styles.shortcutT}>Athlètes</Text>
+            </Pressable>
+            <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/registrations")}>
+              <Text style={styles.shortcutT}>Inscriptions</Text>
+            </Pressable>
+            {(role === "admin" || role === "direction" || role === "staff") && (
+              <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/inventory")}>
+                <Text style={styles.shortcutT}>Matériel</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       )}
 

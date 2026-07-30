@@ -1,7 +1,12 @@
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
+import { useFonts } from "expo-font";
+import { Ionicons } from "@expo/vector-icons";
+import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
+
+SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function Guard({ children }: { children: React.ReactNode }) {
   const { ready, token, mustChangePassword } = useAuth();
@@ -15,8 +20,7 @@ function Guard({ children }: { children: React.ReactNode }) {
     if (!token && !onLogin) router.replace("/login");
     else if (token && mustChangePassword && !onChange) router.replace("/change-password");
     else if (token && !mustChangePassword && onLogin) router.replace("/(tabs)");
-    // voluntary change-password from Profil is allowed when already authenticated
-  }, [ready, token, mustChangePassword, segments]);
+  }, [ready, token, mustChangePassword, segments, router]);
 
   if (!ready) {
     return (
@@ -29,6 +33,22 @@ function Guard({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+  });
+
+  useEffect(() => {
+    if (fontsLoaded) SplashScreen.hideAsync().catch(() => undefined);
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#1E3A8A" }}>
+        <ActivityIndicator color="#F5C518" size="large" />
+      </View>
+    );
+  }
+
   return (
     <AuthProvider>
       <Guard>

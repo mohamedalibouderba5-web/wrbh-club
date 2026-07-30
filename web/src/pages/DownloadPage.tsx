@@ -2,9 +2,9 @@ import { useI18n } from "../i18n";
 
 /** APK native (GitHub Release) — surcharge possible via VITE_ANDROID_APK_URL. */
 const DEFAULT_APK_URL =
-  "https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/android-v1.1.0/wrbh-club-1.1.0.apk";
+  "https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/android-v1.2.0/wrbh-club-1.2.0.apk";
 const APK_URL = (import.meta.env.VITE_ANDROID_APK_URL || DEFAULT_APK_URL).trim();
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 
 export function DownloadPage() {
   const { lang } = useI18n();

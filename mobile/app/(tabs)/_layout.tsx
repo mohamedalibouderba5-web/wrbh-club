@@ -14,6 +14,7 @@ const ICONS: Record<string, { active: IconName; inactive: IconName }> = {
   agenda: { active: "calendar", inactive: "calendar-outline" },
   payments: { active: "card", inactive: "card-outline" },
   messages: { active: "chatbubbles", inactive: "chatbubbles-outline" },
+  more: { active: "grid", inactive: "grid-outline" },
   profile: { active: "person", inactive: "person-outline" },
 };
 
@@ -29,13 +30,13 @@ export default function TabsLayout() {
           tabBarStyle: {
             backgroundColor: NAVY,
             borderTopColor: BLUE,
-            height: 62,
+            height: 64,
             paddingBottom: 8,
             paddingTop: 6,
           },
           tabBarActiveTintColor: GOLD,
           tabBarInactiveTintColor: MUTED,
-          tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
+          tabBarLabelStyle: { fontSize: 10, fontWeight: "700" },
           tabBarIcon: ({ focused, color, size }) => (
             <Ionicons name={focused ? icons.active : icons.inactive} size={size} color={color} />
           ),
@@ -46,7 +47,13 @@ export default function TabsLayout() {
       <Tabs.Screen name="agenda" options={{ title: "Agenda" }} />
       <Tabs.Screen name="payments" options={{ title: "Paiements" }} />
       <Tabs.Screen name="messages" options={{ title: "Messages" }} />
-      <Tabs.Screen name="profile" options={{ title: "Profil" }} />
+      <Tabs.Screen name="more" options={{ title: "Plus" }} />
+      <Tabs.Screen name="profile" options={{ title: "Profil", href: null }} />
+      <Tabs.Screen name="athletes" options={{ title: "Athlètes", href: null }} />
+      <Tabs.Screen name="registrations" options={{ title: "Inscriptions", href: null }} />
+      <Tabs.Screen name="inventory" options={{ title: "Matériel", href: null }} />
+      <Tabs.Screen name="history" options={{ title: "Historique", href: null }} />
+      <Tabs.Screen name="teams" options={{ title: "Équipes", href: null }} />
     </Tabs>
   );
 }

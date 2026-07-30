@@ -42,6 +42,15 @@ export const statusLabel = (status: string) => {
     match: "Match",
     meeting: "Réunion",
     other: "Autre",
+    active: "Actif",
+    inactive: "Inactif",
+    archived: "Archivé",
+    rejected: "Refusé",
+    admin: "Admin",
+    direction: "Direction",
+    staff: "Staff",
+    coach: "Coach",
+    parent: "Parent",
   };
   return map[(status || "").toLowerCase()] || status;
 };
