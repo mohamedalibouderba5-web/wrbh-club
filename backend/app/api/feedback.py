@@ -1,12 +1,14 @@
 """API feedback : collecteur d'erreurs auto + réclamations utilisateur."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
@@ -126,10 +128,19 @@ def list_events(
     since: Optional[str] = None,
     kind: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
 ):
     """Liste récente (DB prioritaire, fallback fichier JSONL)."""
-    q = db.query(SystemFeedbackEvent).order_by(SystemFeedbackEvent.id.desc())
+    club_id = getattr(user, "club_id", None)
+    q = db.query(SystemFeedbackEvent)
+    if club_id:
+        q = q.filter(
+            or_(
+                SystemFeedbackEvent.club_id == club_id,
+                SystemFeedbackEvent.club_id.is_(None),
+            )
+        )
+    q = q.order_by(SystemFeedbackEvent.id.desc())
     if kind:
         q = q.filter(SystemFeedbackEvent.kind == kind)
     if since:
@@ -160,6 +171,12 @@ def list_events(
         ]
     # Fallback fichier local (dev / avant première synchro DB)
     file_rows = list(reversed(read_recent(limit=limit, since_iso=since)))
+    if club_id:
+        file_rows = [
+            event
+            for event in file_rows
+            if event.get("club_id") in (None, club_id)
+        ]
     if kind:
         file_rows = [e for e in file_rows if e.get("kind") == kind]
     return file_rows
@@ -167,11 +184,60 @@ def list_events(
 
 @router.get("/export")
 def export_jsonl(
-    _: User = Depends(require_roles(Role.ADMIN)),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
 ):
-    """Contenu brut du fichier data/system_feedback.jsonl (pour analyse agent)."""
+    """Export JSONL depuis la DB, avec fallback fichier pour les anciennes entrées."""
+    club_id = getattr(user, "club_id", None)
+    q = db.query(SystemFeedbackEvent)
+    if club_id:
+        q = q.filter(
+            or_(
+                SystemFeedbackEvent.club_id == club_id,
+                SystemFeedbackEvent.club_id.is_(None),
+            )
+        )
+    rows = q.order_by(SystemFeedbackEvent.id.desc()).limit(5000).all()
+    if rows:
+        records = [
+            {
+                "id": row.id,
+                "ts": row.created_at.isoformat() if row.created_at else None,
+                "kind": row.kind,
+                "source": row.source,
+                "severity": row.severity,
+                "target": row.target,
+                "message": row.message,
+                "stack": row.stack,
+                "page_url": row.page_url,
+                "user_id": row.user_id,
+                "club_id": row.club_id,
+                "role": row.role,
+                "meta": row.meta_json,
+            }
+            for row in rows
+        ]
+        text = "\n".join(json.dumps(record, ensure_ascii=False) for record in records)
+        return {"source": "database", "content": text, "lines": len(records)}
+
     path = jsonl_path()
     if not path.exists():
-        return {"path": str(path), "content": "", "lines": 0}
-    text = path.read_text(encoding="utf-8")
-    return {"path": str(path), "content": text, "lines": text.count("\n")}
+        return {"source": "file", "path": str(path), "content": "", "lines": 0}
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if club_id:
+        filtered: list[str] = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("club_id") in (None, club_id):
+                filtered.append(line)
+        lines = filtered
+    text = "\n".join(lines)
+    return {
+        "source": "file",
+        "path": str(path),
+        "content": text,
+        "lines": len(lines),
+    }

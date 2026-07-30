@@ -9,6 +9,7 @@ import { RegistrationsPage } from "./pages/RegistrationsPage";
 import { AgendaPage } from "./pages/AgendaPage";
 import { TeamsPage } from "./pages/TeamsPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { FeedbackAdminPage } from "./pages/FeedbackAdminPage";
 import { FinancePage } from "./pages/FinancePage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { AnnouncementsPage } from "./pages/AnnouncementsPage";
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="agenda" element={<AgendaPage />} />
         <Route path="teams" element={<TeamsPage />} />
         <Route path="history" element={<HistoryPage />} />
+        <Route path="feedback-admin" element={<FeedbackAdminPage />} />
         <Route path="finance" element={<FinancePage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="announcements" element={<AnnouncementsPage />} />
