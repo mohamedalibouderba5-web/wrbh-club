@@ -17,8 +17,9 @@ export const colors = {
 
 export const statusColor = (status: string) => {
   const s = (status || "").toLowerCase();
-  if (s === "paid" || s === "confirmed" || s === "present" || s === "active") return "#166534";
-  if (s === "overdue" || s === "declined" || s === "absent" || s === "cancelled") return "#b91c1c";
+  if (s === "paid" || s === "confirmed" || s === "approved" || s === "present" || s === "active") return "#166534";
+  if (s === "overdue" || s === "declined" || s === "rejected" || s === "absent" || s === "cancelled" || s === "abandonne")
+    return "#b91c1c";
   if (s === "partial" || s === "pending" || s === "late") return "#a16207";
   return "#5b6478";
 };
@@ -31,6 +32,9 @@ export const statusLabel = (status: string) => {
     partial: "Partiel",
     pending: "En attente",
     confirmed: "Confirmé",
+    approved: "Validé",
+    rejected: "Refusé",
+    abandonne: "Abandonné",
     declined: "Décliné",
     excused: "Excusé",
     present: "Présent",
@@ -45,7 +49,6 @@ export const statusLabel = (status: string) => {
     active: "Actif",
     inactive: "Inactif",
     archived: "Archivé",
-    rejected: "Refusé",
     admin: "Admin",
     direction: "Direction",
     staff: "Staff",

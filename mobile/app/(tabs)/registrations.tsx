@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,26 +31,32 @@ type Reg = {
   source?: string;
 };
 
+const emptyForm = {
+  full_name: "",
+  birth_date: "",
+  parent_phone: "",
+  parent_name: "",
+  category_id: 0,
+  subscription_fee: "",
+  status: "pending",
+};
+
 export default function RegistrationsScreen() {
   const { role } = useAuth();
   const isStaff = role === "admin" || role === "direction" || role === "staff";
+  const canDelete = role === "admin" || role === "direction";
   const [rows, setRows] = useState<Reg[]>([]);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [seasonId, setSeasonId] = useState(0);
-  const [filter, setFilter] = useState<"all" | "pending" | "confirmed" | "archived">("all");
+  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "archived">("all");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    full_name: "",
-    birth_date: "",
-    parent_phone: "",
-    parent_name: "",
-    category_id: 0,
-  });
+  const [form, setForm] = useState(emptyForm);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -57,17 +64,18 @@ export default function RegistrationsScreen() {
     Promise.all([
       api<Season[]>("/api/v1/seasons").catch(() => [] as Season[]),
       api<Category[]>("/api/v1/categories").catch(() => [] as Category[]),
-    ]).then(([ss, cc]) => {
-      setSeasons(ss);
-      setCats(cc);
-      const current = ss.find((s) => s.is_current) || ss[0];
-      const sid = seasonId || current?.id || 0;
-      if (!seasonId && sid) setSeasonId(sid);
-      const statusQ =
-        filter === "all" ? "" : filter === "archived" ? "&status=archived" : `&status=${filter}`;
-      const seasonQ = sid ? `season_id=${sid}` : "";
-      return api<Reg[]>(`/api/v1/registrations?${seasonQ}&limit=100${statusQ}`);
-    })
+    ])
+      .then(([ss, cc]) => {
+        setSeasons(ss);
+        setCats(cc);
+        const current = ss.find((s) => s.is_current) || ss[0];
+        const sid = seasonId || current?.id || 0;
+        if (!seasonId && sid) setSeasonId(sid);
+        const statusQ =
+          filter === "all" ? "" : filter === "archived" ? "&status=archived" : `&status=${filter}`;
+        const seasonQ = sid ? `season_id=${sid}` : "";
+        return api<Reg[]>(`/api/v1/registrations?${seasonQ}&limit=100${statusQ}`);
+      })
       .then((regs) => setRows(regs || []))
       .catch((e) => setErr(e instanceof Error ? e.message : "Erreur"))
       .finally(() => setLoading(false));
@@ -83,6 +91,28 @@ export default function RegistrationsScreen() {
     () => cats.filter((c) => !seasonId || c.season_id === seasonId),
     [cats, seasonId],
   );
+
+  function openCreate() {
+    setEditId(null);
+    setForm(emptyForm);
+    setShowForm(true);
+    setMsg("");
+  }
+
+  function openEdit(r: Reg) {
+    setEditId(r.id);
+    setForm({
+      full_name: r.athlete_name || "",
+      birth_date: "",
+      parent_phone: r.parent_phone || "",
+      parent_name: "",
+      category_id: r.category_id || 0,
+      subscription_fee: r.subscription_fee != null ? String(r.subscription_fee) : "",
+      status: r.status || "pending",
+    });
+    setShowForm(true);
+    setMsg("");
+  }
 
   async function act(id: number, action: "approve" | "reject" | "archive" | "restore") {
     setErr("");
@@ -104,30 +134,80 @@ export default function RegistrationsScreen() {
     }
   }
 
-  async function onCreate() {
-    if (!form.full_name.trim() || !seasonId || saving) return;
+  function confirmDelete(r: Reg) {
+    Alert.alert(
+      "Supprimer l’inscription",
+      `Supprimer définitivement « ${r.athlete_name || `#${r.id}`} » ?`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: () => void onDelete(r.id),
+        },
+      ],
+    );
+  }
+
+  async function onDelete(id: number) {
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/api/v1/registrations/${id}`, { method: "DELETE" });
+      setMsg("Inscription supprimée");
+      if (editId === id) {
+        setShowForm(false);
+        setEditId(null);
+      }
+      refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur");
+    }
+  }
+
+  async function onSave() {
+    if (!form.full_name.trim() || saving) return;
+    if (!editId && !seasonId) return;
     setSaving(true);
     setErr("");
     setMsg("");
     try {
-      await api("/api/v1/registrations", {
-        method: "POST",
-        body: JSON.stringify({
-          season_id: seasonId,
-          category_id: form.category_id || null,
+      if (editId) {
+        const body: Record<string, unknown> = {
+          full_name: form.full_name.trim(),
           parent_phone: form.parent_phone.trim() || null,
           parent_name: form.parent_name.trim() || null,
-          source: "mobile",
-          athlete: {
-            full_name: form.full_name.trim(),
-            birth_date: form.birth_date.trim() || null,
+          category_id: form.category_id || null,
+          status: form.status,
+        };
+        if (form.birth_date.trim()) body.birth_date = form.birth_date.trim();
+        if (form.subscription_fee.trim() !== "") body.subscription_fee = Number(form.subscription_fee);
+        await api(`/api/v1/registrations/${editId}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        setMsg("Inscription mise à jour");
+      } else {
+        await api("/api/v1/registrations", {
+          method: "POST",
+          body: JSON.stringify({
+            season_id: seasonId,
+            category_id: form.category_id || null,
             parent_phone: form.parent_phone.trim() || null,
-          },
-        }),
-      });
-      setMsg("Inscription créée");
+            parent_name: form.parent_name.trim() || null,
+            source: "mobile",
+            athlete: {
+              full_name: form.full_name.trim(),
+              birth_date: form.birth_date.trim() || null,
+              parent_phone: form.parent_phone.trim() || null,
+            },
+          }),
+        });
+        setMsg("Inscription créée");
+      }
       setShowForm(false);
-      setForm({ full_name: "", birth_date: "", parent_phone: "", parent_name: "", category_id: 0 });
+      setEditId(null);
+      setForm(emptyForm);
       refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Erreur");
@@ -140,7 +220,15 @@ export default function RegistrationsScreen() {
     <ScrollView style={styles.page} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
       <View style={styles.head}>
         <Text style={styles.h}>Inscriptions</Text>
-        <Pressable style={styles.addBtn} onPress={() => setShowForm((v) => !v)}>
+        <Pressable
+          style={styles.addBtn}
+          onPress={() => {
+            if (showForm) {
+              setShowForm(false);
+              setEditId(null);
+            } else openCreate();
+          }}
+        >
           <Text style={styles.addText}>{showForm ? "Fermer" : "+ Nouvelle"}</Text>
         </Pressable>
       </View>
@@ -166,7 +254,7 @@ export default function RegistrationsScreen() {
           [
             ["all", "Actives"],
             ["pending", "En attente"],
-            ["confirmed", "Confirmées"],
+            ["approved", "Validées"],
             ["archived", "Archivées"],
           ] as const
         ).map(([id, label]) => (
@@ -178,7 +266,7 @@ export default function RegistrationsScreen() {
 
       {showForm && (
         <View style={styles.card}>
-          <Text style={styles.title}>Nouvelle inscription</Text>
+          <Text style={styles.title}>{editId ? "Modifier l’inscription" : "Nouvelle inscription"}</Text>
           <Text style={styles.label}>Nom du joueur *</Text>
           <TextInput
             style={styles.input}
@@ -206,6 +294,29 @@ export default function RegistrationsScreen() {
             placeholder="05…"
             keyboardType="phone-pad"
           />
+          {!!editId && (
+            <>
+              <Text style={styles.label}>Frais inscription (DZD)</Text>
+              <TextInput
+                style={styles.input}
+                value={form.subscription_fee}
+                onChangeText={(t) => setForm((f) => ({ ...f, subscription_fee: t }))}
+                keyboardType="numeric"
+              />
+              <Text style={styles.label}>Statut</Text>
+              <View style={styles.chips}>
+                {(["pending", "approved", "rejected", "archived"] as const).map((s) => (
+                  <Pressable
+                    key={s}
+                    style={[styles.chip, form.status === s && styles.chipOn]}
+                    onPress={() => setForm((f) => ({ ...f, status: s }))}
+                  >
+                    <Text style={[styles.chipText, form.status === s && styles.chipTextOn]}>{statusLabel(s)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
           <Text style={styles.label}>Catégorie</Text>
           <View style={styles.chips}>
             {seasonCats.map((c) => (
@@ -218,8 +329,8 @@ export default function RegistrationsScreen() {
               </Pressable>
             ))}
           </View>
-          <Pressable style={styles.btn} onPress={onCreate} disabled={saving}>
-            <Text style={styles.btnText}>{saving ? "Envoi…" : "Soumettre"}</Text>
+          <Pressable style={styles.btn} onPress={onSave} disabled={saving}>
+            <Text style={styles.btnText}>{saving ? "…" : editId ? "Enregistrer" : "Soumettre"}</Text>
           </Pressable>
         </View>
       )}
@@ -237,6 +348,9 @@ export default function RegistrationsScreen() {
           {r.subscription_fee != null && <Text style={styles.line}>{fmtMoney(r.subscription_fee)}</Text>}
           {isStaff && (
             <View style={styles.actions}>
+              <Pressable style={styles.miniBtn} onPress={() => openEdit(r)}>
+                <Text style={styles.miniText}>Modifier</Text>
+              </Pressable>
               {r.status === "pending" && (
                 <>
                   <Pressable style={styles.miniBtn} onPress={() => act(r.id, "approve")}>
@@ -254,6 +368,11 @@ export default function RegistrationsScreen() {
               ) : (
                 <Pressable style={styles.miniBtn} onPress={() => act(r.id, "restore")}>
                   <Text style={styles.miniText}>Restaurer</Text>
+                </Pressable>
+              )}
+              {canDelete && (
+                <Pressable style={[styles.miniBtn, styles.dangerBtn]} onPress={() => confirmDelete(r)}>
+                  <Text style={styles.miniText}>Supprimer</Text>
                 </Pressable>
               )}
             </View>
