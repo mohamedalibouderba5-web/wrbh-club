@@ -207,6 +207,23 @@ class RegistrationCreate(BaseModel):
     parent_password: Optional[str] = None
 
 
+class RegistrationUpdate(BaseModel):
+    """Modification d'un dossier d'inscription + champs athlète liés."""
+
+    category_id: Optional[int] = None
+    subscription_fee: Optional[Decimal] = None
+    notes: Optional[str] = None
+    registered_on: Optional[date] = None
+    status: Optional[str] = None  # pending / approved / rejected / archived
+    full_name: Optional[str] = None
+    birth_date: Optional[date] = None
+    birth_place: Optional[str] = None
+    photo_path: Optional[str] = None
+    blood_type: Optional[str] = None
+    parent_phone: Optional[str] = None
+    parent_name: Optional[str] = None
+
+
 class RegistrationOut(ORMModel):
     id: int
     athlete_id: int
@@ -216,10 +233,14 @@ class RegistrationOut(ORMModel):
     status: str
     source: str
     subscription_fee: Optional[Decimal]
+    notes: Optional[str] = None
     seq_no: Optional[int] = None
     reference: Optional[str] = None
     athlete_name: Optional[str] = None
     athlete_photo: Optional[str] = None
+    birth_date: Optional[date] = None
+    birth_place: Optional[str] = None
+    blood_type: Optional[str] = None
     category_code: Optional[str] = None
     parent_phone: Optional[str] = None
     parent_temp_password: Optional[str] = None

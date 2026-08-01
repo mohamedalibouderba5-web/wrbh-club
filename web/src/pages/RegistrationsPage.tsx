@@ -4,6 +4,7 @@ import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { SortHeader, type SortDir } from "../components/SortHeader";
 import { toast } from "../components/Toast";
+import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
 import {
   enqueueRegistration,
@@ -29,6 +30,9 @@ type Reg = {
   athlete_id: number;
   athlete_name?: string;
   athlete_photo?: string;
+  birth_date?: string;
+  birth_place?: string;
+  blood_type?: string;
   category_code?: string;
   category_id?: number;
   parent_phone?: string;
@@ -38,6 +42,8 @@ type Reg = {
   status: string;
   source: string;
   registered_on?: string;
+  subscription_fee?: number | string;
+  notes?: string;
   seq_no?: number;
   reference?: string;
 };
@@ -47,6 +53,8 @@ const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export function RegistrationsPage() {
   const { t } = useI18n();
+  const { role } = useAuth();
+  const canHardDelete = role === "admin" || role === "direction";
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [regs, setRegs] = useState<Reg[]>([]);
@@ -57,6 +65,8 @@ export function RegistrationsPage() {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [listCategoryId, setListCategoryId] = useState<number | null>(null);
+  const [listStatus, setListStatus] = useState<"active" | "archived">("active");
+  const [editId, setEditId] = useState<number | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
@@ -134,6 +144,7 @@ export function RegistrationsPage() {
         const params = new URLSearchParams({ limit: String(PAGE) });
         if (listCategoryId) params.set("category_id", String(listCategoryId));
         if (form.season_id) params.set("season_id", String(form.season_id));
+        if (listStatus === "archived") params.set("status", "archived");
         params.set("sort", sortKey);
         params.set("order", sortDir);
         const path = `/api/v1/registrations?${params}`;
@@ -155,7 +166,7 @@ export function RegistrationsPage() {
         setLoading(false);
       }
     },
-    [listCategoryId, form.season_id, sortKey, sortDir],
+    [listCategoryId, listStatus, form.season_id, sortKey, sortDir],
   );
 
   useEffect(() => {
@@ -202,6 +213,7 @@ export function RegistrationsPage() {
     if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
     setPhotoFile(null);
     setPhotoPreview(null);
+    setEditId(null);
     setForm((f) => ({
       ...f,
       full_name: "",
@@ -211,7 +223,52 @@ export function RegistrationsPage() {
       parent_name: "",
       photo_path: "",
       blood_type: "",
+      category_id: 0,
     }));
+  }
+
+  function openEdit(r: Reg) {
+    setEditId(r.id);
+    setError("");
+    setMsg("");
+    if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    setForm((f) => ({
+      ...f,
+      full_name: r.athlete_name || "",
+      birth_date: r.birth_date || "",
+      birth_place: r.birth_place || "",
+      season_id: r.season_id || f.season_id,
+      category_id: r.category_id || 0,
+      subscription_fee: r.subscription_fee != null ? String(r.subscription_fee) : f.subscription_fee,
+      parent_phone: r.parent_phone || "",
+      parent_name: "",
+      photo_path: "",
+      blood_type: r.blood_type || "",
+    }));
+    // Chemin photo brut + champs complets depuis la fiche athlète
+    void api<{
+      full_name: string;
+      birth_date?: string;
+      birth_place?: string;
+      blood_type?: string;
+      photo_path?: string;
+      parent_phone?: string;
+    }>(`/api/v1/athletes/${r.athlete_id}`)
+      .then((a) => {
+        setForm((f) => ({
+          ...f,
+          full_name: a.full_name || f.full_name,
+          birth_date: a.birth_date || f.birth_date,
+          birth_place: a.birth_place || f.birth_place,
+          blood_type: a.blood_type || f.blood_type,
+          photo_path: a.photo_path || "",
+          parent_phone: a.parent_phone || f.parent_phone,
+        }));
+      })
+      .catch(() => undefined);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function buildPayload(): RegPayload {
@@ -274,8 +331,48 @@ export function RegistrationsPage() {
     }
     savingRef.current = true;
     setSaving(true);
-    const payload = buildPayload();
     const playerName = form.full_name;
+
+    // Mode modification d'un dossier existant
+    if (editId) {
+      try {
+        let photoPath = form.photo_path || null;
+        if (photoFile) {
+          const up = await uploadPhoto(photoFile);
+          photoPath = up.path;
+        }
+        const body: Record<string, unknown> = {
+          category_id: form.category_id,
+          subscription_fee: Number(form.subscription_fee),
+          full_name: form.full_name,
+          birth_date: form.birth_date,
+          birth_place: form.birth_place || null,
+          blood_type: form.blood_type || null,
+          parent_phone: form.parent_phone,
+        };
+        if (form.parent_name) body.parent_name = form.parent_name;
+        if (photoPath) body.photo_path = photoPath;
+        const updated = await api<Reg>(`/api/v1/registrations/${editId}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        toast(`✓ Dossier « ${playerName} » mis à jour`, "success");
+        setMsg("Dossier modifié — تم تعديل الملف");
+        setRegs((prev) => prev.map((r) => (r.id === editId ? { ...r, ...updated } : r)));
+        clearFormKeepSeason();
+        loadRegs({ quiet: true });
+      } catch (err) {
+        const m = err instanceof Error ? err.message : "Erreur";
+        setError(m);
+        toast(m, "error");
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
+      }
+      return;
+    }
+
+    const payload = buildPayload();
 
     if (!online) {
       try {
@@ -352,7 +449,42 @@ export function RegistrationsPage() {
     try {
       await api(`/api/v1/registrations/${id}/archive`, { method: "POST" });
       setRegs((prev) => prev.filter((r) => r.id !== id));
+      if (editId === id) clearFormKeepSeason();
       toast("Dossier archivé", "success");
+    } catch (err) {
+      const m = err instanceof Error ? err.message : "Erreur";
+      setError(m);
+      toast(m, "error");
+    }
+  }
+
+  async function restoreReg(id: number, name?: string) {
+    if (!window.confirm(`Restaurer le dossier « ${name || id} » ?`)) return;
+    try {
+      await api(`/api/v1/registrations/${id}/restore`, { method: "POST" });
+      setRegs((prev) => prev.filter((r) => r.id !== id));
+      toast("Dossier restauré (statut en attente)", "success");
+    } catch (err) {
+      const m = err instanceof Error ? err.message : "Erreur";
+      setError(m);
+      toast(m, "error");
+    }
+  }
+
+  async function deleteReg(id: number, name?: string) {
+    if (!canHardDelete) return;
+    if (
+      !window.confirm(
+        `SUPPRESSION DÉFINITIVE du dossier « ${name || id} » ?\nPréférez Archiver si possible. Action tracée dans l'historique.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await api(`/api/v1/registrations/${id}`, { method: "DELETE" });
+      setRegs((prev) => prev.filter((r) => r.id !== id));
+      if (editId === id) clearFormKeepSeason();
+      toast("Dossier supprimé", "success");
     } catch (err) {
       const m = err instanceof Error ? err.message : "Erreur";
       setError(m);
@@ -379,8 +511,15 @@ export function RegistrationsPage() {
   return (
     <div className="split-layout">
       <form className="card" onSubmit={onSubmit}>
-        <h3 style={{ marginTop: 0 }}>{t("newRegistration")}</h3>
-        {!online && (
+        <h3 style={{ marginTop: 0 }}>
+          {editId ? `Modifier dossier #${editId}` : t("newRegistration")}
+        </h3>
+        {editId && (
+          <p className="muted" style={{ marginTop: 0 }}>
+            Modification du dossier existant — enregistrez pour appliquer.
+          </p>
+        )}
+        {!online && !editId && (
           <p className="muted" style={{ marginTop: 0 }}>
             Mode hors ligne — l’inscription sera synchronisée plus tard.
           </p>
@@ -483,7 +622,11 @@ export function RegistrationsPage() {
         </div>
         <div className="field">
           <label>Saison</label>
-          <select value={form.season_id} onChange={(e) => setForm({ ...form, season_id: Number(e.target.value) })}>
+          <select
+            value={form.season_id}
+            disabled={!!editId}
+            onChange={(e) => setForm({ ...form, season_id: Number(e.target.value) })}
+          >
             {seasons.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -500,9 +643,16 @@ export function RegistrationsPage() {
             onChange={(e) => setForm({ ...form, subscription_fee: e.target.value })}
           />
         </div>
-        <button type="submit" disabled={saving}>
-          {saving ? t("saving") : t("save")}
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="submit" disabled={saving}>
+            {saving ? t("saving") : t("save")}
+          </button>
+          {editId && (
+            <button type="button" className="secondary" onClick={() => clearFormKeepSeason()}>
+              {t("cancel")}
+            </button>
+          )}
+        </div>
         {msg && <p style={{ color: "var(--ok)" }}>{msg}</p>}
         {error && <p style={{ color: "var(--danger, #dc2626)" }}>{error}</p>}
       </form>
@@ -540,6 +690,25 @@ export function RegistrationsPage() {
           </div>
         )}
 
+        <div className="cat-chips">
+          <strong>Dossiers</strong>
+          <div className="chips">
+            <button
+              type="button"
+              className={`chip ${listStatus === "active" ? "active" : ""}`}
+              onClick={() => setListStatus("active")}
+            >
+              Actifs
+            </button>
+            <button
+              type="button"
+              className={`chip ${listStatus === "archived" ? "active" : ""}`}
+              onClick={() => setListStatus("archived")}
+            >
+              Archivés
+            </button>
+          </div>
+        </div>
         <div className="cat-chips">
           <strong>{t("filterCategory")}</strong>
           <div className="chips">
@@ -623,14 +792,26 @@ export function RegistrationsPage() {
                 <td>{r.registered_on ? formatDateFr(r.registered_on) : "—"}</td>
                 <td>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button type="button" className="secondary" onClick={() => openEdit(r)}>
+                      {t("edit")}
+                    </button>
                     {r.status === "pending" && (
                       <button type="button" onClick={() => approve(r.id)}>
                         OK
                       </button>
                     )}
-                    {r.status !== "archived" && (
-                      <button type="button" className="danger" onClick={() => void archiveReg(r.id, r.athlete_name)}>
+                    {r.status === "archived" ? (
+                      <button type="button" onClick={() => void restoreReg(r.id, r.athlete_name)}>
+                        Restaurer
+                      </button>
+                    ) : (
+                      <button type="button" className="secondary" onClick={() => void archiveReg(r.id, r.athlete_name)}>
                         Archiver
+                      </button>
+                    )}
+                    {canHardDelete && (
+                      <button type="button" className="danger" onClick={() => void deleteReg(r.id, r.athlete_name)}>
+                        Supprimer
                       </button>
                     )}
                   </div>

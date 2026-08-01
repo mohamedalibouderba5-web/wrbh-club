@@ -14,6 +14,7 @@ from app.core.security import hash_password
 from app.models import (
     Announcement,
     Athlete,
+    Attachment,
     Attendance,
     AuditLog,
     Category,
@@ -39,6 +40,7 @@ from app.schemas import (
     CategoryOut,
     RegistrationCreate,
     RegistrationOut,
+    RegistrationUpdate,
     SeasonOut,
     TeamCoachAssignIn,
     TeamCoachOut,
@@ -53,7 +55,7 @@ from app.services.fees import ensure_season_fee_bundle, ensure_subscription_inst
 from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
 from app.services.phone import normalize_phone, validate_dz_mobile
-from app.services.media import enrich_media_path
+from app.services.media import enrich_media_path, extract_media_id, media_public_path
 
 TEST_MARKER = "TEST-WRBH-BATCH"
 settings = get_settings()
@@ -929,6 +931,11 @@ def update_athlete(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
+    if "photo_path" in data and data["photo_path"]:
+        mid = extract_media_id(data["photo_path"])
+        if mid:
+            data["photo_path"] = media_public_path(mid)
+
     for k, v in data.items():
         setattr(athlete, k, v)
 
@@ -1149,10 +1156,14 @@ def _reg_out_from_maps(
         status=reg.status,
         source=reg.source,
         subscription_fee=reg.subscription_fee,
+        notes=getattr(reg, "notes", None),
         seq_no=getattr(reg, "seq_no", None),
         reference=getattr(reg, "reference", None),
         athlete_name=athlete.full_name if athlete else None,
         athlete_photo=enrich_media_path(athlete.photo_path) if athlete else None,
+        birth_date=athlete.birth_date if athlete else None,
+        birth_place=athlete.birth_place if athlete else None,
+        blood_type=getattr(athlete, "blood_type", None) if athlete else None,
         category_code=cat.code if cat else None,
         parent_phone=phones.get(reg.athlete_id),
         parent_temp_password=(parent_meta or {}).get("temp_password"),
@@ -1173,10 +1184,14 @@ def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) ->
         status=reg.status,
         source=reg.source,
         subscription_fee=reg.subscription_fee,
+        notes=getattr(reg, "notes", None),
         seq_no=getattr(reg, "seq_no", None),
         reference=getattr(reg, "reference", None),
         athlete_name=athlete.full_name if athlete else None,
         athlete_photo=enrich_media_path(athlete.photo_path) if athlete else None,
+        birth_date=athlete.birth_date if athlete else None,
+        birth_place=athlete.birth_place if athlete else None,
+        blood_type=getattr(athlete, "blood_type", None) if athlete else None,
         category_code=cat.code if cat else None,
         parent_phone=parent_phone,
         parent_temp_password=(parent_meta or {}).get("temp_password"),
@@ -1564,6 +1579,125 @@ def reject_registration(
     db.refresh(reg)
     _bust_club_caches()
     return _reg_out(db, reg)
+
+
+@reg_router.patch("/{reg_id}", response_model=RegistrationOut)
+def update_registration(
+    reg_id: int,
+    payload: RegistrationUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Modifie un dossier d'inscription et les infos athlète liées."""
+    reg = db.get(Registration, reg_id)
+    if not reg:
+        raise HTTPException(404, "Inscription introuvable")
+    assert_same_club(reg, club_id)
+    athlete = db.get(Athlete, reg.athlete_id)
+    if not athlete:
+        raise HTTPException(404, "Athlète introuvable")
+    assert_same_club(athlete, club_id)
+
+    data = payload.model_dump(exclude_unset=True)
+    allowed_status = {"pending", "approved", "rejected", "archived"}
+    if "status" in data and data["status"] not in allowed_status:
+        raise HTTPException(400, f"Statut invalide (attendu: {', '.join(sorted(allowed_status))})")
+
+    new_cat_id = data.get("category_id", reg.category_id)
+    cat: Category | None = db.get(Category, new_cat_id) if new_cat_id else None
+    if new_cat_id and not cat:
+        raise HTTPException(400, "Catégorie introuvable")
+    if cat and cat.season_id != reg.season_id:
+        raise HTTPException(400, "Catégorie hors saison de l'inscription")
+
+    birth = data.get("birth_date", athlete.birth_date)
+    try:
+        if "birth_date" in data or "category_id" in data:
+            validate_club_age(birth, required=True)
+            if cat:
+                validate_category_for_birth(birth, cat)
+        if payload.parent_phone:
+            validate_dz_mobile(payload.parent_phone, required=True)
+        if "blood_type" in data:
+            data["blood_type"] = validate_blood_type(data.get("blood_type"))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    for field in ("category_id", "subscription_fee", "notes", "registered_on", "status"):
+        if field in data:
+            setattr(reg, field, data[field])
+
+    for field in ("full_name", "birth_date", "birth_place", "photo_path", "blood_type"):
+        if field in data:
+            val = data[field]
+            if field == "photo_path" and val:
+                mid = extract_media_id(val)
+                if mid:
+                    val = media_public_path(mid)
+            setattr(athlete, field, val)
+
+    if payload.parent_phone:
+        try:
+            ensure_parent_account(
+                db,
+                phone=payload.parent_phone,
+                full_name=payload.parent_name,
+                athlete_id=athlete.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    write_audit(
+        db,
+        action="update",
+        entity="registration",
+        entity_id=reg.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"athlete={athlete.id} status={reg.status} cat={reg.category_id}",
+    )
+    db.commit()
+    db.refresh(reg)
+    _bust_club_caches()
+    return _reg_out(db, reg)
+
+
+@reg_router.delete("/{reg_id}")
+def delete_registration(
+    reg_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Suppression définitive d'un dossier d'inscription (admin/direction)."""
+    reg = db.get(Registration, reg_id)
+    if not reg:
+        raise HTTPException(404, "Inscription introuvable")
+    assert_same_club(reg, club_id)
+    athlete_name = None
+    athlete = db.get(Athlete, reg.athlete_id)
+    if athlete:
+        athlete_name = athlete.full_name
+    detail = f"athlete={reg.athlete_id} name={athlete_name or '?'} ref={reg.reference or '-'}"
+    # Détacher / nettoyer les FKs vers ce dossier
+    db.query(FeeInstallment).filter(FeeInstallment.registration_id == reg_id).update(
+        {FeeInstallment.registration_id: None}, synchronize_session=False
+    )
+    db.query(Attachment).filter(Attachment.registration_id == reg_id).delete(synchronize_session=False)
+    write_audit(
+        db,
+        action="delete",
+        entity="registration",
+        entity_id=reg.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=detail,
+    )
+    db.delete(reg)
+    db.commit()
+    _bust_club_caches()
+    return {"deleted": reg_id}
 
 
 @reg_router.post("/{reg_id}/archive", response_model=RegistrationOut)

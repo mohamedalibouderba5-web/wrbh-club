@@ -70,6 +70,7 @@ export function AthletesPage() {
     birth_place: "",
     parent_phone: "",
     parent_name: "",
+    photo_path: "",
   });
   const [editSaving, setEditSaving] = useState(false);
   const [editInstallments, setEditInstallments] = useState<
@@ -218,6 +219,7 @@ export function AthletesPage() {
       birth_place: r.birth_place || "",
       parent_phone: r.parent_phone || "",
       parent_name: "",
+      photo_path: r.photo_path || "",
     });
     setPayType("monthly");
     apiGetFast<{ monthly_subscription_dzd: number; annual_insurance_dzd: number }>("/api/v1/finance/settings", {
@@ -281,6 +283,7 @@ export function AthletesPage() {
         status: editStatus,
         notes: editNote,
         blood_type: editBlood || null,
+        photo_path: editForm.photo_path || null,
         confirm_status: true,
       };
       if (editForm.parent_phone) body.parent_phone = editForm.parent_phone;
@@ -517,9 +520,66 @@ export function AthletesPage() {
                   <span className="badge">{r.status}</span>
                 </td>
                 <td>
-                  <button type="button" className="secondary" onClick={() => openEdit(r)}>
-                    {t("edit")}
-                  </button>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button type="button" className="secondary" onClick={() => openEdit(r)}>
+                      {t("edit")}
+                    </button>
+                    {r.status !== "Abandonne" && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `Archiver « ${r.full_name} » (statut Abandonne) ? Récupérable via filtre statut.`,
+                            )
+                          ) {
+                            return;
+                          }
+                          void api(`/api/v1/athletes/${r.id}`, {
+                            method: "PATCH",
+                            body: JSON.stringify({
+                              status: "Abandonne",
+                              notes: r.notes || "Archivé depuis la liste joueurs",
+                              confirm_status: true,
+                            }),
+                          })
+                            .then(() => {
+                              if (editId === r.id) setEditId(null);
+                              toast("Joueur archivé", "success");
+                              load({ offset: 0 });
+                            })
+                            .catch((err) => toast(err instanceof Error ? err.message : "Erreur", "error"));
+                        }}
+                      >
+                        Archiver
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `SUPPRESSION DÉFINITIVE de « ${r.full_name} » ?\nPréférez Archiver si possible.`,
+                            )
+                          ) {
+                            return;
+                          }
+                          void api(`/api/v1/athletes/${r.id}`, { method: "DELETE" })
+                            .then(() => {
+                              if (editId === r.id) setEditId(null);
+                              toast("Joueur supprimé", "success");
+                              load({ offset: 0 });
+                            })
+                            .catch((err) => toast(err instanceof Error ? err.message : "Erreur", "error"));
+                        }}
+                      >
+                        Supprimer
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -544,6 +604,12 @@ export function AthletesPage() {
           <h3 style={{ marginTop: 0 }}>
             {t("edit")} #{editId}
           </h3>
+          <div className="form-split">
+            <PhotoCapture
+              value={editForm.photo_path}
+              onUploaded={(p) => setEditForm({ ...editForm, photo_path: p })}
+            />
+            <div>
           <div className="field">
             <label>Nom / الاسم</label>
             <input value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} />
@@ -578,6 +644,8 @@ export function AthletesPage() {
           <div className="field">
             <label>Nom parent / اسم الولي</label>
             <input value={editForm.parent_name} onChange={(e) => setEditForm({ ...editForm, parent_name: e.target.value })} />
+          </div>
+            </div>
           </div>
           <div className="field">
             <label>{t("status")}</label>
