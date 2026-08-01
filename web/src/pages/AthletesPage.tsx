@@ -3,6 +3,7 @@ import { api, apiGetFast, formatDateFr, isDzMobile, mediaUrl } from "../api/clie
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { SortHeader, type SortDir } from "../components/SortHeader";
+import { confirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
@@ -306,10 +307,14 @@ export function AthletesPage() {
 
   async function onArchiveAthlete() {
     if (!editId) return;
-    if (!window.confirm("Archiver ce joueur (statut Abandonne) ? Il reste récupérable via le filtre statut.")) return;
+    const ok = await confirmDialog({
+      title: "Archiver le joueur",
+      message: "Archiver ce joueur (statut Abandonne) ?\nIl reste récupérable via le filtre statut ou Historique.",
+      confirmLabel: "Archiver",
+    });
+    if (!ok) return;
     setEditStatus("Abandonne");
     if (!editNote.trim()) setEditNote("Archivé depuis la fiche joueur");
-    // save after state updates — call API directly
     setEditSaving(true);
     try {
       await api(`/api/v1/athletes/${editId}`, {
@@ -321,7 +326,7 @@ export function AthletesPage() {
         }),
       });
       setEditId(null);
-      toast("Joueur archivé", "success");
+      toast("Joueur archivé — récupérable", "success");
       load({ offset: 0 });
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erreur", "error");
@@ -332,18 +337,18 @@ export function AthletesPage() {
 
   async function onDeleteAthlete() {
     if (!editId || !canDelete) return;
-    if (
-      !window.confirm(
-        "SUPPRESSION DÉFINITIVE de ce joueur et de ses données liées ?\nPréférez Archiver si possible. Cette action est tracée dans l'historique.",
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: "Supprimer le joueur",
+      message:
+        "Supprimer ce joueur ?\nLa suppression est réversible : le joueur est archivé (Abandonne) et reste récupérable dans Historique.",
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
     setEditSaving(true);
     try {
       await api(`/api/v1/athletes/${editId}`, { method: "DELETE" });
       setEditId(null);
-      toast("Joueur supprimé (tracé dans l'historique)", "success");
+      toast("Joueur supprimé (récupérable dans Historique)", "success");
       load({ offset: 0 });
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erreur", "error");
@@ -529,27 +534,29 @@ export function AthletesPage() {
                         type="button"
                         className="secondary"
                         onClick={() => {
-                          if (
-                            !window.confirm(
-                              `Archiver « ${r.full_name} » (statut Abandonne) ? Récupérable via filtre statut.`,
-                            )
-                          ) {
-                            return;
-                          }
-                          void api(`/api/v1/athletes/${r.id}`, {
-                            method: "PATCH",
-                            body: JSON.stringify({
-                              status: "Abandonne",
-                              notes: r.notes || "Archivé depuis la liste joueurs",
-                              confirm_status: true,
-                            }),
-                          })
-                            .then(() => {
+                          void (async () => {
+                            const ok = await confirmDialog({
+                              title: "Archiver le joueur",
+                              message: `Archiver « ${r.full_name} » (statut Abandonne) ?\nRécupérable via filtre statut ou Historique.`,
+                              confirmLabel: "Archiver",
+                            });
+                            if (!ok) return;
+                            try {
+                              await api(`/api/v1/athletes/${r.id}`, {
+                                method: "PATCH",
+                                body: JSON.stringify({
+                                  status: "Abandonne",
+                                  notes: r.notes || "Archivé depuis la liste joueurs",
+                                  confirm_status: true,
+                                }),
+                              });
                               if (editId === r.id) setEditId(null);
-                              toast("Joueur archivé", "success");
+                              toast("Joueur archivé — récupérable", "success");
                               load({ offset: 0 });
-                            })
-                            .catch((err) => toast(err instanceof Error ? err.message : "Erreur", "error"));
+                            } catch (err) {
+                              toast(err instanceof Error ? err.message : "Erreur", "error");
+                            }
+                          })();
                         }}
                       >
                         Archiver
@@ -560,20 +567,22 @@ export function AthletesPage() {
                         type="button"
                         className="danger"
                         onClick={() => {
-                          if (
-                            !window.confirm(
-                              `SUPPRESSION DÉFINITIVE de « ${r.full_name} » ?\nPréférez Archiver si possible.`,
-                            )
-                          ) {
-                            return;
-                          }
-                          void api(`/api/v1/athletes/${r.id}`, { method: "DELETE" })
-                            .then(() => {
+                          void (async () => {
+                            const ok = await confirmDialog({
+                              title: "Supprimer le joueur",
+                              message: `Supprimer « ${r.full_name} » ?\nRéversible : archivage Abandonne, récupérable dans Historique.`,
+                              confirmLabel: "Supprimer",
+                            });
+                            if (!ok) return;
+                            try {
+                              await api(`/api/v1/athletes/${r.id}`, { method: "DELETE" });
                               if (editId === r.id) setEditId(null);
-                              toast("Joueur supprimé", "success");
+                              toast("Joueur supprimé (récupérable)", "success");
                               load({ offset: 0 });
-                            })
-                            .catch((err) => toast(err instanceof Error ? err.message : "Erreur", "error"));
+                            } catch (err) {
+                              toast(err instanceof Error ? err.message : "Erreur", "error");
+                            }
+                          })();
                         }}
                       >
                         Supprimer

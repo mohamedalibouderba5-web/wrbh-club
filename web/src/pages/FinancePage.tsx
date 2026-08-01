@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiGetFast, loadAllSettled } from "../api/client";
+import { confirmDialog } from "../components/ConfirmDialog";
 import { SortHeader, type SortDir } from "../components/SortHeader";
 import { toast } from "../components/Toast";
 import { useAuth } from "../auth";
@@ -428,10 +429,16 @@ export function FinancePage() {
 
   async function deleteLedger(id: number) {
     if (!canEditSettings) return;
-    if (!window.confirm("Supprimer cette ligne de caisse ?")) return;
+    const ok = await confirmDialog({
+      title: "Supprimer la ligne de caisse",
+      message:
+        "Supprimer cette ligne de caisse ?\nRéversible : la ligne est archivée et reste récupérable dans Historique.",
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
     try {
       await api(`/api/v1/ledger/${id}`, { method: "DELETE" });
-      toast("Ligne supprimée", "success");
+      toast("Ligne supprimée (récupérable dans Historique)", "success");
       setEditLedger(null);
       load();
     } catch (err) {

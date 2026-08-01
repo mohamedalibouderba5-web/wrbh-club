@@ -8,6 +8,7 @@ import { countPendingRegistrations } from "../offline/registrationQueue";
 import { startOfflineSyncListeners, syncPendingRegistrations } from "../offline/sync";
 import { ChangePasswordGate } from "../components/ChangePasswordGate";
 import { FeedbackWidget } from "../components/FeedbackWidget";
+import { ConfirmHost } from "../components/ConfirmDialog";
 import { Toaster } from "../components/Toast";
 
 export function AppLayout() {
@@ -155,6 +156,7 @@ export function AppLayout() {
     <div className={`app-shell ${menuOpen ? "menu-open" : ""}`}>
       <ChangePasswordGate />
       <Toaster />
+      <ConfirmHost />
       <FeedbackWidget />
       {menuOpen && <button type="button" className="drawer-backdrop" aria-label="Close" onClick={() => setMenuOpen(false)} />}
 

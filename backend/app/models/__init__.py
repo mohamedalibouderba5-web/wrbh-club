@@ -393,6 +393,7 @@ class LedgerEntry(Base, TimestampMixin):
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     seq_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     reference: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class CoachPayroll(Base, TimestampMixin):

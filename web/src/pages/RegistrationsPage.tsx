@@ -3,6 +3,7 @@ import { api, apiGetFast, formatDateFr, isDzMobile, loadAllSettled, mediaUrl, up
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { SortHeader, type SortDir } from "../components/SortHeader";
+import { confirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
@@ -445,12 +446,17 @@ export function RegistrationsPage() {
   }
 
   async function archiveReg(id: number, name?: string) {
-    if (!window.confirm(`Archiver le dossier « ${name || id} » ?\nIl restera dans l'historique (récupérable).`)) return;
+    const ok = await confirmDialog({
+      title: "Archiver le dossier",
+      message: `Archiver le dossier « ${name || id} » ?\nIl restera dans l'historique et pourra être restauré.`,
+      confirmLabel: "Archiver",
+    });
+    if (!ok) return;
     try {
       await api(`/api/v1/registrations/${id}/archive`, { method: "POST" });
       setRegs((prev) => prev.filter((r) => r.id !== id));
       if (editId === id) clearFormKeepSeason();
-      toast("Dossier archivé", "success");
+      toast("Dossier archivé — récupérable dans Historique", "success");
     } catch (err) {
       const m = err instanceof Error ? err.message : "Erreur";
       setError(m);
@@ -459,7 +465,13 @@ export function RegistrationsPage() {
   }
 
   async function restoreReg(id: number, name?: string) {
-    if (!window.confirm(`Restaurer le dossier « ${name || id} » ?`)) return;
+    const ok = await confirmDialog({
+      title: "Restaurer le dossier",
+      message: `Restaurer le dossier « ${name || id} » ?`,
+      confirmLabel: "Restaurer",
+      danger: false,
+    });
+    if (!ok) return;
     try {
       await api(`/api/v1/registrations/${id}/restore`, { method: "POST" });
       setRegs((prev) => prev.filter((r) => r.id !== id));
@@ -473,18 +485,18 @@ export function RegistrationsPage() {
 
   async function deleteReg(id: number, name?: string) {
     if (!canHardDelete) return;
-    if (
-      !window.confirm(
-        `SUPPRESSION DÉFINITIVE du dossier « ${name || id} » ?\nPréférez Archiver si possible. Action tracée dans l'historique.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: "Supprimer le dossier",
+      message: `Supprimer le dossier « ${name || id} » ?\nLa suppression est réversible : le dossier est archivé et reste récupérable depuis Historique.`,
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
     try {
+      // Soft-delete (archive) — récupérable
       await api(`/api/v1/registrations/${id}`, { method: "DELETE" });
       setRegs((prev) => prev.filter((r) => r.id !== id));
       if (editId === id) clearFormKeepSeason();
-      toast("Dossier supprimé", "success");
+      toast("Dossier supprimé (récupérable dans Historique)", "success");
     } catch (err) {
       const m = err instanceof Error ? err.message : "Erreur";
       setError(m);

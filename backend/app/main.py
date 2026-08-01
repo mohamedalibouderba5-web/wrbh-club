@@ -93,6 +93,7 @@ def _ensure_schema() -> None:
         "ALTER TABLE payments ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
         "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS seq_no INTEGER",
         "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
+        "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false",
         "ALTER TABLE fee_installments ADD COLUMN IF NOT EXISTS seq_no INTEGER",
         "ALTER TABLE fee_installments ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
         "CREATE INDEX IF NOT EXISTS ix_registrations_seq_no ON registrations (seq_no)",
@@ -195,7 +196,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.13.3",
+    version="1.13.4",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,

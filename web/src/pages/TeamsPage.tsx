@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, loadAllSettled } from "../api/client";
+import { confirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
 import { useAuth } from "../auth";
 
@@ -221,14 +222,22 @@ export function TeamsPage() {
   async function toggleCoachActive(c: Coach) {
     if (!canManageCoaches) return;
     const next = c.is_active === false;
-    const label = next ? "réactiver" : "désactiver (archiver)";
-    if (!window.confirm(`${label} le coach « ${c.full_name} » ?`)) return;
+    const label = next ? "Réactiver" : "Archiver";
+    const ok = await confirmDialog({
+      title: `${label} le coach`,
+      message: next
+        ? `Réactiver le coach « ${c.full_name} » ?`
+        : `Archiver (désactiver) le coach « ${c.full_name} » ?\nRécupérable depuis Historique / réactivation.`,
+      confirmLabel: label,
+      danger: !next,
+    });
+    if (!ok) return;
     try {
       await api(`/api/v1/auth/users/${c.id}`, {
         method: "PATCH",
         body: JSON.stringify({ is_active: next }),
       });
-      toast(next ? "Coach réactivé" : "Coach archivé (désactivé)", "success");
+      toast(next ? "Coach réactivé" : "Coach archivé (récupérable)", "success");
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erreur", "error");
@@ -237,13 +246,14 @@ export function TeamsPage() {
 
   async function syncStructure() {
     if (!canManageCoaches || syncBusy) return;
-    if (
-      !window.confirm(
+    const ok = await confirmDialog({
+      title: "Créer les équipes",
+      message:
         "Créer / compléter les équipes du club ?\nU14G1, U14G2, U13G1, U13G2, U11G1, U11G2, U9G1, U9G2, U7G1, U5G1",
-      )
-    ) {
-      return;
-    }
+      confirmLabel: "Créer / compléter",
+      danger: false,
+    });
+    if (!ok) return;
     setSyncBusy(true);
     try {
       const res = await api<{

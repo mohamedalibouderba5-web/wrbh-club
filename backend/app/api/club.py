@@ -978,13 +978,15 @@ def delete_athlete(
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
     club_id: int = Depends(get_current_club_id),
 ):
+    """Soft-delete : statut Abandonne — récupérable via Historique / restore."""
     athlete = db.get(Athlete, athlete_id)
     if not athlete:
         raise HTTPException(404, "Athlète introuvable")
     assert_same_club(athlete, club_id)
-    # cascade-ish cleanup of related rows
-    for model in (Attendance, Convocation, FeeInstallment, Payment, TeamMembership, ParentChild, EmergencyContact, Registration):
-        db.query(model).filter(getattr(model, "athlete_id") == athlete_id).delete(synchronize_session=False)
+    prev = athlete.status
+    athlete.status = "Abandonne"
+    if not (athlete.notes or "").strip():
+        athlete.notes = "Supprimé (récupérable depuis l'historique)"
     write_audit(
         db,
         action="delete",
@@ -992,12 +994,39 @@ def delete_athlete(
         entity_id=athlete_id,
         user_id=user.id,
         club_id=club_id,
-        detail=athlete.full_name,
+        detail=f"{athlete.full_name} from={prev}",
     )
-    db.delete(athlete)
     db.commit()
     _bust_club_caches()
-    return {"deleted": athlete_id}
+    return {"deleted": athlete_id, "soft": True, "status": "Abandonne"}
+
+
+@athletes_router.post("/{athlete_id}/restore", response_model=AthleteOut)
+def restore_athlete(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Restaure un joueur archivé / soft-supprimé → Active."""
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        raise HTTPException(404, "Athlète introuvable")
+    assert_same_club(athlete, club_id)
+    athlete.status = "Active"
+    write_audit(
+        db,
+        action="restore",
+        entity="athlete",
+        entity_id=athlete.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=athlete.full_name,
+    )
+    db.commit()
+    db.refresh(athlete)
+    _bust_club_caches()
+    return _to_athlete_out(db, athlete)
 
 
 @router.post("/system/cleanup-tests")
@@ -1670,7 +1699,7 @@ def delete_registration(
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
     club_id: int = Depends(get_current_club_id),
 ):
-    """Suppression définitive d'un dossier d'inscription (admin/direction)."""
+    """Soft-delete d'un dossier = archive — récupérable via restore / Historique."""
     reg = db.get(Registration, reg_id)
     if not reg:
         raise HTTPException(404, "Inscription introuvable")
@@ -1679,12 +1708,9 @@ def delete_registration(
     athlete = db.get(Athlete, reg.athlete_id)
     if athlete:
         athlete_name = athlete.full_name
-    detail = f"athlete={reg.athlete_id} name={athlete_name or '?'} ref={reg.reference or '-'}"
-    # Détacher / nettoyer les FKs vers ce dossier
-    db.query(FeeInstallment).filter(FeeInstallment.registration_id == reg_id).update(
-        {FeeInstallment.registration_id: None}, synchronize_session=False
-    )
-    db.query(Attachment).filter(Attachment.registration_id == reg_id).delete(synchronize_session=False)
+    prev = reg.status
+    reg.status = "archived"
+    detail = f"athlete={reg.athlete_id} name={athlete_name or '?'} ref={reg.reference or '-'} from={prev}"
     write_audit(
         db,
         action="delete",
@@ -1694,10 +1720,10 @@ def delete_registration(
         club_id=club_id,
         detail=detail,
     )
-    db.delete(reg)
     db.commit()
+    db.refresh(reg)
     _bust_club_caches()
-    return {"deleted": reg_id}
+    return {"deleted": reg_id, "soft": True, "status": "archived"}
 
 
 @reg_router.post("/{reg_id}/archive", response_model=RegistrationOut)

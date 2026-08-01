@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, formatDateFr } from "../api/client";
+import { confirmDialog } from "../components/ConfirmDialog";
+import { toast } from "../components/Toast";
 import { useI18n } from "../i18n";
 
 type AuditRow = {
@@ -13,11 +15,20 @@ type AuditRow = {
   created_at?: string;
 };
 
+function canRestore(r: AuditRow): boolean {
+  if (r.entity_id == null) return false;
+  const a = (r.action || "").toLowerCase();
+  const e = (r.entity || "").toLowerCase();
+  if (!["delete", "archive"].includes(a)) return false;
+  return ["athlete", "registration", "ledger", "user"].includes(e);
+}
+
 export function HistoryPage() {
   const { t } = useI18n();
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [entity, setEntity] = useState("");
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   async function load(filterEntity = entity) {
@@ -41,11 +52,45 @@ export function HistoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function onRestore(r: AuditRow) {
+    if (!canRestore(r) || r.entity_id == null) return;
+    const ok = await confirmDialog({
+      title: "Restaurer l'opération",
+      message: `Restaurer ${r.entity} #${r.entity_id} ?\n${r.detail || ""}`,
+      confirmLabel: "Restaurer",
+      danger: false,
+    });
+    if (!ok) return;
+    setBusyId(r.id);
+    try {
+      const e = r.entity.toLowerCase();
+      if (e === "registration") {
+        await api(`/api/v1/registrations/${r.entity_id}/restore`, { method: "POST" });
+      } else if (e === "athlete") {
+        await api(`/api/v1/athletes/${r.entity_id}/restore`, { method: "POST" });
+      } else if (e === "ledger") {
+        await api(`/api/v1/ledger/${r.entity_id}/restore`, { method: "POST" });
+      } else if (e === "user") {
+        await api(`/api/v1/auth/users/${r.entity_id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ is_active: true }),
+        });
+      }
+      toast("Opération restaurée", "success");
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="card">
       <h3 style={{ marginTop: 0 }}>{t("history")}</h3>
       <p className="muted" style={{ marginTop: 0 }}>
-        Journal des opérations (inscriptions, joueurs, coachs, finance…) — utile pour récupérer ou vérifier qui a fait quoi.
+        Journal des opérations — les suppressions / archives sont récupérables via le bouton{" "}
+        <strong>Restaurer</strong>.
       </p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         <select
@@ -60,6 +105,7 @@ export function HistoryPage() {
           <option value="athlete">Athlètes</option>
           <option value="registration">Inscriptions</option>
           <option value="user">Utilisateurs / Coachs</option>
+          <option value="ledger">Caisse</option>
           <option value="teams">Équipes</option>
           <option value="payment">Paiements</option>
         </select>
@@ -78,6 +124,7 @@ export function HistoryPage() {
             <th>Entité</th>
             <th>Qui</th>
             <th>Détail</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -93,6 +140,18 @@ export function HistoryPage() {
               </td>
               <td>{r.user_name || (r.user_id ? `#${r.user_id}` : "—")}</td>
               <td style={{ whiteSpace: "normal", maxWidth: 320 }}>{r.detail || "—"}</td>
+              <td>
+                {canRestore(r) && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busyId === r.id}
+                    onClick={() => void onRestore(r)}
+                  >
+                    {busyId === r.id ? "…" : "Restaurer"}
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -454,6 +454,7 @@ class LedgerOut(ORMModel):
     notes: Optional[str] = None
     seq_no: Optional[int] = None
     reference: Optional[str] = None
+    is_archived: bool = False
 
 
 class AnnouncementCreate(BaseModel):
@@ -557,3 +558,16 @@ class MobileHomeOut(BaseModel):
     pending_convocations: int = 0
     unpaid_installments: int = 0
     announcements: list[AnnouncementOut] = []
+
+
+class MobileAppUpdateOut(BaseModel):
+    """Métadonnées de la dernière APK Android (endpoint public)."""
+
+    platform: str = "android"
+    latest_version: str
+    latest_version_code: int
+    apk_url: str
+    force_update: bool = False
+    release_notes: str = ""
+    release_notes_ar: str = ""
+    min_supported_version_code: int = 1

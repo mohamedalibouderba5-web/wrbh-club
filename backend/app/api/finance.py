@@ -561,6 +561,7 @@ def list_recent_payments(
 @router.get("/ledger", response_model=list[LedgerOut])
 def list_ledger(
     entry_type: str | None = None,
+    include_archived: bool = False,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -570,6 +571,8 @@ def list_ledger(
     q = db.query(LedgerEntry).filter(
         or_(LedgerEntry.club_id == club_id, LedgerEntry.club_id.is_(None))
     )
+    if not include_archived:
+        q = q.filter(or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)))
     if entry_type:
         q = q.filter(LedgerEntry.entry_type == entry_type)
     return q.order_by(LedgerEntry.entry_date.desc()).offset(skip).limit(limit).all()
@@ -632,12 +635,13 @@ def delete_ledger(
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
     club_id: int = Depends(get_current_club_id),
 ):
+    """Soft-delete caisse — récupérable via POST /ledger/{id}/restore."""
     entry = db.get(LedgerEntry, entry_id)
     if not entry:
         raise HTTPException(404, "Ligne introuvable")
     assert_same_club(entry, club_id)
     label = entry.label
-    db.delete(entry)
+    entry.is_archived = True
     write_audit(
         db,
         action="delete",
@@ -649,7 +653,34 @@ def delete_ledger(
     )
     cache_delete_prefix("finance:")
     cache_delete_prefix("bootstrap:")
-    return {"ok": True}
+    return {"ok": True, "soft": True, "archived": True}
+
+
+@router.post("/ledger/{entry_id}/restore", response_model=LedgerOut)
+def restore_ledger(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    entry = db.get(LedgerEntry, entry_id)
+    if not entry:
+        raise HTTPException(404, "Ligne introuvable")
+    assert_same_club(entry, club_id)
+    entry.is_archived = False
+    write_audit(
+        db,
+        action="restore",
+        entity="ledger",
+        entity_id=entry.id,
+        user_id=user.id,
+        detail=entry.label,
+        commit=True,
+    )
+    cache_delete_prefix("finance:")
+    cache_delete_prefix("bootstrap:")
+    db.refresh(entry)
+    return entry
 
 
 @router.patch("/payments/{payment_id}")
@@ -729,10 +760,14 @@ def finance_dashboard(
     ).scalar()
     paid = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(_cf(Payment)).scalar()
     income = db.query(func.coalesce(func.sum(LedgerEntry.amount), 0)).filter(
-        LedgerEntry.entry_type == "income", _cf(LedgerEntry)
+        LedgerEntry.entry_type == "income",
+        _cf(LedgerEntry),
+        or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)),
     ).scalar()
     expense = db.query(func.coalesce(func.sum(LedgerEntry.amount), 0)).filter(
-        LedgerEntry.entry_type == "expense", _cf(LedgerEntry)
+        LedgerEntry.entry_type == "expense",
+        _cf(LedgerEntry),
+        or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)),
     ).scalar()
     payroll = db.query(func.coalesce(func.sum(CoachPayroll.amount), 0)).filter(_cf(CoachPayroll)).scalar()
     overdue_count = (
