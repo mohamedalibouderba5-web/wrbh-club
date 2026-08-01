@@ -5,6 +5,8 @@ import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
+import { ErrorBoundary } from "../src/components/ErrorBoundary";
+import { UpdateGate } from "../src/components/UpdateGate";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -50,14 +52,17 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <Guard>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="login" />
-          <Stack.Screen name="change-password" />
-          <Stack.Screen name="(tabs)" />
-        </Stack>
-      </Guard>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <UpdateGate />
+        <Guard>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="login" />
+            <Stack.Screen name="change-password" />
+            <Stack.Screen name="(tabs)" />
+          </Stack>
+        </Guard>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

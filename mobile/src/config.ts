@@ -9,6 +9,9 @@ export const API_BASE = (process.env.EXPO_PUBLIC_API_URL || extra.apiUrl || "htt
 );
 
 export const APP_VERSION = Constants.expoConfig?.version ?? "1.0.0";
+export const APP_VERSION_CODE = Number(
+  (Constants.expoConfig?.android as { versionCode?: number } | undefined)?.versionCode ?? 0,
+);
 
 export function mediaUrl(path?: string | null): string | null {
   if (!path) return null;

@@ -23,7 +23,7 @@ from app.models import (
     TeamMembership,
     User,
 )
-from app.schemas import AnnouncementOut, EventOut, MobileChildOut, MobileHomeOut
+from app.schemas import AnnouncementOut, EventOut, MobileAppUpdateOut, MobileChildOut, MobileHomeOut
 
 router = APIRouter(prefix="/mobile", tags=["mobile"])
 settings = get_settings()
@@ -169,6 +169,21 @@ def mobile_home(db: Session = Depends(get_db), user: User = Depends(get_current_
         pending_convocations=pending,
         unpaid_installments=unpaid,
         announcements=[AnnouncementOut.model_validate(a) for a in anns],
+    )
+
+
+@router.get("/app-update", response_model=MobileAppUpdateOut)
+def mobile_app_update():
+    """Version APK recommandée — public (pas de JWT) pour l’écran login aussi."""
+    return MobileAppUpdateOut(
+        platform="android",
+        latest_version=settings.android_app_version,
+        latest_version_code=int(settings.android_version_code),
+        apk_url=settings.android_apk_url,
+        force_update=bool(settings.android_force_update),
+        release_notes=settings.android_release_notes,
+        release_notes_ar=settings.android_release_notes_ar,
+        min_supported_version_code=1,
     )
 
 

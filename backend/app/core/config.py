@@ -35,6 +35,20 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     login_rate_limit: int = 10
     login_rate_window_seconds: int = 300
+    # Mise à jour APK mobile (publié via env Render)
+    android_app_version: str = "1.4.0"
+    android_version_code: int = 5
+    android_apk_url: str = (
+        "https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/"
+        "android-v1.4.0/wrbh-club-1.4.0.apk"
+    )
+    android_force_update: bool = False
+    android_release_notes: str = (
+        "Onglet Plus, athlètes, inscriptions, équipes, matériel, historique, finance."
+    )
+    android_release_notes_ar: str = (
+        "تبويب المزيد، اللاعبون، التسجيلات، الفرق، المعدات، السجل، المالية."
+    )
 
     @property
     def is_production(self) -> bool:

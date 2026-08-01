@@ -103,8 +103,8 @@ export default function HomeScreen() {
         <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/messages")}>
           <Text style={styles.shortcutT}>Messages</Text>
         </Pressable>
-        <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/more")}>
-          <Text style={styles.shortcutT}>Plus</Text>
+        <Pressable style={[styles.shortcut, styles.shortcutGold]} onPress={() => router.push("/(tabs)/more")}>
+          <Text style={[styles.shortcutT, { color: colors.navy }]}>Plus ☰</Text>
         </Pressable>
       </View>
 
@@ -112,20 +112,31 @@ export default function HomeScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Espace coach / staff</Text>
           <Text style={styles.muted}>
-            Agenda, présences, paiements, athlètes, inscriptions et matériel via l’onglet Plus.
+            Ouvrez l’onglet Plus (barre du bas) pour Athlètes, Inscriptions, Équipes, Matériel, Historique et Finance.
           </Text>
-          <View style={[styles.shortcuts, { marginTop: 10 }]}>
-            <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/athletes")}>
+          <View style={[styles.shortcuts, { marginTop: 10, flexWrap: "wrap" }]}>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/athletes")}>
               <Text style={styles.shortcutT}>Athlètes</Text>
             </Pressable>
-            <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/registrations")}>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/registrations")}>
               <Text style={styles.shortcutT}>Inscriptions</Text>
             </Pressable>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/teams")}>
+              <Text style={styles.shortcutT}>Équipes</Text>
+            </Pressable>
             {(role === "admin" || role === "direction" || role === "staff") && (
-              <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/inventory")}>
-                <Text style={styles.shortcutT}>Matériel</Text>
-              </Pressable>
+              <>
+                <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/inventory")}>
+                  <Text style={styles.shortcutT}>Matériel</Text>
+                </Pressable>
+                <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/history")}>
+                  <Text style={styles.shortcutT}>Historique</Text>
+                </Pressable>
+              </>
             )}
+            <Pressable style={[styles.shortcut, styles.shortcutHalf, styles.shortcutGold]} onPress={() => router.push("/(tabs)/more")}>
+              <Text style={[styles.shortcutT, { color: colors.navy }]}>Tout voir</Text>
+            </Pressable>
           </View>
         </View>
       )}
@@ -202,11 +213,14 @@ const styles = StyleSheet.create({
   shortcuts: { flexDirection: "row", gap: 8 },
   shortcut: {
     flex: 1,
+    minWidth: "22%",
     backgroundColor: colors.blue,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: "center",
   },
+  shortcutHalf: { minWidth: "46%", flexGrow: 1 },
+  shortcutGold: { backgroundColor: colors.gold },
   shortcutT: { color: "white", fontWeight: "800", fontSize: 13 },
   section: { marginTop: 8, fontWeight: "800", color: colors.navy, fontSize: 16 },
   card: { backgroundColor: "white", borderRadius: 14, padding: 12, gap: 4 },

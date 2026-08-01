@@ -51,24 +51,34 @@ export default function LoginScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="0555… / هاتف الولي"
+        placeholder="0555… ou email staff"
         placeholderTextColor="#8a93a8"
         autoCapitalize="none"
-        keyboardType="phone-pad"
+        autoCorrect={false}
+        keyboardType="email-address"
+        textContentType="username"
         value={username}
         onChangeText={setUsername}
+        editable={!loading}
       />
       <TextInput
         style={styles.input}
         placeholder="Mot de passe / كلمة المرور"
         placeholderTextColor="#8a93a8"
         secureTextEntry
+        textContentType="password"
         value={password}
         onChangeText={setPassword}
+        editable={!loading}
+        onSubmitEditing={onLogin}
       />
       {!!error && <Text style={styles.error}>{error}</Text>}
 
-      <Pressable style={styles.btn} onPress={onLogin} disabled={loading}>
+      <Pressable
+        style={[styles.btn, loading && { opacity: 0.7 }]}
+        onPress={onLogin}
+        disabled={loading || !username.trim() || !password}
+      >
         {loading ? <ActivityIndicator color="#0f1f4d" /> : <Text style={styles.btnText}>Connexion / دخول</Text>}
       </Pressable>
       <Text style={styles.hint}>Parents : téléphone enregistré à l'inscription. Staff : email.</Text>

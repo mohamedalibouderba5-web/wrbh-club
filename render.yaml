@@ -23,6 +23,18 @@ services:
         value: "17"
       - key: PYTHONPATH
         value: /opt/render/project/src
+      - key: ANDROID_APP_VERSION
+        value: "1.4.0"
+      - key: ANDROID_VERSION_CODE
+        value: "5"
+      - key: ANDROID_APK_URL
+        value: https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/android-v1.4.0/wrbh-club-1.4.0.apk
+      - key: ANDROID_FORCE_UPDATE
+        value: "false"
+      - key: ANDROID_RELEASE_NOTES
+        value: "Onglet Plus, athlètes, inscriptions, équipes, matériel, historique, finance, mises à jour auto."
+      - key: ANDROID_RELEASE_NOTES_AR
+        value: "تبويب المزيد والوحدات الكاملة وتحديث تلقائي للتطبيق."
 
   - type: web
     name: wrbh-web
@@ -35,7 +47,7 @@ services:
       - key: VITE_API_URL
         value: https://wrbh-api.onrender.com
       - key: VITE_ANDROID_APK_URL
-        value: https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/android-v1.3.0/wrbh-club-1.3.0.apk
+        value: https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/android-v1.4.0/wrbh-club-1.4.0.apk
     headers:
       - path: /*
         name: Cache-Control
