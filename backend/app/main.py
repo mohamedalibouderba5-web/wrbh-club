@@ -208,7 +208,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.15.1",
+    version="1.15.2",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,

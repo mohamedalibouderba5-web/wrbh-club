@@ -1152,6 +1152,7 @@ export function RegistrationsPage() {
                 <td className="ltr" style={{ whiteSpace: "nowrap" }}>
                   {r.created_at
                     ? new Intl.DateTimeFormat("fr-DZ", {
+                        timeZone: "Africa/Algiers",
                         year: "numeric",
                         month: "2-digit",
                         day: "2-digit",

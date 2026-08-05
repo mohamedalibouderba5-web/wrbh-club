@@ -36,18 +36,18 @@ class Settings(BaseSettings):
     login_rate_limit: int = 10
     login_rate_window_seconds: int = 300
     # Mise à jour APK mobile (publié via env Render)
-    android_app_version: str = "1.4.0"
-    android_version_code: int = 5
+    android_app_version: str = "1.5.1"
+    android_version_code: int = 7
     android_apk_url: str = (
         "https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/"
-        "android-v1.4.0/wrbh-club-1.4.0.apk"
+        "android-v1.5.1/wrbh-club-1.5.1.apk"
     )
     android_force_update: bool = False
     android_release_notes: str = (
-        "Onglet Plus, athlètes, inscriptions, équipes, matériel, historique, finance."
+        "Numérotation : N° joueur (list_number), kit, référence immuable, horodatage Alger."
     )
     android_release_notes_ar: str = (
-        "تبويب المزيد، اللاعبون، التسجيلات، الفرق، المعدات، السجل، المالية."
+        "الترقيم: رقم اللاعب، رقم المعدات، مرجع ثابت، توقيت الجزائر."
     )
 
     @property

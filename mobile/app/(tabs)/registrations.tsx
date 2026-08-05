@@ -21,6 +21,7 @@ type Category = { id: number; code: string; season_id?: number };
 type Reg = {
   id: number;
   list_number?: number;
+  kit_number?: number | null;
   athlete_id: number;
   athlete_name?: string;
   season_id: number;
@@ -34,6 +35,23 @@ type Reg = {
   parent_phone?: string;
   source?: string;
 };
+
+function fmtCreatedAt(iso?: string): string | undefined {
+  if (!iso) return undefined;
+  try {
+    return new Date(iso).toLocaleString("fr-DZ", {
+      timeZone: "Africa/Algiers",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
 
 const emptyForm = {
   full_name: "",
@@ -356,13 +374,16 @@ export default function RegistrationsScreen() {
           </View>
           <Text style={styles.line}>
             {[
-              r.list_number ? `N° joueur ${r.list_number}` : undefined,
+              r.list_number != null ? `N° joueur ${r.list_number}` : undefined,
+              r.kit_number != null ? `Kit ${r.kit_number}` : undefined,
               r.category_code,
-              r.reference,
-              r.created_at ? new Date(r.created_at).toLocaleString("fr-DZ") : r.registered_on,
             ]
               .filter(Boolean)
               .join(" · ")}
+          </Text>
+          {!!r.reference && <Text style={styles.line}>Réf. {r.reference}</Text>}
+          <Text style={styles.line}>
+            Créé le {fmtCreatedAt(r.created_at) || r.registered_on || "—"}
           </Text>
           {!!r.parent_phone && <Text style={styles.line}>Tél. {r.parent_phone}</Text>}
           {r.subscription_fee != null && <Text style={styles.line}>{fmtMoney(r.subscription_fee)}</Text>}
