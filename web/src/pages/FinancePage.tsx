@@ -130,7 +130,9 @@ export function FinancePage() {
     entry_date: now.toISOString().slice(0, 10),
     place: "",
     counterparty: "",
+    coach_id: "",
   });
+  const [coaches, setCoaches] = useState<{ id: number; full_name: string }[]>([]);
   const [editLedger, setEditLedger] = useState<Ledger | null>(null);
   const [editPay, setEditPay] = useState<PaymentRow | null>(null);
   const [editInst, setEditInst] = useState<Installment | null>(null);
@@ -179,6 +181,12 @@ export function FinancePage() {
     if (c) setCats(c);
     if (r) setRecent(r);
     if (u) setUnpaid(u);
+    try {
+      const ch = await apiGetFast<{ id: number; full_name: string }[]>("/api/v1/coaches", { ttlMs: 120_000 });
+      setCoaches(ch);
+    } catch {
+      setCoaches([]);
+    }
     if (errors.length) setError(errors.join(" · "));
     setLoading(false);
   }, []);
@@ -321,9 +329,18 @@ export function FinancePage() {
         }),
       });
       setSettings(s);
-      toast("Constantes finance enregistrées", "success");
+      setSettingsForm({
+        monthly: String(s.monthly_subscription_dzd),
+        insurance: String(s.annual_insurance_dzd),
+        inscription: String(s.inscription_fee_dzd),
+      });
+      toast(
+        `Constantes enregistrées — assurance ${Number(s.annual_insurance_dzd).toLocaleString()} DZD (échéances ouvertes mises à jour)`,
+        "success",
+      );
       onTypeChange(pay.payment_type);
-      load();
+      // Recharge sans retomber sur un cache stale
+      await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erreur", "error");
     }
@@ -392,11 +409,20 @@ export function FinancePage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     try {
+      const body = {
+        entry_type: form.entry_type,
+        category: form.category,
+        label: form.label,
+        amount: Number(form.amount),
+        entry_date: form.entry_date,
+        place: form.place || null,
+        counterparty: form.counterparty || null,
+      };
       await api("/api/v1/ledger", {
         method: "POST",
-        body: JSON.stringify({ ...form, amount: Number(form.amount) }),
+        body: JSON.stringify(body),
       });
-      setForm((f) => ({ ...f, label: "", amount: "", place: "", counterparty: "" }));
+      setForm((f) => ({ ...f, label: "", amount: "", place: "", counterparty: "", coach_id: "" }));
       toast("Écriture caisse enregistrée", "success");
       load();
     } catch (err) {
@@ -637,9 +663,36 @@ export function FinancePage() {
                       <td>{row.due_date || "—"}</td>
                       <td>{row.status}</td>
                       <td>
-                        <button type="button" onClick={() => setEditInst({ ...row })}>
-                          Modifier
-                        </button>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button type="button" onClick={() => setEditInst({ ...row })}>
+                            Modifier
+                          </button>
+                          {canEditSettings && (
+                            <button
+                              type="button"
+                              className="danger"
+                              onClick={() => {
+                                void (async () => {
+                                  const ok = await confirmDialog({
+                                    title: "Supprimer l'échéance",
+                                    message: `Supprimer l'échéance « ${row.label} » de ${row.athlete_name || row.athlete_id} ?`,
+                                    confirmLabel: "Supprimer",
+                                  });
+                                  if (!ok) return;
+                                  try {
+                                    await api(`/api/v1/installments/${row.id}`, { method: "DELETE" });
+                                    toast("Échéance supprimée", "success");
+                                    load();
+                                  } catch (err) {
+                                    toast(err instanceof Error ? err.message : "Erreur", "error");
+                                  }
+                                })();
+                              }}
+                            >
+                              Supprimer
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -789,9 +842,34 @@ export function FinancePage() {
                       <td>{row.paid_on || "—"}</td>
                       <td>{row.method}</td>
                       <td>
-                        <button type="button" onClick={() => setEditPay({ ...row })}>
-                          Modifier
-                        </button>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button type="button" onClick={() => setEditPay({ ...row })}>
+                            Modifier
+                          </button>
+                          {canEditSettings && (
+                            <button
+                              type="button"
+                              className="danger"
+                              onClick={async () => {
+                                const ok = await confirmDialog({
+                                  title: "Supprimer le paiement",
+                                  message: `Supprimer le paiement de ${row.athlete_name || row.athlete_id} (${Number(row.amount).toLocaleString()} DZD) ?`,
+                                  confirmLabel: "Supprimer",
+                                });
+                                if (!ok) return;
+                                try {
+                                  await api(`/api/v1/payments/${row.id}`, { method: "DELETE" });
+                                  toast("Paiement supprimé", "success");
+                                  load();
+                                } catch (err) {
+                                  toast(err instanceof Error ? err.message : "Erreur", "error");
+                                }
+                              }}
+                            >
+                              Supprimer
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -883,9 +961,16 @@ export function FinancePage() {
                       <td>{Number(row.amount).toLocaleString()} DZD</td>
                       <td>{row.entry_date}</td>
                       <td>
-                        <button type="button" onClick={() => setEditLedger({ ...row })}>
-                          Modifier
-                        </button>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button type="button" onClick={() => setEditLedger({ ...row })}>
+                            Modifier
+                          </button>
+                          {canEditSettings && (
+                            <button type="button" className="danger" onClick={() => deleteLedger(row.id)}>
+                              Supprimer
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -942,14 +1027,51 @@ export function FinancePage() {
               </label>
               <label>
                 Catégorie
-                <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+                <select
+                  value={form.category}
+                  onChange={(e) => {
+                    const category = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      category,
+                      coach_id: category === "salary" ? f.coach_id : "",
+                      label: category === "salary" && !f.coach_id ? f.label : f.label,
+                    }));
+                  }}
+                >
                   <option value="transport">Transport</option>
                   <option value="arbitre">Arbitrage</option>
                   <option value="location">Location</option>
+                  <option value="salary">Salaire coach</option>
                   <option value="divers">Divers</option>
                   <option value="don">Don / recette</option>
                 </select>
               </label>
+              {form.category === "salary" && (
+                <label>
+                  Coach (suggestion libellé)
+                  <select
+                    value={form.coach_id}
+                    onChange={(e) => {
+                      const coach_id = e.target.value;
+                      const coach = coaches.find((c) => String(c.id) === coach_id);
+                      setForm((f) => ({
+                        ...f,
+                        coach_id,
+                        label: coach ? `Salaire — ${coach.full_name}` : f.label,
+                        entry_type: "expense",
+                      }));
+                    }}
+                  >
+                    <option value="">— Saisie manuelle du libellé —</option>
+                    {coaches.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label>
                 Libellé
                 <input required value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />

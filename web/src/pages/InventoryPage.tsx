@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, apiGetFast } from "../api/client";
+import { confirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
 
 type Item = {
@@ -9,18 +10,28 @@ type Item = {
   alert_threshold: number;
   location?: string;
   notes?: string;
+  item_kind?: string;
 };
 type Athlete = { id: number; full_name: string };
 type Assignment = {
   id: number;
   item_id?: number;
   item_name?: string;
+  item_kind?: string;
   athlete_id?: number;
   athlete_name?: string;
   quantity: number;
   assigned_on?: string;
   status: string;
 };
+
+const ITEM_KINDS = [
+  { value: "jersey", label: "Maillot / قميص" },
+  { value: "shorts", label: "Short / شورت" },
+  { value: "boots", label: "Chaussures / حذاء" },
+  { value: "backpack", label: "Sac / حقيبة" },
+  { value: "other", label: "Autre" },
+];
 
 export function InventoryPage() {
   const [items, setItems] = useState<Item[]>([]);
@@ -30,6 +41,7 @@ export function InventoryPage() {
   const [name, setName] = useState("");
   const [qty, setQty] = useState("10");
   const [cost, setCost] = useState("");
+  const [itemKind, setItemKind] = useState("jersey");
   const [assignAthlete, setAssignAthlete] = useState("");
   const [assignItem, setAssignItem] = useState("");
   const [assignQty, setAssignQty] = useState("1");
@@ -63,6 +75,7 @@ export function InventoryPage() {
           quantity: Number(qty),
           unit_cost: Number(cost) || 0,
           athlete_id: assignAthlete ? Number(assignAthlete) : null,
+          item_kind: itemKind,
         }),
       });
       toast("Équipement ajouté au stock", "success");
@@ -102,6 +115,7 @@ export function InventoryPage() {
           quantity: Number(editItem.quantity),
           alert_threshold: Number(editItem.alert_threshold),
           location: editItem.location || null,
+          item_kind: editItem.item_kind || "other",
         }),
       });
       toast("Article modifié", "success");
@@ -144,6 +158,16 @@ export function InventoryPage() {
           <div className="field">
             <label>Nom (maillot, brassards, ballons…)</label>
             <input required value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Type d’article</label>
+            <select value={itemKind} onChange={(e) => setItemKind(e.target.value)}>
+              {ITEM_KINDS.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="field">
             <label>Quantité</label>
@@ -226,6 +250,19 @@ export function InventoryPage() {
                 />
               </div>
               <div className="field">
+                <label>Type</label>
+                <select
+                  value={editItem.item_kind || "other"}
+                  onChange={(e) => setEditItem({ ...editItem, item_kind: e.target.value })}
+                >
+                  {ITEM_KINDS.map((k) => (
+                    <option key={k.value} value={k.value}>
+                      {k.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
                 <label>Lieu</label>
                 <input
                   value={editItem.location || ""}
@@ -246,6 +283,7 @@ export function InventoryPage() {
             <thead>
               <tr>
                 <th>Article</th>
+                <th>Type</th>
                 <th>Qté</th>
                 <th>Seuil</th>
                 <th>Lieu</th>
@@ -256,13 +294,37 @@ export function InventoryPage() {
               {items.map((i) => (
                 <tr key={i.id}>
                   <td>{i.name}</td>
+                  <td>{ITEM_KINDS.find((k) => k.value === i.item_kind)?.label || i.item_kind || "—"}</td>
                   <td>{i.quantity}</td>
                   <td>{i.alert_threshold}</td>
                   <td>{i.location ?? "—"}</td>
                   <td>
-                    <button type="button" onClick={() => setEditItem({ ...i })}>
-                      Modifier
-                    </button>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" onClick={() => setEditItem({ ...i })}>
+                        Modifier
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={async () => {
+                          const ok = await confirmDialog({
+                            title: "Supprimer l'article",
+                            message: `Supprimer « ${i.name} » du stock ?`,
+                            confirmLabel: "Supprimer",
+                          });
+                          if (!ok) return;
+                          try {
+                            await api(`/api/v1/inventory/items/${i.id}`, { method: "DELETE" });
+                            toast("Article supprimé", "success");
+                            load();
+                          } catch (err) {
+                            toast(err instanceof Error ? err.message : "Erreur", "error");
+                          }
+                        }}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -324,9 +386,32 @@ export function InventoryPage() {
                     <span className="badge">{a.status}</span>
                   </td>
                   <td>
-                    <button type="button" onClick={() => setEditAsg({ ...a })}>
-                      Modifier
-                    </button>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" onClick={() => setEditAsg({ ...a })}>
+                        Modifier
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={async () => {
+                          const ok = await confirmDialog({
+                            title: "Supprimer l'attribution",
+                            message: `Supprimer « ${a.item_name} → ${a.athlete_name || "—"} » ?`,
+                            confirmLabel: "Supprimer",
+                          });
+                          if (!ok) return;
+                          try {
+                            await api(`/api/v1/inventory/assignments/${a.id}?restock=true`, { method: "DELETE" });
+                            toast("Attribution supprimée", "success");
+                            load();
+                          } catch (err) {
+                            toast(err instanceof Error ? err.message : "Erreur", "error");
+                          }
+                        }}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

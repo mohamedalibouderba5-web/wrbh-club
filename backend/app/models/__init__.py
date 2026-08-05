@@ -212,6 +212,13 @@ class Registration(Base, TimestampMixin):
     # Numéro + référence joueur IMMUABLES (ex. 26-27/U13/0042)
     seq_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     reference: Mapped[Optional[str]] = mapped_column(String(60), nullable=True, index=True)
+    # N° maillot / sac (équipement) — unique par saison + catégorie
+    kit_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    has_jersey: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_backpack: Mapped[bool] = mapped_column(Boolean, default=False)
+    kit_size: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # XS/S/M/L ou pointure
+    # Sous-groupe (U11 G1 / U11 G2…)
+    team_id: Mapped[Optional[int]] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
 
 
 class Attachment(Base, TimestampMixin):
@@ -487,6 +494,8 @@ class InventoryItem(Base, TimestampMixin):
     alert_threshold: Mapped[int] = mapped_column(Integer, default=2)
     location: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # jersey | shorts | boots | backpack | other
+    item_kind: Mapped[str] = mapped_column(String(40), default="other")
 
 
 class InventoryAssignment(Base, TimestampMixin):
@@ -501,6 +510,8 @@ class InventoryAssignment(Base, TimestampMixin):
     assigned_on: Mapped[date] = mapped_column(Date)
     returned_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="out")  # out / returned / lost
+    season_id: Mapped[Optional[int]] = mapped_column(ForeignKey("seasons.id"), nullable=True, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class Document(Base, TimestampMixin):

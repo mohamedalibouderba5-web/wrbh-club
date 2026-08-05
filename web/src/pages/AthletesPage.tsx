@@ -28,6 +28,19 @@ type Athlete = {
   blood_type?: string;
   category_id?: number;
   category_code?: string;
+  last_payment_on?: string | null;
+  last_payment_amount?: number | null;
+};
+
+type PaymentRow = {
+  id: number;
+  athlete_id: number;
+  amount: number;
+  paid_on?: string;
+  method: string;
+  notes?: string;
+  seq_no?: number;
+  reference?: string;
 };
 
 const PAGE = 40;
@@ -77,6 +90,9 @@ export function AthletesPage() {
   const [editInstallments, setEditInstallments] = useState<
     { id: number; label: string; label_ar?: string; amount: number; amount_paid: number; status: string }[]
   >([]);
+  const [editPayments, setEditPayments] = useState<PaymentRow[]>([]);
+  const [editPay, setEditPay] = useState<PaymentRow | null>(null);
+  const [viewMode, setViewMode] = useState<"table" | "icons">("table");
   const [payType, setPayType] = useState("monthly");
   const [payAmount, setPayAmount] = useState("800");
   const [payMonth, setPayMonth] = useState(String(new Date().getMonth() + 1));
@@ -209,8 +225,20 @@ export function AthletesPage() {
     }
   }
 
+  function reloadEditFinance(athleteId: number) {
+    api<
+      { id: number; label: string; label_ar?: string; amount: number; amount_paid: number; status: string }[]
+    >(`/api/v1/installments?athlete_id=${athleteId}&limit=50`)
+      .then(setEditInstallments)
+      .catch(() => setEditInstallments([]));
+    api<PaymentRow[]>(`/api/v1/payments/recent?athlete_id=${athleteId}&limit=50`)
+      .then(setEditPayments)
+      .catch(() => setEditPayments([]));
+  }
+
   function openEdit(r: Athlete) {
     setEditId(r.id);
+    setEditPay(null);
     setEditStatus(r.status);
     setEditNote(r.notes || "");
     setEditBlood(r.blood_type || "");
@@ -223,6 +251,7 @@ export function AthletesPage() {
       photo_path: r.photo_path || "",
     });
     setPayType("monthly");
+    setEditPayments([]);
     apiGetFast<{ monthly_subscription_dzd: number; annual_insurance_dzd: number }>("/api/v1/finance/settings", {
       ttlMs: 120_000,
     })
@@ -231,11 +260,44 @@ export function AthletesPage() {
         setPayAmount(String(s.monthly_subscription_dzd));
       })
       .catch(() => undefined);
-    api<
-      { id: number; label: string; label_ar?: string; amount: number; amount_paid: number; status: string }[]
-    >(`/api/v1/installments?athlete_id=${r.id}&limit=50`)
-      .then(setEditInstallments)
-      .catch(() => setEditInstallments([]));
+    reloadEditFinance(r.id);
+  }
+
+  async function savePaymentEdit() {
+    if (!editPay || !editId) return;
+    try {
+      await api(`/api/v1/payments/${editPay.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          amount: Number(editPay.amount),
+          method: editPay.method,
+          paid_on: editPay.paid_on,
+          notes: editPay.notes || null,
+        }),
+      });
+      toast("Paiement modifié", "success");
+      setEditPay(null);
+      reloadEditFinance(editId);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  async function deletePayment(row: PaymentRow) {
+    const ok = await confirmDialog({
+      title: "Supprimer le paiement",
+      message: `Supprimer le paiement du ${formatDateFr(row.paid_on)} (${Number(row.amount).toLocaleString()} DZD) ?`,
+      confirmLabel: "Supprimer",
+    });
+    if (!ok || !editId) return;
+    try {
+      await api(`/api/v1/payments/${row.id}`, { method: "DELETE" });
+      toast("Paiement supprimé", "success");
+      if (editPay?.id === row.id) setEditPay(null);
+      reloadEditFinance(editId);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
   }
 
   async function onQuickPayAthlete() {
@@ -258,10 +320,7 @@ export function AthletesPage() {
         body: JSON.stringify(body),
       });
       toast(`✓ ${res.label} — ${Number(res.amount).toLocaleString()} DZD`, "success");
-      const rows = await api<
-        { id: number; label: string; label_ar?: string; amount: number; amount_paid: number; status: string }[]
-      >(`/api/v1/installments?athlete_id=${editId}&limit=50`);
-      setEditInstallments(rows);
+      reloadEditFinance(editId);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erreur", "error");
     }
@@ -423,7 +482,10 @@ export function AthletesPage() {
       <div className="card">
         <div className="cat-chips" style={{ marginBottom: 12 }}>
           <strong>{t("filterCategory")}</strong>
-          <div className="chips">
+          <div
+            className="chips"
+            style={{ overflowX: "auto", flexWrap: "nowrap", WebkitOverflowScrolling: "touch", paddingBottom: 4 }}
+          >
             <button
               type="button"
               className={`chip ${categoryId === null ? "active" : ""}`}
@@ -446,7 +508,7 @@ export function AthletesPage() {
             ))}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
           <input
             placeholder={t("searchName")}
             value={q}
@@ -454,17 +516,37 @@ export function AthletesPage() {
             style={{ flex: 1, minWidth: 200, padding: "0.6rem 0.8rem", borderRadius: 10, border: "1px solid #d7deee" }}
           />
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">{t("allStatuses")}</option>
+            <option value="">Actifs</option>
             <option value="Active">Active</option>
-            <option value="Abandonne">Abandonne</option>
+            <option value="Abandonne">Archives (Abandonne)</option>
             <option value="Inactif">Inactif</option>
+            <option value="all">Tous</option>
           </select>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              className={`chip ${viewMode === "table" ? "active" : ""}`}
+              style={{ flexDirection: "row", whiteSpace: "nowrap" }}
+              onClick={() => setViewMode("table")}
+            >
+              Tableau
+            </button>
+            <button
+              type="button"
+              className={`chip ${viewMode === "icons" ? "active" : ""}`}
+              style={{ flexDirection: "row", whiteSpace: "nowrap" }}
+              onClick={() => setViewMode("icons")}
+            >
+              Icônes
+            </button>
+          </div>
           <button type="button" className="secondary" onClick={() => load({ offset: 0 })}>
             {t("retry")}
           </button>
         </div>
         {loading && <p className="muted">{t("loading")}</p>}
         {!loading && !rows.length && <p className="muted">{error || t("empty")}</p>}
+        {viewMode === "table" ? (
         <table>
           <thead>
             <tr>
@@ -594,6 +676,49 @@ export function AthletesPage() {
             ))}
           </tbody>
         </table>
+        ) : (
+          <div className="roster-grid">
+            {rows.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                className="roster-card"
+                style={{ cursor: "pointer", width: "100%" }}
+                onClick={() => openEdit(r)}
+              >
+                {r.photo_path ? (
+                  <img
+                    src={mediaUrl(r.photo_path)}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    onError={(e) => {
+                      const el = e.target as HTMLImageElement;
+                      el.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <span className="roster-avatar">{r.full_name.slice(0, 1) || "?"}</span>
+                )}
+                <strong style={{ fontSize: "0.95rem", lineHeight: 1.2 }}>{r.full_name}</strong>
+                <span className="muted" style={{ fontSize: "0.85rem" }}>
+                  {r.category_code || "—"}
+                </span>
+                <span className="muted" style={{ fontSize: "0.8rem" }}>
+                  Dernier paiement :{" "}
+                  {r.last_payment_on
+                    ? `${formatDateFr(r.last_payment_on)}${
+                        r.last_payment_amount != null
+                          ? ` · ${Number(r.last_payment_amount).toLocaleString()} DZD`
+                          : ""
+                      }`
+                    : "—"}
+                </span>
+                <span className="badge">{r.status}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {hasMore && (
           <div style={{ marginTop: 12, textAlign: "center" }}>
             <button
@@ -616,6 +741,7 @@ export function AthletesPage() {
           <div className="form-split">
             <PhotoCapture
               value={editForm.photo_path}
+              athleteId={editId ?? undefined}
               onUploaded={(p) => setEditForm({ ...editForm, photo_path: p })}
             />
             <div>
@@ -746,6 +872,85 @@ export function AthletesPage() {
                   ))}
                 </tbody>
               </table>
+            )}
+
+            <h4 style={{ margin: "16px 0 8px" }}>Historique paiements</h4>
+            {editPay && (
+              <div style={{ border: "1px solid #d7deee", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                <p className="muted" style={{ margin: "0 0 8px" }}>
+                  Modifier paiement #{editPay.seq_no ?? editPay.id}
+                </p>
+                <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
+                  <div className="field">
+                    <label>Montant DZD</label>
+                    <input
+                      className="ltr"
+                      value={String(editPay.amount)}
+                      onChange={(e) => setEditPay({ ...editPay, amount: Number(e.target.value) || 0 })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Mode</label>
+                    <input value={editPay.method} onChange={(e) => setEditPay({ ...editPay, method: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label>Date</label>
+                    <input
+                      type="date"
+                      className="ltr"
+                      value={editPay.paid_on || ""}
+                      onChange={(e) => setEditPay({ ...editPay, paid_on: e.target.value })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Notes</label>
+                    <input value={editPay.notes || ""} onChange={(e) => setEditPay({ ...editPay, notes: e.target.value })} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button type="button" onClick={() => void savePaymentEdit()}>
+                    Enregistrer
+                  </button>
+                  <button type="button" className="secondary" onClick={() => setEditPay(null)}>
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            )}
+            {editPayments.length > 0 ? (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Montant</th>
+                    <th>Mode</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editPayments.map((p) => (
+                    <tr key={p.id}>
+                      <td>{formatDateFr(p.paid_on)}</td>
+                      <td>{Number(p.amount).toLocaleString()} DZD</td>
+                      <td>{p.method}</td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button type="button" className="secondary" onClick={() => setEditPay({ ...p })}>
+                            Modifier
+                          </button>
+                          {canDelete && (
+                            <button type="button" className="danger" onClick={() => void deletePayment(p)}>
+                              Supprimer
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="muted">Aucun paiement enregistré</p>
             )}
           </div>
 

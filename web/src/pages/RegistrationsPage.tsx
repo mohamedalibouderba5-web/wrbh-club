@@ -26,6 +26,7 @@ type Category = {
   birth_year_max: number;
   season_id?: number;
 };
+type Team = { id: number; category_id: number; name: string; code?: string; name_ar?: string };
 type Reg = {
   id: number;
   athlete_id: number;
@@ -36,6 +37,8 @@ type Reg = {
   blood_type?: string;
   category_code?: string;
   category_id?: number;
+  team_id?: number;
+  team_code?: string;
   parent_phone?: string;
   parent_temp_password?: string;
   parent_created?: boolean;
@@ -47,6 +50,26 @@ type Reg = {
   notes?: string;
   seq_no?: number;
   reference?: string;
+  kit_number?: number | null;
+  has_jersey?: boolean;
+  has_backpack?: boolean;
+  kit_size?: string | null;
+};
+
+type ArchiveMatch = {
+  found: boolean;
+  from_archive?: boolean;
+  athlete?: {
+    id: number;
+    full_name: string;
+    birth_date?: string;
+    birth_place?: string;
+    blood_type?: string;
+    photo_path?: string;
+    status?: string;
+    previous_parent_phone_hint?: string;
+    previous_category_code?: string;
+  };
 };
 
 const PAGE = 40;
@@ -56,8 +79,10 @@ export function RegistrationsPage() {
   const { t } = useI18n();
   const { role } = useAuth();
   const canHardDelete = role === "admin" || role === "direction";
+  const canArchiveSeason = role === "admin" || role === "direction";
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [regs, setRegs] = useState<Reg[]>([]);
   const [pending, setPending] = useState<PendingRegistration[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +91,7 @@ export function RegistrationsPage() {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [listCategoryId, setListCategoryId] = useState<number | null>(null);
+  const [listTeamId, setListTeamId] = useState<number | null>(null);
   const [listStatus, setListStatus] = useState<"active" | "archived">("active");
   const [editId, setEditId] = useState<number | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -73,6 +99,8 @@ export function RegistrationsPage() {
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [sortKey, setSortKey] = useState("recent");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [archiveMatch, setArchiveMatch] = useState<ArchiveMatch | null>(null);
+  const [reuseAthleteId, setReuseAthleteId] = useState<number | null>(null);
   const savingRef = useRef(false);
 
   function onSort(key: string) {
@@ -89,11 +117,16 @@ export function RegistrationsPage() {
     birth_place: "",
     season_id: 0,
     category_id: 0,
+    team_id: 0,
     subscription_fee: "4000",
     parent_phone: "",
     parent_name: "",
     photo_path: "",
     blood_type: "",
+    kit_number: "",
+    kit_size: "",
+    has_jersey: false,
+    has_backpack: false,
   });
 
   const seasonCats = useMemo(() => {
@@ -102,6 +135,22 @@ export function RegistrationsPage() {
   }, [cats, form.season_id]);
 
   const selectedCat = seasonCats.find((c) => c.id === form.category_id);
+  const categoryTeams = useMemo(
+    () => (form.category_id ? teams.filter((t) => t.category_id === form.category_id) : []),
+    [teams, form.category_id],
+  );
+  const listTeams = useMemo(
+    () => (listCategoryId ? teams.filter((t) => t.category_id === listCategoryId) : teams),
+    [teams, listCategoryId],
+  );
+  const displayedRegs = useMemo(
+    () => (listTeamId ? regs.filter((r) => r.team_id === listTeamId) : regs),
+    [regs, listTeamId],
+  );
+  const archiveSeason = useMemo(
+    () => seasons.find((s) => /2025/.test(s.name) && !s.is_current),
+    [seasons],
+  );
 
   useEffect(() => {
     const on = () => setOnline(true);
@@ -180,21 +229,25 @@ export function RegistrationsPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const { data, errors } = await loadAllSettled<[Season[], Category[], { inscription_fee_dzd: number }]>([
+      const { data, errors } = await loadAllSettled<
+        [Season[], Category[], { inscription_fee_dzd: number }, Team[]]
+      >([
         () => apiGetFast<Season[]>("/api/v1/seasons", { ttlMs: 120_000 }),
         () => apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 120_000 }),
         () => apiGetFast<{ inscription_fee_dzd: number }>("/api/v1/finance/settings", { ttlMs: 120_000 }).catch(() => ({
           inscription_fee_dzd: 4000,
         })),
+        () => apiGetFast<Team[]>("/api/v1/teams", { ttlMs: 120_000 }),
       ]);
       if (cancelled) return;
-      const [s, c, fees] = data;
+      const [s, c, fees, tms] = data;
       if (s) {
         setSeasons(s);
         const current = s.find((x) => x.is_current) || s[0];
         if (current) setForm((f) => ({ ...f, season_id: f.season_id || current.id }));
       }
       if (c) setCats(c);
+      if (tms) setTeams(tms);
       if (fees?.inscription_fee_dzd != null) {
         setForm((f) => ({ ...f, subscription_fee: String(fees.inscription_fee_dzd) }));
       }
@@ -206,6 +259,21 @@ export function RegistrationsPage() {
   }, []);
 
   useEffect(() => {
+    if (!form.season_id) return;
+    let cancelled = false;
+    void apiGetFast<Team[]>(`/api/v1/teams?season_id=${form.season_id}`, { ttlMs: 120_000 })
+      .then((rows) => {
+        if (!cancelled) setTeams(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setTeams([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.season_id]);
+
+  useEffect(() => {
     if (!form.season_id && !seasons.length) return;
     loadRegs();
   }, [loadRegs, form.season_id, seasons.length]);
@@ -215,6 +283,8 @@ export function RegistrationsPage() {
     setPhotoFile(null);
     setPhotoPreview(null);
     setEditId(null);
+    setArchiveMatch(null);
+    setReuseAthleteId(null);
     setForm((f) => ({
       ...f,
       full_name: "",
@@ -225,6 +295,11 @@ export function RegistrationsPage() {
       photo_path: "",
       blood_type: "",
       category_id: 0,
+      team_id: 0,
+      kit_number: "",
+      kit_size: "",
+      has_jersey: false,
+      has_backpack: false,
     }));
   }
 
@@ -232,6 +307,8 @@ export function RegistrationsPage() {
     setEditId(r.id);
     setError("");
     setMsg("");
+    setArchiveMatch(null);
+    setReuseAthleteId(null);
     if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
     setPhotoFile(null);
     setPhotoPreview(null);
@@ -242,11 +319,16 @@ export function RegistrationsPage() {
       birth_place: r.birth_place || "",
       season_id: r.season_id || f.season_id,
       category_id: r.category_id || 0,
+      team_id: r.team_id || 0,
       subscription_fee: r.subscription_fee != null ? String(r.subscription_fee) : f.subscription_fee,
       parent_phone: r.parent_phone || "",
       parent_name: "",
       photo_path: "",
       blood_type: r.blood_type || "",
+      kit_number: r.kit_number != null ? String(r.kit_number) : "",
+      kit_size: r.kit_size || "",
+      has_jersey: !!r.has_jersey,
+      has_backpack: !!r.has_backpack,
     }));
     // Chemin photo brut + champs complets depuis la fiche athlète
     void api<{
@@ -272,10 +354,66 @@ export function RegistrationsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function buildPayload(): RegPayload {
+  // Proposition reprise archive (nom + date naissance)
+  useEffect(() => {
+    if (editId || !form.full_name.trim() || form.full_name.trim().length < 3 || !form.birth_date) {
+      setArchiveMatch(null);
+      return;
+    }
+    const tmr = window.setTimeout(() => {
+      void api<ArchiveMatch>(
+        `/api/v1/athletes/archive-lookup?full_name=${encodeURIComponent(form.full_name.trim())}&birth_date=${form.birth_date}`,
+      )
+        .then((res) => {
+          if (res.found && res.from_archive) setArchiveMatch(res);
+          else if (res.found) setArchiveMatch(res);
+          else setArchiveMatch(null);
+        })
+        .catch(() => setArchiveMatch(null));
+    }, 450);
+    return () => window.clearTimeout(tmr);
+  }, [form.full_name, form.birth_date, editId]);
+
+  // N° équipement auto quand catégorie choisie (création)
+  useEffect(() => {
+    if (editId || !form.season_id || !form.category_id) return;
+    void api<{ next_kit_number: number }>(
+      `/api/v1/registrations/next-kit-number?season_id=${form.season_id}&category_id=${form.category_id}`,
+    )
+      .then((r) => setForm((f) => ({ ...f, kit_number: String(r.next_kit_number) })))
+      .catch(() => undefined);
+  }, [form.season_id, form.category_id, editId]);
+
+  function applyArchiveReuse() {
+    const a = archiveMatch?.athlete;
+    if (!a) return;
+    setReuseAthleteId(a.id);
+    setForm((f) => ({
+      ...f,
+      full_name: a.full_name || f.full_name,
+      birth_date: a.birth_date || f.birth_date,
+      birth_place: a.birth_place || "",
+      blood_type: a.blood_type || "",
+      photo_path: a.photo_path || "",
+      // Téléphone + catégorie : saisie manuelle obligatoire
+      parent_phone: "",
+      parent_name: "",
+      category_id: 0,
+      team_id: 0,
+    }));
+    setMsg(
+      `Joueur archive repris — saisissez le téléphone parent et la catégorie` +
+        (a.previous_parent_phone_hint ? ` (ancien tél. hint: ${a.previous_parent_phone_hint})` : "") +
+        (a.previous_category_code ? ` · ancienne cat. ${a.previous_category_code}` : ""),
+    );
+    setArchiveMatch(null);
+  }
+
+  function buildPayload(): RegPayload & { team_id?: number } {
     return {
       season_id: form.season_id,
       category_id: form.category_id || null,
+      ...(form.team_id ? { team_id: form.team_id } : {}),
       subscription_fee: Number(form.subscription_fee),
       source: "web",
       parent_phone: form.parent_phone,
@@ -350,9 +488,14 @@ export function RegistrationsPage() {
           birth_place: form.birth_place || null,
           blood_type: form.blood_type || null,
           parent_phone: form.parent_phone,
+          kit_number: form.kit_number ? Number(form.kit_number) : null,
+          kit_size: form.kit_size || null,
+          has_jersey: form.has_jersey,
+          has_backpack: form.has_backpack,
         };
         if (form.parent_name) body.parent_name = form.parent_name;
         if (photoPath) body.photo_path = photoPath;
+        if (form.team_id) body.team_id = form.team_id;
         const updated = await api<Reg>(`/api/v1/registrations/${editId}`, {
           method: "PATCH",
           body: JSON.stringify(body),
@@ -398,12 +541,20 @@ export function RegistrationsPage() {
         ...payload,
         photo_path: photoPath,
         athlete: { ...payload.athlete, photo_path: photoPath },
+        athlete_id: reuseAthleteId || undefined,
+        kit_number: form.kit_number ? Number(form.kit_number) : undefined,
+        kit_size: form.kit_size || null,
+        has_jersey: form.has_jersey,
+        has_backpack: form.has_backpack,
       };
       const res = await api<Reg>("/api/v1/registrations", {
         method: "POST",
         body: JSON.stringify(body),
       });
-      toast(`✓ ${playerName || "Joueur"} inscrit avec succès`, "success");
+      toast(
+        `✓ ${playerName || "Joueur"} inscrit — n° équipement ${res.kit_number ?? "—"} (maillot + sac)`,
+        "success",
+      );
       let info = "Inscription enregistrée — التسجيل محفوظ";
       if (res.parent_created && res.parent_temp_password) {
         info += ` · Compte parent créé ☎ ${res.parent_phone} — mdp temporaire (à noter, changement forcé au 1er login): ${res.parent_temp_password}`;
@@ -504,6 +655,56 @@ export function RegistrationsPage() {
     }
   }
 
+  async function deliverKit(r: Reg) {
+    const ok = await confirmDialog({
+      title: "Remettre équipement",
+      message:
+        `Remettre maillot + sac à « ${r.athlete_name || r.id} » (n° ${r.kit_number ?? "auto"}) ?\n` +
+        `Le stock Matériel sera décrémenté.`,
+      confirmLabel: "Remettre",
+      danger: false,
+    });
+    if (!ok) return;
+    try {
+      const updated = await api<Reg>(
+        `/api/v1/registrations/${r.id}/deliver-kit?give_jersey=true&give_backpack=true`,
+        { method: "POST" },
+      );
+      setRegs((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...updated } : x)));
+      toast(`Équipement remis — n° ${updated.kit_number}`, "success");
+    } catch (err) {
+      const m = err instanceof Error ? err.message : "Erreur";
+      toast(m, "error");
+    }
+  }
+
+  async function archiveFirstSeason() {
+    if (!archiveSeason || !canArchiveSeason) return;
+    const ok = await confirmDialog({
+      title: `Archiver saison ${archiveSeason.name}`,
+      message:
+        `Archiver tous les joueurs de la saison ${archiveSeason.name} ?\n` +
+        `Ils n'apparaîtront plus dans les listes actives (uniquement Archives).\n` +
+        `À la réinscription, leurs infos pourront être reprises.`,
+      confirmLabel: "Archiver la saison",
+    });
+    if (!ok) return;
+    try {
+      const res = await api<{
+        archived_registrations: number;
+        archived_athletes: number;
+        season: string;
+      }>(`/api/v1/seasons/${archiveSeason.id}/archive-roster`, { method: "POST" });
+      toast(
+        `Saison ${res.season} archivée — ${res.archived_registrations} dossiers, ${res.archived_athletes} joueurs`,
+        "success",
+      );
+      loadRegs({ quiet: true });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
   async function onSyncNow() {
     setMsg("");
     const r = await syncPendingRegistrations();
@@ -536,6 +737,47 @@ export function RegistrationsPage() {
             Mode hors ligne — l’inscription sera synchronisée plus tard.
           </p>
         )}
+        {canArchiveSeason && archiveSeason && (
+          <div
+            className="offline-pending-box"
+            style={{ marginBottom: "0.75rem", borderLeft: "4px solid var(--warn, #d97706)" }}
+          >
+            <strong>Saison {archiveSeason.name}</strong>
+            <p className="muted" style={{ margin: "0.35rem 0" }}>
+              Archiver les joueurs de la 1ʳᵉ saison (visibles uniquement en Archives).
+            </p>
+            <button type="button" className="secondary" onClick={() => void archiveFirstSeason()}>
+              Archiver le roster {archiveSeason.name}
+            </button>
+          </div>
+        )}
+        {archiveMatch?.found && archiveMatch.athlete && !editId && !reuseAthleteId && (
+          <div
+            className="offline-pending-box"
+            style={{ marginBottom: "0.75rem", borderLeft: "4px solid var(--ok, #16a34a)" }}
+          >
+            <strong>
+              {archiveMatch.from_archive ? "Joueur en archive trouvé" : "Joueur déjà connu"}
+            </strong>
+            <p style={{ margin: "0.35rem 0" }}>
+              {archiveMatch.athlete.full_name}
+              {archiveMatch.athlete.previous_category_code
+                ? ` · cat. ${archiveMatch.athlete.previous_category_code}`
+                : ""}
+            </p>
+            <p className="muted" style={{ margin: "0.25rem 0" }}>
+              Reprendre identité (nom, date, lieu). Téléphone parent et catégorie à saisir manuellement.
+            </p>
+            <button type="button" className="accent" onClick={applyArchiveReuse}>
+              Reprendre les infos
+            </button>
+          </div>
+        )}
+        {reuseAthleteId && (
+          <p className="muted" style={{ color: "var(--ok)" }}>
+            Réinscription depuis archive (athlète #{reuseAthleteId}) — téléphone + catégorie obligatoires.
+          </p>
+        )}
         <div className="cat-chips">
           <strong>{t("categories2627")}</strong>
           <div className="chips">
@@ -544,7 +786,7 @@ export function RegistrationsPage() {
                 key={c.id}
                 type="button"
                 className={`chip ${form.category_id === c.id ? "active" : ""}`}
-                onClick={() => setForm({ ...form, category_id: c.id })}
+                onClick={() => setForm({ ...form, category_id: c.id, team_id: 0 })}
               >
                 {c.code}
                 <small>
@@ -566,6 +808,23 @@ export function RegistrationsPage() {
             }}
           />
         </div>
+        {form.category_id > 0 && categoryTeams.length > 0 && (
+          <div className="cat-chips" style={{ marginBottom: "0.75rem" }}>
+            <strong>Groupe</strong>
+            <div className="chips">
+              {categoryTeams.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`chip ${form.team_id === t.id ? "active" : ""}`}
+                  onClick={() => setForm({ ...form, team_id: t.id })}
+                >
+                  {t.code || t.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="form-split">
           <PhotoCapture
             value={form.photo_path}
@@ -630,6 +889,45 @@ export function RegistrationsPage() {
               <label>Nom parent / اسم الولي</label>
               <input value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
             </div>
+            <div className="field">
+              <label>N° équipement (maillot + sac) / رقم القميص والحقيبة</label>
+              <input
+                className="ltr"
+                inputMode="numeric"
+                placeholder="Auto"
+                value={form.kit_number}
+                onChange={(e) => setForm({ ...form, kit_number: e.target.value })}
+              />
+              <small className="muted">
+                Rempli auto avec le plus petit n° libre de la catégorie — modifiable. À imprimer sur tenue et sac.
+              </small>
+            </div>
+            <div className="field">
+              <label>Taille / مقاس</label>
+              <input
+                placeholder="XS / S / M / L ou pointure"
+                value={form.kit_size}
+                onChange={(e) => setForm({ ...form, kit_size: e.target.value })}
+              />
+            </div>
+            <div className="field" style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={form.has_jersey}
+                  onChange={(e) => setForm({ ...form, has_jersey: e.target.checked })}
+                />
+                Maillot remis
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={form.has_backpack}
+                  onChange={(e) => setForm({ ...form, has_backpack: e.target.checked })}
+                />
+                Sac remis
+              </label>
+            </div>
           </div>
         </div>
         <div className="field">
@@ -637,7 +935,7 @@ export function RegistrationsPage() {
           <select
             value={form.season_id}
             disabled={!!editId}
-            onChange={(e) => setForm({ ...form, season_id: Number(e.target.value) })}
+            onChange={(e) => setForm({ ...form, season_id: Number(e.target.value), team_id: 0 })}
           >
             {seasons.map((s) => (
               <option key={s.id} value={s.id}>
@@ -727,7 +1025,10 @@ export function RegistrationsPage() {
             <button
               type="button"
               className={`chip ${listCategoryId === null ? "active" : ""}`}
-              onClick={() => setListCategoryId(null)}
+              onClick={() => {
+                setListCategoryId(null);
+                setListTeamId(null);
+              }}
             >
               {t("allCategories")}
             </button>
@@ -736,7 +1037,10 @@ export function RegistrationsPage() {
                 key={c.id}
                 type="button"
                 className={`chip ${listCategoryId === c.id ? "active" : ""}`}
-                onClick={() => setListCategoryId(c.id)}
+                onClick={() => {
+                  setListCategoryId(c.id);
+                  setListTeamId(null);
+                }}
               >
                 {c.code}
                 <small>
@@ -746,9 +1050,34 @@ export function RegistrationsPage() {
             ))}
           </div>
         </div>
+        {listTeams.length > 0 && (
+          <div className="cat-chips">
+            <strong>Sous-groupe</strong>
+            <div className="chips">
+              <button
+                type="button"
+                className={`chip ${listTeamId === null ? "active" : ""}`}
+                onClick={() => setListTeamId(null)}
+              >
+                Tous les groupes
+              </button>
+              {listTeams.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`chip ${listTeamId === t.id ? "active" : ""}`}
+                  onClick={() => setListTeamId(t.id)}
+                >
+                  {t.code || t.name}
+                  <small>{t.name}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {(loading || listLoading) && <p className="muted">{t("loading")}</p>}
-        {!loading && !listLoading && !regs.length && !error && <p className="muted">{t("empty")}</p>}
-        {error && !regs.length && (
+        {!loading && !listLoading && !displayedRegs.length && !error && <p className="muted">{t("empty")}</p>}
+        {error && !displayedRegs.length && (
           <p style={{ color: "var(--danger, #dc2626)" }}>
             {error}{" "}
             <button type="button" onClick={() => loadRegs()}>
@@ -760,10 +1089,12 @@ export function RegistrationsPage() {
           <thead>
             <tr>
               <SortHeader label="N°" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader label="Kit" sortKey="kit" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Réf." sortKey="reference" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th>Photo</th>
               <SortHeader label="Athlète" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Cat." sortKey="category" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <th>Équip.</th>
               <th>Parent</th>
               <SortHeader label={t("status")} sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={onSort} />
@@ -771,9 +1102,12 @@ export function RegistrationsPage() {
             </tr>
           </thead>
           <tbody>
-            {regs.map((r) => (
+            {displayedRegs.map((r) => (
               <tr key={r.id}>
                 <td className="ltr">{r.seq_no ?? "—"}</td>
+                <td className="ltr" style={{ fontWeight: 700 }}>
+                  {r.kit_number ?? "—"}
+                </td>
                 <td className="ltr" style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.9em" }}>
                   {r.reference || "—"}
                 </td>
@@ -794,7 +1128,17 @@ export function RegistrationsPage() {
                   )}
                 </td>
                 <td>{r.athlete_name || `#${r.athlete_id}`}</td>
-                <td>{r.category_code || "—"}</td>
+                <td>
+                  {r.category_code || "—"}
+                  {r.team_code && (
+                    <small className="muted" style={{ display: "block" }}>
+                      {r.team_code}
+                    </small>
+                  )}
+                </td>
+                <td style={{ whiteSpace: "nowrap", fontSize: "0.85em" }}>
+                  {r.has_jersey ? "Maillot✓" : "Maillot—"} · {r.has_backpack ? "Sac✓" : "Sac—"}
+                </td>
                 <td>
                   <PhoneCell phone={r.parent_phone} />
                 </td>
@@ -807,6 +1151,11 @@ export function RegistrationsPage() {
                     <button type="button" className="secondary" onClick={() => openEdit(r)}>
                       {t("edit")}
                     </button>
+                    {(!r.has_jersey || !r.has_backpack) && r.status !== "archived" && (
+                      <button type="button" className="accent" onClick={() => void deliverKit(r)}>
+                        Remettre kit
+                      </button>
+                    )}
                     {r.status === "pending" && (
                       <button type="button" onClick={() => approve(r.id)}>
                         OK

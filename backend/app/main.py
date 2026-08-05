@@ -96,6 +96,17 @@ def _ensure_schema() -> None:
         "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false",
         "ALTER TABLE fee_installments ADD COLUMN IF NOT EXISTS seq_no INTEGER",
         "ALTER TABLE fee_installments ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
+        # Kit / équipement + stock typé
+        "ALTER TABLE registrations ADD COLUMN IF NOT EXISTS kit_number INTEGER",
+        "ALTER TABLE registrations ADD COLUMN IF NOT EXISTS has_jersey BOOLEAN DEFAULT false",
+        "ALTER TABLE registrations ADD COLUMN IF NOT EXISTS has_backpack BOOLEAN DEFAULT false",
+        "ALTER TABLE registrations ADD COLUMN IF NOT EXISTS kit_size VARCHAR(20)",
+        "ALTER TABLE registrations ADD COLUMN IF NOT EXISTS team_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_registrations_team_id ON registrations (team_id)",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS item_kind VARCHAR(40) DEFAULT 'other'",
+        "ALTER TABLE inventory_assignments ADD COLUMN IF NOT EXISTS season_id INTEGER",
+        "ALTER TABLE inventory_assignments ADD COLUMN IF NOT EXISTS notes TEXT",
+        "CREATE INDEX IF NOT EXISTS ix_registrations_kit_number ON registrations (kit_number)",
         "CREATE INDEX IF NOT EXISTS ix_registrations_seq_no ON registrations (seq_no)",
         "CREATE INDEX IF NOT EXISTS ix_registrations_reference ON registrations (reference)",
         "CREATE INDEX IF NOT EXISTS ix_payments_reference ON payments (reference)",
@@ -196,7 +207,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.14.0",
+    version="1.15.0",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,

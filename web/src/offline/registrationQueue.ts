@@ -7,6 +7,7 @@ const STORE = "pending_regs";
 export type RegPayload = {
   season_id: number;
   category_id: number | null;
+  team_id?: number | null;
   subscription_fee: number;
   source: string;
   parent_phone: string;

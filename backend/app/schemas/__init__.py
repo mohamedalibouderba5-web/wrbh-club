@@ -189,6 +189,8 @@ class AthleteOut(ORMModel):
     parent_phone: Optional[str] = None
     category_id: Optional[int] = None
     category_code: Optional[str] = None
+    last_payment_on: Optional[date] = None
+    last_payment_amount: Optional[Decimal] = None
 
 
 class RegistrationCreate(BaseModel):
@@ -205,12 +207,18 @@ class RegistrationCreate(BaseModel):
     emergency_phone: Optional[str] = None
     photo_path: Optional[str] = None
     parent_password: Optional[str] = None
+    kit_number: Optional[int] = None
+    has_jersey: bool = False
+    has_backpack: bool = False
+    kit_size: Optional[str] = None
+    team_id: Optional[int] = None
 
 
 class RegistrationUpdate(BaseModel):
     """Modification d'un dossier d'inscription + champs athlète liés."""
 
     category_id: Optional[int] = None
+    team_id: Optional[int] = None
     subscription_fee: Optional[Decimal] = None
     notes: Optional[str] = None
     registered_on: Optional[date] = None
@@ -222,6 +230,10 @@ class RegistrationUpdate(BaseModel):
     blood_type: Optional[str] = None
     parent_phone: Optional[str] = None
     parent_name: Optional[str] = None
+    kit_number: Optional[int] = None
+    has_jersey: Optional[bool] = None
+    has_backpack: Optional[bool] = None
+    kit_size: Optional[str] = None
 
 
 class RegistrationOut(ORMModel):
@@ -229,6 +241,9 @@ class RegistrationOut(ORMModel):
     athlete_id: int
     season_id: int
     category_id: Optional[int]
+    team_id: Optional[int] = None
+    team_code: Optional[str] = None
+    team_name: Optional[str] = None
     registered_on: Optional[date]
     status: str
     source: str
@@ -236,6 +251,10 @@ class RegistrationOut(ORMModel):
     notes: Optional[str] = None
     seq_no: Optional[int] = None
     reference: Optional[str] = None
+    kit_number: Optional[int] = None
+    has_jersey: bool = False
+    has_backpack: bool = False
+    kit_size: Optional[str] = None
     athlete_name: Optional[str] = None
     athlete_photo: Optional[str] = None
     birth_date: Optional[date] = None
@@ -245,6 +264,8 @@ class RegistrationOut(ORMModel):
     parent_phone: Optional[str] = None
     parent_temp_password: Optional[str] = None
     parent_created: Optional[bool] = None
+    last_payment_on: Optional[date] = None
+    last_payment_amount: Optional[Decimal] = None
 
 
 class EventCreate(BaseModel):
@@ -417,6 +438,7 @@ class EquipmentPurchaseCreate(BaseModel):
     location: Optional[str] = None
     notes: Optional[str] = None
     entry_date: Optional[date] = None
+    item_kind: str = "other"  # jersey | shorts | boots | backpack | other
 
 
 class LedgerCreate(BaseModel):
@@ -494,6 +516,7 @@ class InventoryItemCreate(BaseModel):
     alert_threshold: int = 2
     location: Optional[str] = None
     notes: Optional[str] = None
+    item_kind: str = "other"  # jersey | shorts | boots | backpack | other
 
 
 class InventoryItemUpdate(BaseModel):
@@ -503,6 +526,7 @@ class InventoryItemUpdate(BaseModel):
     alert_threshold: Optional[int] = None
     location: Optional[str] = None
     notes: Optional[str] = None
+    item_kind: Optional[str] = None
 
 
 class InventoryItemOut(ORMModel):
@@ -513,6 +537,7 @@ class InventoryItemOut(ORMModel):
     alert_threshold: int
     location: Optional[str]
     notes: Optional[str] = None
+    item_kind: str = "other"
 
 
 class InventoryAssignmentUpdate(BaseModel):

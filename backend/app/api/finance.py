@@ -47,6 +47,7 @@ from app.services.audit import write_audit
 from app.services.fast_cache import cache_delete_prefix, cache_get, cache_set
 from app.services.fees import (
     DEFAULT_SETTINGS,
+    apply_settings_to_open_installments,
     ensure_default_settings,
     ensure_insurance_installment,
     ensure_monthly_installment,
@@ -147,8 +148,9 @@ def _ledger_income_for_payment(
 def get_finance_settings(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    fees = get_fee_settings(db)
+    fees = get_fee_settings(db, club_id=club_id)
     return ClubFeeSettingsOut(
         monthly_subscription_dzd=fees["monthly_subscription_dzd"],
         annual_insurance_dzd=fees["annual_insurance_dzd"],
@@ -160,10 +162,10 @@ def get_finance_settings(
 def update_finance_settings(
     payload: ClubFeeSettingsUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
     club_id: int = Depends(get_current_club_id),
 ):
-    ensure_default_settings(db)
+    ensure_default_settings(db, club_id=club_id)
     mapping = {
         "monthly_subscription_dzd": payload.monthly_subscription_dzd,
         "annual_insurance_dzd": payload.annual_insurance_dzd,
@@ -192,9 +194,24 @@ def update_finance_settings(
                     label_ar=meta[2],
                 )
             )
+    fees = get_fee_settings(db, club_id=club_id)
+    # Relecture forcée après écriture (évite cache mémoire stale)
+    for key, val in mapping.items():
+        if val is not None:
+            fees[key] = val
+    synced = apply_settings_to_open_installments(db, club_id=club_id, fees=fees)
+    write_audit(
+        db,
+        action="update",
+        entity="fee_settings",
+        entity_id=club_id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"insurance={fees['annual_insurance_dzd']} monthly={fees['monthly_subscription_dzd']} synced={synced}",
+    )
     db.commit()
     cache_delete_prefix("finance:")
-    fees = get_fee_settings(db)
+    cache_delete_prefix("bootstrap:")
     return ClubFeeSettingsOut(
         monthly_subscription_dzd=fees["monthly_subscription_dzd"],
         annual_insurance_dzd=fees["annual_insurance_dzd"],
@@ -286,6 +303,40 @@ def update_installment(
     return _installment_out(inst, names)
 
 
+@router.delete("/installments/{installment_id}")
+def delete_installment(
+    installment_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Supprime une échéance (admin/direction). Les paiements liés restent en historique."""
+    inst = db.get(FeeInstallment, installment_id)
+    if not inst:
+        raise HTTPException(404, "Échéance introuvable")
+    assert_same_club(inst, club_id)
+    # Détacher les paiements pour garder l'historique encaissements
+    for pay in db.query(Payment).filter(Payment.installment_id == installment_id).all():
+        pay.installment_id = None
+    label = inst.label
+    db.delete(inst)
+    from app.services.audit import write_audit
+
+    write_audit(
+        db,
+        action="delete",
+        entity="fee_installment",
+        entity_id=installment_id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=label,
+        commit=True,
+    )
+    cache_delete_prefix("finance:")
+    cache_delete_prefix("bootstrap:")
+    return {"deleted": installment_id}
+
+
 @router.post("/payments")
 def create_payment(
     payload: PaymentCreate,
@@ -352,7 +403,7 @@ def create_quick_payment(
     if not season_id:
         raise HTTPException(400, "Aucune saison courante")
 
-    fees = get_fee_settings(db)
+    fees = get_fee_settings(db, club_id=club_id)
     paid_on = payload.paid_on or date.today()
     ptype = (payload.payment_type or "").strip().lower()
     installment: FeeInstallment | None = None
@@ -526,20 +577,17 @@ def create_quick_payment(
 
 @router.get("/payments/recent")
 def list_recent_payments(
+    athlete_id: int | None = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(40, ge=1, le=200),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
     club_id: int = Depends(get_current_club_id),
 ):
-    rows = (
-        db.query(Payment)
-        .filter(or_(Payment.club_id == club_id, Payment.club_id.is_(None)))
-        .order_by(Payment.id.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    q = db.query(Payment).filter(or_(Payment.club_id == club_id, Payment.club_id.is_(None)))
+    if athlete_id:
+        q = q.filter(Payment.athlete_id == athlete_id)
+    rows = q.order_by(Payment.id.desc()).offset(skip).limit(limit).all()
     names = _athlete_names(db, [r.athlete_id for r in rows])
     return [
         {
@@ -742,6 +790,47 @@ def update_payment(
     }
 
 
+@router.delete("/payments/{payment_id}")
+def delete_payment(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Supprime un paiement et retire le montant de l'échéance liée."""
+    payment = db.get(Payment, payment_id)
+    if not payment:
+        raise HTTPException(404, "Paiement introuvable")
+    assert_same_club(payment, club_id)
+    if payment.installment_id:
+        inst = db.get(FeeInstallment, payment.installment_id)
+        if inst:
+            inst.amount_paid = Decimal(str(inst.amount_paid or 0)) - Decimal(str(payment.amount))
+            if inst.amount_paid < 0:
+                inst.amount_paid = Decimal("0")
+            if inst.amount_paid <= 0:
+                inst.status = "due"
+            elif inst.amount_paid < inst.amount:
+                inst.status = "partial"
+            else:
+                inst.status = "paid"
+    detail = f"athlete={payment.athlete_id} amount={payment.amount}"
+    db.delete(payment)
+    write_audit(
+        db,
+        action="delete",
+        entity="payment",
+        entity_id=payment_id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=detail,
+    )
+    db.commit()
+    cache_delete_prefix("finance:")
+    cache_delete_prefix("bootstrap:")
+    return {"deleted": payment_id}
+
+
 @router.get("/dashboard")
 def finance_dashboard(
     db: Session = Depends(get_db),
@@ -776,7 +865,7 @@ def finance_dashboard(
         .scalar()
         or 0
     )
-    fees = get_fee_settings(db)
+    fees = get_fee_settings(db, club_id=club_id)
     payload = {
         "currency": "DZD",
         "cotisations_due": float(due or 0),
@@ -891,6 +980,43 @@ def update_item(
     return item
 
 
+@inv_router.delete("/items/{item_id}")
+def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    item = db.get(InventoryItem, item_id)
+    if not item:
+        raise HTTPException(404, "Article introuvable")
+    assert_same_club(item, club_id)
+    open_asg = (
+        db.query(InventoryAssignment)
+        .filter(InventoryAssignment.item_id == item_id, InventoryAssignment.status == "out")
+        .count()
+    )
+    if open_asg:
+        raise HTTPException(
+            400,
+            f"{open_asg} attribution(s) encore sorties — retournez-les avant de supprimer l'article.",
+        )
+    name = item.name
+    db.delete(item)
+    write_audit(
+        db,
+        action="delete",
+        entity="inventory_item",
+        entity_id=item_id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=name,
+    )
+    db.commit()
+    cache_delete_prefix("inventory:")
+    return {"deleted": item_id}
+
+
 @inv_router.get("/alerts")
 def inventory_alerts(
     db: Session = Depends(get_db),
@@ -962,11 +1088,14 @@ def list_assignments(
             "id": r.id,
             "item_id": r.item_id,
             "item_name": items[r.item_id].name if r.item_id in items else None,
+            "item_kind": getattr(items[r.item_id], "item_kind", None) if r.item_id in items else None,
             "athlete_id": r.athlete_id,
             "athlete_name": names.get(r.athlete_id) if r.athlete_id else None,
             "quantity": r.quantity,
             "assigned_on": r.assigned_on.isoformat() if r.assigned_on else None,
             "status": r.status,
+            "season_id": getattr(r, "season_id", None),
+            "notes": getattr(r, "notes", None),
         }
         for r in rows
     ]
@@ -1044,6 +1173,36 @@ def update_assignment(
     }
 
 
+@inv_router.delete("/assignments/{assignment_id}")
+def delete_assignment(
+    assignment_id: int,
+    restock: bool = Query(True),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    asg = db.get(InventoryAssignment, assignment_id)
+    if not asg:
+        raise HTTPException(404, "Attribution introuvable")
+    assert_same_club(asg, club_id)
+    item = db.get(InventoryItem, asg.item_id)
+    if restock and asg.status == "out" and item:
+        item.quantity += asg.quantity
+    write_audit(
+        db,
+        action="delete",
+        entity="inventory_assignment",
+        entity_id=asg.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"item={asg.item_id} athlete={asg.athlete_id}",
+    )
+    db.delete(asg)
+    db.commit()
+    cache_delete_prefix("inventory:")
+    return {"deleted": assignment_id}
+
+
 @inv_router.post("/purchase")
 def purchase_equipment(
     payload: EquipmentPurchaseCreate,
@@ -1064,6 +1223,8 @@ def purchase_equipment(
     )
     if item:
         item.quantity += payload.quantity
+        if payload.item_kind and payload.item_kind != "other":
+            item.item_kind = payload.item_kind
     else:
         item = InventoryItem(
             club_id=club_id,
@@ -1072,6 +1233,7 @@ def purchase_equipment(
             alert_threshold=2,
             location=payload.location,
             notes=payload.notes,
+            item_kind=payload.item_kind or "other",
         )
         db.add(item)
         db.flush()

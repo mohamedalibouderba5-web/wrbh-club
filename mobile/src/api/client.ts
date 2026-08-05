@@ -82,6 +82,26 @@ export async function login(username: string, password: string) {
   return data;
 }
 
+export async function uploadPhoto(file: { uri: string; name: string; type: string }, athleteId?: number) {
+  const token = await getToken();
+  const fd = new FormData();
+  // React Native FormData file shape
+  fd.append("file", { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
+  const qs = athleteId ? `?athlete_id=${athleteId}` : "";
+  const res = await fetchWithTimeout(`${API_BASE}/api/v1/uploads/photo${qs}`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: fd,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(typeof err.detail === "string" ? err.detail : "Upload photo échoué");
+  }
+  return (await res.json()) as { path: string; url: string };
+}
+
 export async function logout() {
   await AsyncStorage.multiRemove(["wrbh_token", "wrbh_role", "wrbh_name", "wrbh_must_pwd"]);
 }

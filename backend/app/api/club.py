@@ -23,6 +23,8 @@ from app.models import (
     EmergencyContact,
     Event,
     FeeInstallment,
+    InventoryAssignment,
+    InventoryItem,
     Notification,
     ParentChild,
     Payment,
@@ -91,6 +93,117 @@ def list_seasons(db: Session = Depends(get_db), user: User = Depends(get_current
     out = [SeasonOut.model_validate(s) for s in rows]
     cache_set(key, out, 120)
     return out
+
+
+@router.post("/seasons/{season_id}/archive-roster")
+def archive_season_roster(
+    season_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Archive les joueurs d'une saison (ex. 2025/2026) : dossiers archivés + athlètes Abandonne
+    s'ils n'ont pas d'inscription active sur une autre saison (ex. courante)."""
+    season = db.get(Season, season_id)
+    if not season:
+        raise HTTPException(404, "Saison introuvable")
+    assert_same_club(season, club_id)
+
+    regs = (
+        db.query(Registration)
+        .filter(
+            Registration.season_id == season_id,
+            or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+            Registration.status != "archived",
+        )
+        .all()
+    )
+    athlete_ids = {r.athlete_id for r in regs}
+    archived_regs = 0
+    for reg in regs:
+        reg.status = "archived"
+        from app.services.references import release_registration_identity
+
+        release_registration_identity(reg)  # libère n° inscription + kit
+        archived_regs += 1
+
+    current = db.query(Season).filter(Season.is_current.is_(True)).first()
+    archived_athletes = 0
+    for aid in athlete_ids:
+        athlete = db.get(Athlete, aid)
+        if not athlete:
+            continue
+        keep_active = False
+        if current and current.id != season_id:
+            other = (
+                db.query(Registration.id)
+                .filter(
+                    Registration.athlete_id == aid,
+                    Registration.season_id == current.id,
+                    Registration.status != "archived",
+                )
+                .first()
+            )
+            if other:
+                keep_active = True
+        if keep_active:
+            continue
+        if athlete.status not in _ARCHIVED_ATHLETE_STATUSES:
+            athlete.status = "Abandonne"
+            note = f"Archivé saison {season.name}"
+            if athlete.notes and note not in athlete.notes:
+                athlete.notes = f"{athlete.notes}\n{note}".strip()
+            elif not athlete.notes:
+                athlete.notes = note
+            archived_athletes += 1
+
+    # Archive caisse / dépenses / recettes de la saison (soft)
+    from app.models import LedgerEntry
+
+    ledger_q = db.query(LedgerEntry).filter(
+        or_(LedgerEntry.club_id == club_id, LedgerEntry.club_id.is_(None)),
+        or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)),
+    )
+    # season_id sur ledger si présent
+    if hasattr(LedgerEntry, "season_id"):
+        ledger_rows = ledger_q.filter(LedgerEntry.season_id == season_id).all()
+    else:
+        ledger_rows = []
+    archived_ledger = 0
+    for entry in ledger_rows:
+        entry.is_archived = True
+        archived_ledger += 1
+
+    # Désactive la saison archivée (n'est plus courante)
+    if season.is_current and current and current.id == season_id:
+        pass  # ne pas laisser le club sans saison courante
+    elif not season.is_current:
+        season.registration_open = False
+
+    write_audit(
+        db,
+        action="archive_roster",
+        entity="season",
+        entity_id=season_id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=(
+            f"season={season.name} regs={archived_regs} athletes={archived_athletes} "
+            f"ledger={archived_ledger}"
+        ),
+    )
+    db.commit()
+    _bust_club_caches()
+    cache_delete_prefix("finance:")
+    return {
+        "ok": True,
+        "season_id": season_id,
+        "season": season.name,
+        "archived_registrations": archived_regs,
+        "archived_athletes": archived_athletes,
+        "archived_ledger": archived_ledger,
+        "message": "Saison archivée — réinscription possible via reprise archive",
+    }
 
 
 @router.get("/categories", response_model=list[CategoryOut])
@@ -633,6 +746,97 @@ def _find_duplicate_athlete(db: Session, full_name: str | None, birth_date) -> A
     return None
 
 
+_ARCHIVED_ATHLETE_STATUSES = {"Abandonne", "Left", "Inactif"}
+
+
+def _next_kit_number(
+    db: Session,
+    *,
+    season_id: int,
+    category_id: int,
+    club_id: int | None = None,
+    exclude_reg_id: int | None = None,
+) -> int:
+    """Plus petit n° maillot/sac libre (réutilise les trous après archive/suppression)."""
+    q = db.query(Registration.kit_number).filter(
+        Registration.season_id == season_id,
+        Registration.category_id == category_id,
+        Registration.status != "archived",
+        Registration.kit_number.isnot(None),
+    )
+    if club_id is not None:
+        q = q.filter(or_(Registration.club_id == club_id, Registration.club_id.is_(None)))
+    if exclude_reg_id:
+        q = q.filter(Registration.id != exclude_reg_id)
+    used = {int(n) for (n,) in q.all() if n is not None and int(n) > 0}
+    n = 1
+    while n in used:
+        n += 1
+    return n
+
+
+def _kit_number_taken(
+    db: Session,
+    *,
+    season_id: int,
+    category_id: int,
+    kit_number: int,
+    exclude_reg_id: int | None = None,
+    club_id: int | None = None,
+) -> bool:
+    q = db.query(Registration.id).filter(
+        Registration.season_id == season_id,
+        Registration.category_id == category_id,
+        Registration.kit_number == kit_number,
+        Registration.status != "archived",
+    )
+    if club_id is not None:
+        q = q.filter(or_(Registration.club_id == club_id, Registration.club_id.is_(None)))
+    if exclude_reg_id:
+        q = q.filter(Registration.id != exclude_reg_id)
+    return q.first() is not None
+
+
+def _sync_membership_jersey(
+    db: Session,
+    *,
+    athlete_id: int,
+    season_id: int,
+    category_id: int | None,
+    kit_number: int | None,
+    club_id: int | None = None,
+    team_id: int | None = None,
+) -> None:
+    if kit_number is None:
+        return
+    team = db.get(Team, team_id) if team_id else None
+    if not team and category_id:
+        team = db.query(Team).filter(Team.category_id == category_id).order_by(Team.code.asc()).first()
+    if not team:
+        return
+    membership = (
+        db.query(TeamMembership)
+        .filter(
+            TeamMembership.athlete_id == athlete_id,
+            TeamMembership.season_id == season_id,
+        )
+        .first()
+    )
+    if membership:
+        membership.jersey_number = kit_number
+        membership.team_id = team.id
+    else:
+        db.add(
+            TeamMembership(
+                club_id=club_id,
+                team_id=team.id,
+                athlete_id=athlete_id,
+                season_id=season_id,
+                jersey_number=kit_number,
+            )
+        )
+
+
 def _athlete_parent_phone(db: Session, athlete_id: int) -> str | None:
     link = db.query(ParentChild).filter(ParentChild.athlete_id == athlete_id).first()
     if not link:
@@ -760,8 +964,13 @@ def list_athletes(
     if user.role == Role.PARENT:
         ids = _parent_athlete_ids(db, user)
         query = query.filter(Athlete.id.in_(ids or {-1}))
-    if status:
+    if status == "all":
+        pass  # tous statuts y compris archives
+    elif status:
         query = query.filter(Athlete.status == status)
+    else:
+        # Par défaut : actifs uniquement — archives (Abandonne…) via filtre statut
+        query = query.filter(~Athlete.status.in_(list(_ARCHIVED_ATHLETE_STATUSES)))
     if q:
         query = query.filter(Athlete.full_name.ilike(f"%{q}%"))
     if category_id:
@@ -793,9 +1002,29 @@ def list_athletes(
     query = query.order_by(order_expr, Athlete.id.desc())
 
     rows = query.offset(skip).limit(limit).all()
+    athlete_ids = [a.id for a, _ in rows]
+    last_pay: dict[int, tuple] = {}
+    if athlete_ids:
+        pay_rows = (
+            db.query(Payment.athlete_id, func.max(Payment.paid_on), func.max(Payment.id))
+            .filter(Payment.athlete_id.in_(athlete_ids))
+            .group_by(Payment.athlete_id)
+            .all()
+        )
+        # Récupérer le montant du dernier paiement (par id max du jour max)
+        for aid, paid_on, _pid in pay_rows:
+            last = (
+                db.query(Payment)
+                .filter(Payment.athlete_id == aid, Payment.paid_on == paid_on)
+                .order_by(Payment.id.desc())
+                .first()
+            )
+            if last:
+                last_pay[aid] = (last.paid_on, last.amount)
     out: list[AthleteOut] = []
     for athlete, phone in rows:
         cid, ccode = _cat_for_birth(cats, athlete.birth_date)
+        lp = last_pay.get(athlete.id)
         out.append(
             AthleteOut(
                 id=athlete.id,
@@ -812,6 +1041,8 @@ def list_athletes(
                 parent_phone=phone,
                 category_id=cid,
                 category_code=ccode,
+                last_payment_on=lp[0] if lp else None,
+                last_payment_amount=lp[1] if lp else None,
             )
         )
     cache_set(cache_key, out, 30)
@@ -878,6 +1109,54 @@ def create_athlete(
     db.refresh(athlete)
     _bust_club_caches()
     return _to_athlete_out(db, athlete)
+
+
+@athletes_router.get("/archive-lookup")
+def archive_lookup(
+    full_name: str = Query(..., min_length=2),
+    birth_date: date = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Propose la reprise d'un joueur déjà en archive (même nom + date de naissance).
+    Les infos identité sont renvoyées ; téléphone parent et catégorie restent à saisir manuellement."""
+    athlete = _find_duplicate_athlete(db, full_name, birth_date)
+    if not athlete:
+        return {"found": False}
+    assert_same_club(athlete, club_id)
+    if user.role == Role.PARENT and athlete.id not in _parent_athlete_ids(db, user):
+        # Parent : seulement si déjà lié, sinon on laisse créer (pas d'info archive)
+        link = db.query(ParentChild).filter_by(parent_id=user.id, athlete_id=athlete.id).first()
+        if not link and athlete.status not in _ARCHIVED_ATHLETE_STATUSES:
+            return {"found": False}
+    last_reg = (
+        db.query(Registration)
+        .filter(
+            Registration.athlete_id == athlete.id,
+            or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+        )
+        .order_by(Registration.id.desc())
+        .first()
+    )
+    last_cat = db.get(Category, last_reg.category_id) if last_reg and last_reg.category_id else None
+    return {
+        "found": True,
+        "from_archive": athlete.status in _ARCHIVED_ATHLETE_STATUSES,
+        "athlete": {
+            "id": athlete.id,
+            "full_name": athlete.full_name,
+            "birth_date": athlete.birth_date.isoformat() if athlete.birth_date else None,
+            "birth_place": athlete.birth_place,
+            "blood_type": getattr(athlete, "blood_type", None),
+            "photo_path": enrich_media_path(athlete.photo_path),
+            "status": athlete.status,
+            # Hint seulement — UI ne doit PAS préremplir le téléphone (saisie manuelle)
+            "previous_parent_phone_hint": _athlete_parent_phone(db, athlete.id),
+            "previous_category_code": last_cat.code if last_cat else None,
+            "previous_season_id": last_reg.season_id if last_reg else None,
+        },
+    }
 
 
 @athletes_router.get("/{athlete_id}", response_model=AthleteOut)
@@ -1173,14 +1452,19 @@ def _reg_out_from_maps(
     categories: dict[int, Category],
     phones: dict[int, str | None],
     parent_meta: dict | None = None,
+    teams: dict[int, Team] | None = None,
 ) -> RegistrationOut:
     athlete = athletes.get(reg.athlete_id)
     cat = categories.get(reg.category_id) if reg.category_id else None
+    team = (teams or {}).get(reg.team_id) if getattr(reg, "team_id", None) else None
     return RegistrationOut(
         id=reg.id,
         athlete_id=reg.athlete_id,
         season_id=reg.season_id,
         category_id=reg.category_id,
+        team_id=getattr(reg, "team_id", None),
+        team_code=team.code if team else None,
+        team_name=team.name if team else None,
         registered_on=reg.registered_on,
         status=reg.status,
         source=reg.source,
@@ -1188,6 +1472,10 @@ def _reg_out_from_maps(
         notes=getattr(reg, "notes", None),
         seq_no=getattr(reg, "seq_no", None),
         reference=getattr(reg, "reference", None),
+        kit_number=getattr(reg, "kit_number", None),
+        has_jersey=bool(getattr(reg, "has_jersey", False)),
+        has_backpack=bool(getattr(reg, "has_backpack", False)),
+        kit_size=getattr(reg, "kit_size", None),
         athlete_name=athlete.full_name if athlete else None,
         athlete_photo=enrich_media_path(athlete.photo_path) if athlete else None,
         birth_date=athlete.birth_date if athlete else None,
@@ -1203,12 +1491,16 @@ def _reg_out_from_maps(
 def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) -> RegistrationOut:
     athlete = db.get(Athlete, reg.athlete_id)
     cat = db.get(Category, reg.category_id) if reg.category_id else None
+    team = db.get(Team, reg.team_id) if getattr(reg, "team_id", None) else None
     parent_phone = _athlete_parent_phone(db, reg.athlete_id)
     return RegistrationOut(
         id=reg.id,
         athlete_id=reg.athlete_id,
         season_id=reg.season_id,
         category_id=reg.category_id,
+        team_id=getattr(reg, "team_id", None),
+        team_code=team.code if team else None,
+        team_name=team.name if team else None,
         registered_on=reg.registered_on,
         status=reg.status,
         source=reg.source,
@@ -1216,6 +1508,10 @@ def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) ->
         notes=getattr(reg, "notes", None),
         seq_no=getattr(reg, "seq_no", None),
         reference=getattr(reg, "reference", None),
+        kit_number=getattr(reg, "kit_number", None),
+        has_jersey=bool(getattr(reg, "has_jersey", False)),
+        has_backpack=bool(getattr(reg, "has_backpack", False)),
+        kit_size=getattr(reg, "kit_size", None),
         athlete_name=athlete.full_name if athlete else None,
         athlete_photo=enrich_media_path(athlete.photo_path) if athlete else None,
         birth_date=athlete.birth_date if athlete else None,
@@ -1295,6 +1591,7 @@ def list_registrations(
             "status": Registration.status,
             "category": Registration.category_id,
             "number": Registration.seq_no,
+            "kit": Registration.kit_number,
             "reference": Registration.reference,
         }
         col = sort_cols.get(sort, Registration.id)
@@ -1309,14 +1606,39 @@ def list_registrations(
         return []
     athlete_ids = list({r.athlete_id for r in rows})
     cat_ids = list({r.category_id for r in rows if r.category_id})
+    team_ids = list({r.team_id for r in rows if getattr(r, "team_id", None)})
     athletes = {a.id: a for a in db.query(Athlete).filter(Athlete.id.in_(athlete_ids)).all()}
     categories = (
         {c.id: c for c in db.query(Category).filter(Category.id.in_(cat_ids)).all()} if cat_ids else {}
     )
+    teams = {t.id: t for t in db.query(Team).filter(Team.id.in_(team_ids)).all()} if team_ids else {}
     phones = _bulk_parent_phones(db, athlete_ids)
-    out = [_reg_out_from_maps(r, athletes, categories, phones) for r in rows]
+    out = [_reg_out_from_maps(r, athletes, categories, phones, teams=teams) for r in rows]
     cache_set(cache_key, out, 25)
     return out
+
+
+@reg_router.get("/next-kit-number")
+def next_kit_number(
+    season_id: int = Query(...),
+    category_id: int = Query(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Prochain n° maillot/sac pour la catégorie (à imprimer sur équipement + sac)."""
+    cat = db.get(Category, category_id)
+    if not cat:
+        raise HTTPException(404, "Catégorie introuvable")
+    if cat.season_id != season_id:
+        raise HTTPException(400, "Catégorie hors saison")
+    n = _next_kit_number(db, season_id=season_id, category_id=category_id, club_id=club_id)
+    return {
+        "season_id": season_id,
+        "category_id": category_id,
+        "category_code": cat.code,
+        "next_kit_number": n,
+    }
 
 
 @reg_router.post("", response_model=RegistrationOut)
@@ -1380,6 +1702,12 @@ def create_registration(
                 parent_id=user.id, athlete_id=existing_dup.id
             ).first():
                 db.add(ParentChild(club_id=club_id, parent_id=user.id, athlete_id=existing_dup.id))
+        elif athlete_id:
+            # Réinscription explicite (archive) : ne pas créer un second dossier joueur
+            existing = db.get(Athlete, athlete_id)
+            if not existing:
+                raise HTTPException(400, "Athlète archive introuvable")
+            birth = existing.birth_date or payload.athlete.birth_date
         else:
             athlete_data = payload.athlete.model_dump(exclude={"parent_phone", "parent_name"})
             if payload.photo_path:
@@ -1400,6 +1728,9 @@ def create_registration(
     if not athlete:
         raise HTTPException(400, "Athlète introuvable")
     birth = birth or athlete.birth_date
+    # Réinscription depuis archive → réactiver le joueur
+    if athlete.status in _ARCHIVED_ATHLETE_STATUSES:
+        athlete.status = "Active"
 
     try:
         validate_club_age(birth, required=True)
@@ -1488,15 +1819,58 @@ def create_registration(
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    # N° équipement (maillot + sac) — auto si non fourni (plus petit libre)
+    kit_number = payload.kit_number
+    if kit_number is None and category_id:
+        kit_number = _next_kit_number(
+            db, season_id=payload.season_id, category_id=category_id, club_id=club_id
+        )
+    elif kit_number is not None and category_id:
+        if kit_number < 1:
+            raise HTTPException(400, "Numéro d'équipement invalide")
+        if _kit_number_taken(
+            db,
+            season_id=payload.season_id,
+            category_id=category_id,
+            kit_number=kit_number,
+            club_id=club_id,
+        ):
+            raise HTTPException(
+                409,
+                f"Le numéro {kit_number} est déjà pris dans cette catégorie pour la saison.",
+            )
+
+    team_id = payload.team_id
+    if team_id:
+        team_obj = db.get(Team, team_id)
+        if not team_obj:
+            raise HTTPException(400, "Groupe / équipe introuvable")
+        if category_id and team_obj.category_id != category_id:
+            raise HTTPException(400, "Groupe hors catégorie sélectionnée")
+    elif category_id:
+        # Auto : Groupe 1 si un seul choix ou G1 par défaut
+        team_obj = (
+            db.query(Team)
+            .filter(Team.category_id == category_id)
+            .order_by(Team.code.asc())
+            .first()
+        )
+        team_id = team_obj.id if team_obj else None
+
     reg = Registration(
         club_id=club_id,
         athlete_id=athlete_id,
         season_id=payload.season_id,
         category_id=category_id,
+        team_id=team_id,
         registered_on=payload.registered_on or date.today(),
         status="pending" if user.role == Role.PARENT else "approved",
         source=payload.source or ("mobile" if user.role == Role.PARENT else "web"),
         subscription_fee=payload.subscription_fee,
+        kit_number=kit_number,
+        has_jersey=bool(payload.has_jersey),
+        has_backpack=bool(payload.has_backpack),
+        kit_size=payload.kit_size,
     )
     from app.services.references import assign_registration_identity
 
@@ -1511,7 +1885,7 @@ def create_registration(
     db.flush()
 
     if category_id and reg.status == "approved":
-        team = db.query(Team).filter(Team.category_id == category_id).first()
+        team = db.get(Team, team_id) if team_id else db.query(Team).filter(Team.category_id == category_id).first()
         if team and not db.query(TeamMembership).filter_by(
             team_id=team.id, athlete_id=athlete_id, season_id=payload.season_id
         ).first():
@@ -1521,7 +1895,17 @@ def create_registration(
                     team_id=team.id,
                     athlete_id=athlete_id,
                     season_id=payload.season_id,
+                    jersey_number=kit_number,
                 )
+            )
+        else:
+            _sync_membership_jersey(
+                db,
+                athlete_id=athlete_id,
+                season_id=payload.season_id,
+                category_id=category_id,
+                kit_number=kit_number,
+                club_id=club_id,
             )
         ensure_season_fee_bundle(db, reg)
 
@@ -1565,7 +1949,22 @@ def approve_registration(
             team_id=team.id, athlete_id=reg.athlete_id, season_id=reg.season_id
         ).first():
             db.add(
-                TeamMembership(team_id=team.id, athlete_id=reg.athlete_id, season_id=reg.season_id)
+                TeamMembership(
+                    club_id=club_id,
+                    team_id=team.id,
+                    athlete_id=reg.athlete_id,
+                    season_id=reg.season_id,
+                    jersey_number=getattr(reg, "kit_number", None),
+                )
+            )
+        else:
+            _sync_membership_jersey(
+                db,
+                athlete_id=reg.athlete_id,
+                season_id=reg.season_id,
+                category_id=reg.category_id,
+                kit_number=getattr(reg, "kit_number", None),
+                club_id=club_id,
             )
     ensure_season_fee_bundle(db, reg)
     if athlete:
@@ -1653,9 +2052,80 @@ def update_registration(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    for field in ("category_id", "subscription_fee", "notes", "registered_on", "status"):
+    for field in ("category_id", "subscription_fee", "notes", "registered_on", "status", "team_id"):
         if field in data:
             setattr(reg, field, data[field])
+
+    if "team_id" in data and data["team_id"]:
+        team_obj = db.get(Team, data["team_id"])
+        if not team_obj:
+            raise HTTPException(400, "Groupe introuvable")
+        if reg.category_id and team_obj.category_id != reg.category_id:
+            raise HTTPException(400, "Groupe hors catégorie")
+        # Déplacer membership
+        mem = (
+            db.query(TeamMembership)
+            .filter(
+                TeamMembership.athlete_id == athlete.id,
+                TeamMembership.season_id == reg.season_id,
+            )
+            .first()
+        )
+        if mem:
+            mem.team_id = team_obj.id
+        else:
+            db.add(
+                TeamMembership(
+                    club_id=club_id,
+                    team_id=team_obj.id,
+                    athlete_id=athlete.id,
+                    season_id=reg.season_id,
+                    jersey_number=reg.kit_number,
+                )
+            )
+
+    # Kit / équipement
+    cat_id_for_kit = reg.category_id
+    if "kit_number" in data or "category_id" in data:
+        kn = data.get("kit_number", reg.kit_number)
+        if kn is None and cat_id_for_kit:
+            kn = _next_kit_number(
+                db,
+                season_id=reg.season_id,
+                category_id=cat_id_for_kit,
+                club_id=club_id,
+                exclude_reg_id=reg.id,
+            )
+        if kn is not None:
+            if int(kn) < 1:
+                raise HTTPException(400, "Numéro d'équipement invalide")
+            if cat_id_for_kit and _kit_number_taken(
+                db,
+                season_id=reg.season_id,
+                category_id=cat_id_for_kit,
+                kit_number=int(kn),
+                exclude_reg_id=reg.id,
+                club_id=club_id,
+            ):
+                raise HTTPException(
+                    409,
+                    f"Le numéro {kn} est déjà pris dans cette catégorie pour la saison.",
+                )
+            reg.kit_number = int(kn)
+            _sync_membership_jersey(
+                db,
+                athlete_id=athlete.id,
+                season_id=reg.season_id,
+                category_id=cat_id_for_kit,
+                kit_number=reg.kit_number,
+                club_id=club_id,
+            )
+    if "has_jersey" in data:
+        reg.has_jersey = bool(data["has_jersey"])
+    if "has_backpack" in data:
+        reg.has_backpack = bool(data["has_backpack"])
+    if "kit_size" in data:
+        reg.kit_size = data["kit_size"]
 
     for field in ("full_name", "birth_date", "birth_place", "photo_path", "blood_type"):
         if field in data:
@@ -1710,7 +2180,15 @@ def delete_registration(
         athlete_name = athlete.full_name
     prev = reg.status
     reg.status = "archived"
-    detail = f"athlete={reg.athlete_id} name={athlete_name or '?'} ref={reg.reference or '-'} from={prev}"
+    freed_seq = reg.seq_no
+    freed = reg.kit_number
+    from app.services.references import release_registration_identity
+
+    release_registration_identity(reg)
+    detail = (
+        f"athlete={reg.athlete_id} name={athlete_name or '?'} "
+        f"from={prev} freed_kit={freed} freed_seq={freed_seq}"
+    )
     write_audit(
         db,
         action="delete",
@@ -1723,7 +2201,13 @@ def delete_registration(
     db.commit()
     db.refresh(reg)
     _bust_club_caches()
-    return {"deleted": reg_id, "soft": True, "status": "archived"}
+    return {
+        "deleted": reg_id,
+        "soft": True,
+        "status": "archived",
+        "freed_kit_number": freed,
+        "freed_seq_no": freed_seq,
+    }
 
 
 @reg_router.post("/{reg_id}/archive", response_model=RegistrationOut)
@@ -1740,6 +2224,11 @@ def archive_registration(
     assert_same_club(reg, club_id)
     prev = reg.status
     reg.status = "archived"
+    freed = reg.kit_number
+    freed_seq = reg.seq_no
+    from app.services.references import release_registration_identity
+
+    release_registration_identity(reg)
     write_audit(
         db,
         action="archive",
@@ -1747,7 +2236,7 @@ def archive_registration(
         entity_id=reg.id,
         user_id=user.id,
         club_id=club_id,
-        detail=f"from={prev} athlete={reg.athlete_id}",
+        detail=f"from={prev} athlete={reg.athlete_id} freed_kit={freed} freed_seq={freed_seq}",
     )
     db.commit()
     db.refresh(reg)
@@ -1770,6 +2259,11 @@ def restore_registration(
     if reg.status != "archived":
         raise HTTPException(400, "Seules les inscriptions archivées peuvent être restaurées")
     reg.status = "pending"
+    season = db.get(Season, reg.season_id)
+    category = db.get(Category, reg.category_id) if reg.category_id else None
+    from app.services.references import assign_registration_identity
+
+    assign_registration_identity(db, reg, club_id=club_id, season=season, category=category)
     write_audit(
         db,
         action="restore",
@@ -1777,10 +2271,141 @@ def restore_registration(
         entity_id=reg.id,
         user_id=user.id,
         club_id=club_id,
-        detail=f"athlete={reg.athlete_id}",
+        detail=f"athlete={reg.athlete_id} seq={reg.seq_no}",
     )
     db.commit()
     db.refresh(reg)
+    _bust_club_caches()
+    return _reg_out(db, reg)
+
+
+def _find_stock_item(db: Session, club_id: int, kind: str) -> InventoryItem | None:
+    """Trouve un article en stock par type (jersey/backpack) avec quantité > 0."""
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            or_(InventoryItem.club_id == club_id, InventoryItem.club_id.is_(None)),
+            InventoryItem.item_kind == kind,
+            InventoryItem.quantity > 0,
+        )
+        .order_by(InventoryItem.id.asc())
+        .first()
+    )
+    if item:
+        return item
+    # Fallback nom fr/ar
+    keywords = {
+        "jersey": ["maillot", "jersey", "tenue", "kit"],
+        "backpack": ["sac", "backpack", "cartable"],
+    }
+    for kw in keywords.get(kind, []):
+        item = (
+            db.query(InventoryItem)
+            .filter(
+                or_(InventoryItem.club_id == club_id, InventoryItem.club_id.is_(None)),
+                InventoryItem.quantity > 0,
+                func.lower(InventoryItem.name).like(f"%{kw}%"),
+            )
+            .first()
+        )
+        if item:
+            return item
+    return None
+
+
+@reg_router.post("/{reg_id}/deliver-kit", response_model=RegistrationOut)
+def deliver_kit(
+    reg_id: int,
+    give_jersey: bool = True,
+    give_backpack: bool = True,
+    kit_number: int | None = None,
+    kit_size: str | None = None,
+    jersey_item_id: int | None = None,
+    backpack_item_id: int | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Remet maillot et/ou sac au joueur : décrémente le stock, marque l'inscription,
+    synchronise le n° (imprimé maillot + sac)."""
+    reg = db.get(Registration, reg_id)
+    if not reg:
+        raise HTTPException(404, "Inscription introuvable")
+    assert_same_club(reg, club_id)
+
+    if kit_number is not None:
+        if kit_number < 1:
+            raise HTTPException(400, "Numéro d'équipement invalide")
+        if reg.category_id and _kit_number_taken(
+            db,
+            season_id=reg.season_id,
+            category_id=reg.category_id,
+            kit_number=kit_number,
+            exclude_reg_id=reg.id,
+            club_id=club_id,
+        ):
+            raise HTTPException(409, f"Le numéro {kit_number} est déjà pris dans cette catégorie.")
+        reg.kit_number = kit_number
+    elif reg.kit_number is None and reg.category_id:
+        reg.kit_number = _next_kit_number(
+            db, season_id=reg.season_id, category_id=reg.category_id, club_id=club_id
+        )
+    if kit_size is not None:
+        reg.kit_size = kit_size
+
+    def _assign(kind: str, item_id: int | None, already: bool) -> bool:
+        if already:
+            return True
+        item = db.get(InventoryItem, item_id) if item_id else _find_stock_item(db, club_id, kind)
+        if not item:
+            raise HTTPException(
+                400,
+                f"Stock insuffisant pour {'maillot' if kind == 'jersey' else 'sac'} — "
+                f"ajoutez un achat dans Matériel (type {kind}).",
+            )
+        assert_same_club(item, club_id)
+        if item.quantity < 1:
+            raise HTTPException(400, f"Stock épuisé : {item.name}")
+        item.quantity -= 1
+        db.add(
+            InventoryAssignment(
+                club_id=club_id,
+                item_id=item.id,
+                athlete_id=reg.athlete_id,
+                user_id=user.id,
+                quantity=1,
+                assigned_on=date.today(),
+                season_id=reg.season_id,
+                notes=f"kit#{reg.kit_number or '?'} {kind}",
+            )
+        )
+        return True
+
+    if give_jersey:
+        reg.has_jersey = _assign("jersey", jersey_item_id, bool(reg.has_jersey))
+    if give_backpack:
+        reg.has_backpack = _assign("backpack", backpack_item_id, bool(reg.has_backpack))
+
+    _sync_membership_jersey(
+        db,
+        athlete_id=reg.athlete_id,
+        season_id=reg.season_id,
+        category_id=reg.category_id,
+        kit_number=reg.kit_number,
+        club_id=club_id,
+    )
+    write_audit(
+        db,
+        action="deliver_kit",
+        entity="registration",
+        entity_id=reg.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"kit={reg.kit_number} jersey={reg.has_jersey} backpack={reg.has_backpack}",
+    )
+    db.commit()
+    db.refresh(reg)
+    cache_delete_prefix("inventory:")
     _bust_club_caches()
     return _reg_out(db, reg)
 

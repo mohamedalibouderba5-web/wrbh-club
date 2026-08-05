@@ -667,6 +667,30 @@ html[dir="rtl"] .field { text-align: right; }
 
 /* Photos */
 .photo-capture { display: grid; gap: 0.5rem; }
+.photo-cam-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(8, 16, 32, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.photo-cam-modal {
+  width: min(520px, 100%);
+  padding: 1rem;
+  border: 1px solid var(--border, #d7deee);
+  border-radius: 14px;
+  background: var(--card, #fff);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+.photo-cam-video {
+  width: 100%;
+  max-height: min(60vh, 420px);
+  border-radius: 10px;
+  background: #0b1220;
+  object-fit: cover;
+}
 .photo-preview, .photo-placeholder {
   width: 140px;
   height: 140px;

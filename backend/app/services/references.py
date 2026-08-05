@@ -1,7 +1,8 @@
-"""Numéros et références immuables (inscriptions, paiements, caisse).
+"""Numéros et références (inscriptions, paiements, caisse).
 
-Règle produit : une fois attribués, seq_no + reference ne changent JAMAIS
-(même si le joueur part, annule, ou change de statut).
+Inscriptions : seq_no réutilise les trous après archive/suppression
+(ex. supprimer n°10 → prochaine inscription reprend 10).
+Paiements / caisse / échéances : compteurs croissants (historique).
 """
 from __future__ import annotations
 
@@ -29,12 +30,37 @@ def season_short_code(season_name: str | None) -> str:
 
 
 def next_seq(db: Session, model, *, club_id: int | None, season_id: int | None = None) -> int:
+    """Compteur max+1 (paiements, caisse, échéances)."""
     q = db.query(func.coalesce(func.max(model.seq_no), 0))
     if club_id is not None and hasattr(model, "club_id"):
         q = q.filter((model.club_id == club_id) | (model.club_id.is_(None)))
     if season_id is not None and hasattr(model, "season_id"):
         q = q.filter(model.season_id == season_id)
     return int(q.scalar() or 0) + 1
+
+
+def next_registration_seq(db: Session, *, club_id: int | None, season_id: int | None) -> int:
+    """Plus petit n° d'inscription libre (dossiers actifs uniquement)."""
+    q = db.query(Registration.seq_no).filter(
+        Registration.seq_no.isnot(None),
+        Registration.status != "archived",
+    )
+    if club_id is not None:
+        q = q.filter((Registration.club_id == club_id) | (Registration.club_id.is_(None)))
+    if season_id is not None:
+        q = q.filter(Registration.season_id == season_id)
+    used = {int(n) for (n,) in q.all() if n is not None and int(n) > 0}
+    n = 1
+    while n in used:
+        n += 1
+    return n
+
+
+def release_registration_identity(reg: Registration) -> None:
+    """Libère seq_no / référence / n° équipement à l'archive — réutilisables."""
+    reg.seq_no = None
+    reg.reference = None
+    reg.kit_number = None
 
 
 def build_registration_reference(season_short: str, category_code: str | None, seq_no: int) -> str:
@@ -50,12 +76,12 @@ def assign_registration_identity(
     season: Season | None,
     category: Category | None,
 ) -> None:
-    """Attribue seq_no + reference une seule fois (immuable ensuite)."""
+    """Attribue seq_no + reference (réutilise les trous des archives)."""
     if getattr(reg, "seq_no", None) and getattr(reg, "reference", None):
         return
     season_id = reg.season_id
     if not getattr(reg, "seq_no", None):
-        reg.seq_no = next_seq(db, Registration, club_id=club_id, season_id=season_id)
+        reg.seq_no = next_registration_seq(db, club_id=club_id, season_id=season_id)
     if not getattr(reg, "reference", None):
         short = season_short_code(season.name if season else None)
         cat_code = category.code if category else None

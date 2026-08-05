@@ -11,8 +11,10 @@ import {
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api } from "../../src/api/client";
+import { PhotoPicker } from "../../src/components/PhotoPicker";
 import { useAuth } from "../../src/context/AuthContext";
 import { colors, fmtMoney, statusColor, statusLabel } from "../../src/theme";
+import { API_BASE } from "../../src/config";
 
 type Season = { id: number; name: string; is_current?: boolean; registration_open?: boolean };
 type Category = { id: number; code: string; season_id?: number };
@@ -39,6 +41,7 @@ const emptyForm = {
   category_id: 0,
   subscription_fee: "",
   status: "pending",
+  photo_path: "",
 };
 
 export default function RegistrationsScreen() {
@@ -109,6 +112,7 @@ export default function RegistrationsScreen() {
       category_id: r.category_id || 0,
       subscription_fee: r.subscription_fee != null ? String(r.subscription_fee) : "",
       status: r.status || "pending",
+      photo_path: "",
     });
     setShowForm(true);
     setMsg("");
@@ -182,6 +186,7 @@ export default function RegistrationsScreen() {
         };
         if (form.birth_date.trim()) body.birth_date = form.birth_date.trim();
         if (form.subscription_fee.trim() !== "") body.subscription_fee = Number(form.subscription_fee);
+        if (form.photo_path) body.photo_path = form.photo_path;
         await api(`/api/v1/registrations/${editId}`, {
           method: "PATCH",
           body: JSON.stringify(body),
@@ -195,11 +200,13 @@ export default function RegistrationsScreen() {
             category_id: form.category_id || null,
             parent_phone: form.parent_phone.trim() || null,
             parent_name: form.parent_name.trim() || null,
+            photo_path: form.photo_path || null,
             source: "mobile",
             athlete: {
               full_name: form.full_name.trim(),
               birth_date: form.birth_date.trim() || null,
               parent_phone: form.parent_phone.trim() || null,
+              photo_path: form.photo_path || null,
             },
           }),
         });
@@ -267,6 +274,10 @@ export default function RegistrationsScreen() {
       {showForm && (
         <View style={styles.card}>
           <Text style={styles.title}>{editId ? "Modifier l’inscription" : "Nouvelle inscription"}</Text>
+          <PhotoPicker
+            value={form.photo_path ? `${API_BASE}${form.photo_path}` : null}
+            onUploaded={(path) => setForm((f) => ({ ...f, photo_path: path }))}
+          />
           <Text style={styles.label}>Nom du joueur *</Text>
           <TextInput
             style={styles.input}

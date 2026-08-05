@@ -169,8 +169,22 @@ export async function api<T>(path: string, options: RequestInit = {}, retries?: 
   const retryCount = retries ?? (method === "GET" || method === "HEAD" ? 2 : 0);
   const data = await rawFetch<T>(path, options, retryCount);
   if (method !== "GET" && method !== "HEAD") {
+    if (path.includes("/finance/settings") || path.includes("/ledger") || path.includes("/payments") || path.includes("/installments")) {
+      invalidateApiCache("/finance/settings");
+      invalidateApiCache("/dashboard");
+      invalidateApiCache("/installments");
+      invalidateApiCache("/ledger");
+      invalidateApiCache("/payments");
+    }
     if (path.includes("/athletes")) invalidateApiCache("/athletes");
     if (path.includes("/registrations")) invalidateApiCache("/registrations");
+    if (path.includes("/inventory")) invalidateApiCache("/inventory");
+    if (path.includes("/events") || path.includes("/teams") || path.includes("/users") || path.includes("/coaches")) {
+      invalidateApiCache("/events");
+      invalidateApiCache("/teams");
+      invalidateApiCache("/coaches");
+      invalidateApiCache("/auth/users");
+    }
     if (path.includes("/stats") || path.includes("/athletes") || path.includes("/registrations")) {
       invalidateApiCache("/stats");
       invalidateApiCache("/bootstrap");
