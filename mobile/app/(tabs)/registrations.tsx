@@ -20,6 +20,7 @@ type Season = { id: number; name: string; is_current?: boolean; registration_ope
 type Category = { id: number; code: string; season_id?: number };
 type Reg = {
   id: number;
+  list_number?: number;
   athlete_id: number;
   athlete_name?: string;
   season_id: number;
@@ -27,6 +28,7 @@ type Reg = {
   category_code?: string;
   status: string;
   registered_on?: string;
+  created_at?: string;
   reference?: string;
   subscription_fee?: number;
   parent_phone?: string;
@@ -353,7 +355,14 @@ export default function RegistrationsScreen() {
             <Text style={[styles.badge, { color: statusColor(r.status) }]}>{statusLabel(r.status)}</Text>
           </View>
           <Text style={styles.line}>
-            {[r.category_code, r.reference, r.registered_on].filter(Boolean).join(" · ")}
+            {[
+              r.list_number ? `N° joueur ${r.list_number}` : undefined,
+              r.category_code,
+              r.reference,
+              r.created_at ? new Date(r.created_at).toLocaleString("fr-DZ") : r.registered_on,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </Text>
           {!!r.parent_phone && <Text style={styles.line}>Tél. {r.parent_phone}</Text>}
           {r.subscription_fee != null && <Text style={styles.line}>{fmtMoney(r.subscription_fee)}</Text>}

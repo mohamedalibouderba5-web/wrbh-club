@@ -29,6 +29,7 @@ type Category = {
 type Team = { id: number; category_id: number; name: string; code?: string; name_ar?: string };
 type Reg = {
   id: number;
+  list_number?: number;
   athlete_id: number;
   athlete_name?: string;
   athlete_photo?: string;
@@ -50,6 +51,7 @@ type Reg = {
   notes?: string;
   seq_no?: number;
   reference?: string;
+  created_at?: string;
   kit_number?: number | null;
   has_jersey?: boolean;
   has_backpack?: boolean;
@@ -1088,7 +1090,7 @@ export function RegistrationsPage() {
         <table>
           <thead>
             <tr>
-              <SortHeader label="N°" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader label="N° joueur" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Kit" sortKey="kit" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Réf." sortKey="reference" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th>Photo</th>
@@ -1104,7 +1106,9 @@ export function RegistrationsPage() {
           <tbody>
             {displayedRegs.map((r) => (
               <tr key={r.id}>
-                <td className="ltr">{r.seq_no ?? "—"}</td>
+                <td className="ltr" title={`Identité historique : ${r.reference || "—"}`}>
+                  {r.list_number ?? "—"}
+                </td>
                 <td className="ltr" style={{ fontWeight: 700 }}>
                   {r.kit_number ?? "—"}
                 </td>
@@ -1145,7 +1149,20 @@ export function RegistrationsPage() {
                 <td>
                   <span className="badge">{r.status}</span>
                 </td>
-                <td>{r.registered_on ? formatDateFr(r.registered_on) : "—"}</td>
+                <td className="ltr" style={{ whiteSpace: "nowrap" }}>
+                  {r.created_at
+                    ? new Intl.DateTimeFormat("fr-DZ", {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      }).format(new Date(r.created_at))
+                    : r.registered_on
+                      ? formatDateFr(r.registered_on)
+                      : "—"}
+                </td>
                 <td>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button type="button" className="secondary" onClick={() => openEdit(r)}>

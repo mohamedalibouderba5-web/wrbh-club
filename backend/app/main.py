@@ -109,6 +109,7 @@ def _ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS ix_registrations_kit_number ON registrations (kit_number)",
         "CREATE INDEX IF NOT EXISTS ix_registrations_seq_no ON registrations (seq_no)",
         "CREATE INDEX IF NOT EXISTS ix_registrations_reference ON registrations (reference)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_registrations_reference_nonnull ON registrations (reference) WHERE reference IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS ix_payments_reference ON payments (reference)",
     ]
     # club_id sur chaque table métier + index
@@ -207,7 +208,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.15.0",
+    version="1.15.1",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,

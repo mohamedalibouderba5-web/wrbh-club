@@ -238,6 +238,7 @@ class RegistrationUpdate(BaseModel):
 
 class RegistrationOut(ORMModel):
     id: int
+    list_number: Optional[int] = None
     athlete_id: int
     season_id: int
     category_id: Optional[int]
@@ -264,6 +265,7 @@ class RegistrationOut(ORMModel):
     parent_phone: Optional[str] = None
     parent_temp_password: Optional[str] = None
     parent_created: Optional[bool] = None
+    created_at: Optional[datetime] = None
     last_payment_on: Optional[date] = None
     last_payment_amount: Optional[Decimal] = None
 

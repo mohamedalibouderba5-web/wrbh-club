@@ -124,7 +124,7 @@ def archive_season_roster(
         reg.status = "archived"
         from app.services.references import release_registration_identity
 
-        release_registration_identity(reg)  # libère n° inscription + kit
+        release_registration_identity(reg)  # conserve référence, libère seulement le kit
         archived_regs += 1
 
     current = db.query(Season).filter(Season.is_current.is_(True)).first()
@@ -1446,6 +1446,40 @@ def prune_old_teams(
 reg_router = APIRouter(prefix="/registrations", tags=["registrations"])
 
 
+def _registration_list_numbers(
+    db: Session,
+    *,
+    club_id: int,
+    season_ids: set[int] | None = None,
+) -> dict[int, int]:
+    """Rangs compacts 1..N des dossiers actifs, par saison et par ancienneté."""
+    q = db.query(Registration.id, Registration.season_id).filter(
+        or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+        Registration.status != "archived",
+    )
+    if season_ids:
+        q = q.filter(Registration.season_id.in_(season_ids))
+    rows = q.order_by(
+        Registration.season_id.asc(),
+        Registration.created_at.asc(),
+        Registration.id.asc(),
+    ).all()
+    counters: dict[int, int] = {}
+    result: dict[int, int] = {}
+    for reg_id, sid in rows:
+        counters[sid] = counters.get(sid, 0) + 1
+        result[reg_id] = counters[sid]
+    return result
+
+
+def _registration_list_number(db: Session, reg: Registration, club_id: int) -> int | None:
+    if reg.status == "archived":
+        return None
+    return _registration_list_numbers(
+        db, club_id=club_id, season_ids={reg.season_id}
+    ).get(reg.id)
+
+
 def _reg_out_from_maps(
     reg: Registration,
     athletes: dict[int, Athlete],
@@ -1453,12 +1487,14 @@ def _reg_out_from_maps(
     phones: dict[int, str | None],
     parent_meta: dict | None = None,
     teams: dict[int, Team] | None = None,
+    list_number: int | None = None,
 ) -> RegistrationOut:
     athlete = athletes.get(reg.athlete_id)
     cat = categories.get(reg.category_id) if reg.category_id else None
     team = (teams or {}).get(reg.team_id) if getattr(reg, "team_id", None) else None
     return RegistrationOut(
         id=reg.id,
+        list_number=list_number,
         athlete_id=reg.athlete_id,
         season_id=reg.season_id,
         category_id=reg.category_id,
@@ -1485,6 +1521,7 @@ def _reg_out_from_maps(
         parent_phone=phones.get(reg.athlete_id),
         parent_temp_password=(parent_meta or {}).get("temp_password"),
         parent_created=(parent_meta or {}).get("created"),
+        created_at=getattr(reg, "created_at", None),
     )
 
 
@@ -1495,6 +1532,7 @@ def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) ->
     parent_phone = _athlete_parent_phone(db, reg.athlete_id)
     return RegistrationOut(
         id=reg.id,
+        list_number=_registration_list_number(db, reg, int(reg.club_id or 0)),
         athlete_id=reg.athlete_id,
         season_id=reg.season_id,
         category_id=reg.category_id,
@@ -1521,6 +1559,7 @@ def _reg_out(db: Session, reg: Registration, parent_meta: dict | None = None) ->
         parent_phone=parent_phone,
         parent_temp_password=(parent_meta or {}).get("temp_password"),
         parent_created=(parent_meta or {}).get("created"),
+        created_at=getattr(reg, "created_at", None),
     )
 
 
@@ -1587,10 +1626,10 @@ def list_registrations(
     else:
         sort_cols = {
             "recent": Registration.id,
-            "date": Registration.registered_on,
+            "date": Registration.created_at,
             "status": Registration.status,
             "category": Registration.category_id,
-            "number": Registration.seq_no,
+            "number": Registration.created_at,
             "kit": Registration.kit_number,
             "reference": Registration.reference,
         }
@@ -1613,7 +1652,21 @@ def list_registrations(
     )
     teams = {t.id: t for t in db.query(Team).filter(Team.id.in_(team_ids)).all()} if team_ids else {}
     phones = _bulk_parent_phones(db, athlete_ids)
-    out = [_reg_out_from_maps(r, athletes, categories, phones, teams=teams) for r in rows]
+    active_seasons = {r.season_id for r in rows if r.status != "archived"}
+    list_numbers = _registration_list_numbers(
+        db, club_id=club_id, season_ids=active_seasons
+    ) if active_seasons else {}
+    out = [
+        _reg_out_from_maps(
+            r,
+            athletes,
+            categories,
+            phones,
+            teams=teams,
+            list_number=list_numbers.get(r.id),
+        )
+        for r in rows
+    ]
     cache_set(cache_key, out, 25)
     return out
 
@@ -1874,6 +1927,8 @@ def create_registration(
     )
     from app.services.references import assign_registration_identity
 
+    db.add(reg)
+    db.flush()  # id permanent utilisé dans la référence immuable
     assign_registration_identity(
         db,
         reg,
@@ -1881,7 +1936,6 @@ def create_registration(
         season=season,
         category=cat,
     )
-    db.add(reg)
     db.flush()
 
     if category_id and reg.status == "approved":
@@ -2180,14 +2234,13 @@ def delete_registration(
         athlete_name = athlete.full_name
     prev = reg.status
     reg.status = "archived"
-    freed_seq = reg.seq_no
     freed = reg.kit_number
     from app.services.references import release_registration_identity
 
     release_registration_identity(reg)
     detail = (
         f"athlete={reg.athlete_id} name={athlete_name or '?'} "
-        f"from={prev} freed_kit={freed} freed_seq={freed_seq}"
+        f"from={prev} freed_kit={freed} reference_preserved={reg.reference}"
     )
     write_audit(
         db,
@@ -2206,7 +2259,7 @@ def delete_registration(
         "soft": True,
         "status": "archived",
         "freed_kit_number": freed,
-        "freed_seq_no": freed_seq,
+        "reference": reg.reference,
     }
 
 
@@ -2225,7 +2278,6 @@ def archive_registration(
     prev = reg.status
     reg.status = "archived"
     freed = reg.kit_number
-    freed_seq = reg.seq_no
     from app.services.references import release_registration_identity
 
     release_registration_identity(reg)
@@ -2236,7 +2288,10 @@ def archive_registration(
         entity_id=reg.id,
         user_id=user.id,
         club_id=club_id,
-        detail=f"from={prev} athlete={reg.athlete_id} freed_kit={freed} freed_seq={freed_seq}",
+        detail=(
+            f"from={prev} athlete={reg.athlete_id} freed_kit={freed} "
+            f"reference_preserved={reg.reference}"
+        ),
     )
     db.commit()
     db.refresh(reg)
@@ -2259,11 +2314,6 @@ def restore_registration(
     if reg.status != "archived":
         raise HTTPException(400, "Seules les inscriptions archivées peuvent être restaurées")
     reg.status = "pending"
-    season = db.get(Season, reg.season_id)
-    category = db.get(Category, reg.category_id) if reg.category_id else None
-    from app.services.references import assign_registration_identity
-
-    assign_registration_identity(db, reg, club_id=club_id, season=season, category=category)
     write_audit(
         db,
         action="restore",
@@ -2271,7 +2321,7 @@ def restore_registration(
         entity_id=reg.id,
         user_id=user.id,
         club_id=club_id,
-        detail=f"athlete={reg.athlete_id} seq={reg.seq_no}",
+        detail=f"athlete={reg.athlete_id} reference={reg.reference}",
     )
     db.commit()
     db.refresh(reg)

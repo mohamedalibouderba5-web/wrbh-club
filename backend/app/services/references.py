@@ -1,8 +1,8 @@
-"""Numéros et références (inscriptions, paiements, caisse).
+"""Numéros techniques et références immuables.
 
-Inscriptions : seq_no réutilise les trous après archive/suppression
-(ex. supprimer n°10 → prochaine inscription reprend 10).
-Paiements / caisse / échéances : compteurs croissants (historique).
+Le numéro de ligne visible d'une inscription est calculé dynamiquement par
+l'API. ``seq_no`` et ``reference`` sont des identités historiques croissantes :
+elles ne sont jamais libérées, réattribuées ou modifiées.
 """
 from __future__ import annotations
 
@@ -40,26 +40,17 @@ def next_seq(db: Session, model, *, club_id: int | None, season_id: int | None =
 
 
 def next_registration_seq(db: Session, *, club_id: int | None, season_id: int | None) -> int:
-    """Plus petit n° d'inscription libre (dossiers actifs uniquement)."""
-    q = db.query(Registration.seq_no).filter(
-        Registration.seq_no.isnot(None),
-        Registration.status != "archived",
-    )
+    """Prochain compteur historique, archives incluses (jamais réutilisé)."""
+    q = db.query(func.coalesce(func.max(Registration.seq_no), 0))
     if club_id is not None:
         q = q.filter((Registration.club_id == club_id) | (Registration.club_id.is_(None)))
     if season_id is not None:
         q = q.filter(Registration.season_id == season_id)
-    used = {int(n) for (n,) in q.all() if n is not None and int(n) > 0}
-    n = 1
-    while n in used:
-        n += 1
-    return n
+    return int(q.scalar() or 0) + 1
 
 
 def release_registration_identity(reg: Registration) -> None:
-    """Libère seq_no / référence / n° équipement à l'archive — réutilisables."""
-    reg.seq_no = None
-    reg.reference = None
+    """Archive : conserve l'identité historique, libère uniquement le kit."""
     reg.kit_number = None
 
 
@@ -76,7 +67,7 @@ def assign_registration_identity(
     season: Season | None,
     category: Category | None,
 ) -> None:
-    """Attribue seq_no + reference (réutilise les trous des archives)."""
+    """Attribue une identité historique croissante et immuable."""
     if getattr(reg, "seq_no", None) and getattr(reg, "reference", None):
         return
     season_id = reg.season_id
@@ -85,7 +76,13 @@ def assign_registration_identity(
     if not getattr(reg, "reference", None):
         short = season_short_code(season.name if season else None)
         cat_code = category.code if category else None
-        reg.reference = build_registration_reference(short, cat_code, int(reg.seq_no))
+        # L'id DB n'est jamais réutilisé : il rend la référence indépendante
+        # du rang visible et robuste même après archive/suppression.
+        if reg.id:
+            cat = (cat_code or "NA").upper().replace(" ", "")
+            reg.reference = f"{short}/{cat}/R{int(reg.id):08d}"
+        else:
+            reg.reference = build_registration_reference(short, cat_code, int(reg.seq_no))
 
 
 def build_op_reference(prefix: str, year: int, seq_no: int) -> str:
