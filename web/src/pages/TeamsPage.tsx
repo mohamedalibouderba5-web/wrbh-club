@@ -244,6 +244,26 @@ export function TeamsPage() {
     }
   }
 
+  async function deleteCoach(c: Coach) {
+    if (!canManageCoaches) return;
+    const ok = await confirmDialog({
+      title: "Supprimer le coach",
+      message:
+        `Supprimer le coach « ${c.full_name} » ?\n` +
+        `Il sera détaché de toutes les équipes / séances et désactivé (ne pourra plus se connecter).`,
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
+    try {
+      await api(`/api/v1/auth/users/${c.id}`, { method: "DELETE" });
+      toast("Coach supprimé", "success");
+      if (editCoachId === c.id) resetCoachForm();
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
   async function syncStructure() {
     if (!canManageCoaches || syncBusy) return;
     const ok = await confirmDialog({
@@ -401,9 +421,14 @@ export function TeamsPage() {
                     <button type="button" className="secondary" onClick={() => startEditCoach(c)}>
                       Modifier
                     </button>
-                    <button type="button" className="danger" onClick={() => void toggleCoachActive(c)}>
+                    <button type="button" className="secondary" onClick={() => void toggleCoachActive(c)}>
                       {c.is_active === false ? "Réactiver" : "Archiver"}
                     </button>
+                    {c.is_active !== false && (
+                      <button type="button" className="danger" onClick={() => void deleteCoach(c)}>
+                        Supprimer
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -684,7 +684,13 @@ export function FinancePage() {
                                     toast("Échéance supprimée", "success");
                                     load();
                                   } catch (err) {
-                                    toast(err instanceof Error ? err.message : "Erreur", "error");
+                                    const m = err instanceof Error ? err.message : "Erreur";
+                                    if (/introuvable|404/i.test(m)) {
+                                      toast("Déjà supprimée — liste actualisée", "success");
+                                      load();
+                                    } else {
+                                      toast(m, "error");
+                                    }
                                   }
                                 })();
                               }}
@@ -862,7 +868,13 @@ export function FinancePage() {
                                   toast("Paiement supprimé", "success");
                                   load();
                                 } catch (err) {
-                                  toast(err instanceof Error ? err.message : "Erreur", "error");
+                                  const m = err instanceof Error ? err.message : "Erreur";
+                                  if (/introuvable|404/i.test(m)) {
+                                    toast("Déjà supprimé — liste actualisée", "success");
+                                    load();
+                                  } else {
+                                    toast(m, "error");
+                                  }
                                 }
                               }}
                             >

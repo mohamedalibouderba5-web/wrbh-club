@@ -318,7 +318,13 @@ export function InventoryPage() {
                             toast("Article supprimé", "success");
                             load();
                           } catch (err) {
-                            toast(err instanceof Error ? err.message : "Erreur", "error");
+                            const m = err instanceof Error ? err.message : "Erreur";
+                            if (/introuvable|404/i.test(m)) {
+                              toast("Déjà supprimé — liste actualisée", "success");
+                              load();
+                            } else {
+                              toast(m, "error");
+                            }
                           }
                         }}
                       >

@@ -1619,6 +1619,7 @@ def list_registrations(
         q = q.filter(Registration.athlete_id.in_(ids or {-1}))
 
     desc = order.lower() != "asc"
+    # "number" (N° joueur / list_number) is computed after fetch — order by creation for stable base.
     if sort == "name":
         q = q.outerjoin(Athlete, Athlete.id == Registration.athlete_id)
         name_col = Athlete.full_name
@@ -1633,26 +1634,30 @@ def list_registrations(
             "kit": Registration.kit_number,
             "reference": Registration.reference,
         }
-        col = sort_cols.get(sort, Registration.id)
+        col = sort_cols.get(sort, Registration.created_at if sort == "number" else Registration.id)
         order_expr = col.desc() if desc else col.asc()
     try:
         order_expr = order_expr.nullslast()
     except Exception:
         pass
-    rows = q.order_by(order_expr, Registration.id.desc()).offset(skip).limit(limit).all()
-    if not rows:
+    # For list_number sort we need the full season set then paginate in memory.
+    if sort == "number":
+        rows_all = q.order_by(Registration.created_at.asc(), Registration.id.asc()).all()
+    else:
+        rows_all = q.order_by(order_expr, Registration.id.desc()).offset(skip).limit(limit).all()
+    if not rows_all:
         cache_set(cache_key, [], 25)
         return []
-    athlete_ids = list({r.athlete_id for r in rows})
-    cat_ids = list({r.category_id for r in rows if r.category_id})
-    team_ids = list({r.team_id for r in rows if getattr(r, "team_id", None)})
+    athlete_ids = list({r.athlete_id for r in rows_all})
+    cat_ids = list({r.category_id for r in rows_all if r.category_id})
+    team_ids = list({r.team_id for r in rows_all if getattr(r, "team_id", None)})
     athletes = {a.id: a for a in db.query(Athlete).filter(Athlete.id.in_(athlete_ids)).all()}
     categories = (
         {c.id: c for c in db.query(Category).filter(Category.id.in_(cat_ids)).all()} if cat_ids else {}
     )
     teams = {t.id: t for t in db.query(Team).filter(Team.id.in_(team_ids)).all()} if team_ids else {}
     phones = _bulk_parent_phones(db, athlete_ids)
-    active_seasons = {r.season_id for r in rows if r.status != "archived"}
+    active_seasons = {r.season_id for r in rows_all if r.status != "archived"}
     list_numbers = _registration_list_numbers(
         db, club_id=club_id, season_ids=active_seasons
     ) if active_seasons else {}
@@ -1665,8 +1670,18 @@ def list_registrations(
             teams=teams,
             list_number=list_numbers.get(r.id),
         )
-        for r in rows
+        for r in rows_all
     ]
+    if sort == "number":
+        out.sort(
+            key=lambda r: (
+                r.list_number is None,
+                r.list_number if r.list_number is not None else 0,
+                r.id,
+            ),
+            reverse=desc,
+        )
+        out = out[skip : skip + limit]
     cache_set(cache_key, out, 25)
     return out
 

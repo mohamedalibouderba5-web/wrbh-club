@@ -49,30 +49,42 @@ export function PhotoCapture({ value, previewUrl, onUploaded, onLocalFile, athle
       fileRef.current?.click();
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      setCamOpen(true);
-      setCamReady(false);
-      requestAnimationFrame(() => {
-        const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        const markReady = () => {
-          if (video.videoWidth > 0) setCamReady(true);
-        };
-        video.onloadedmetadata = () => {
-          void video.play().then(markReady).catch(() => markReady());
-        };
-        void video.play().then(markReady).catch(() => undefined);
-      });
-    } catch {
+    const attempts: MediaStreamConstraints[] = [
+      { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      { video: { facingMode: "user" }, audio: false },
+      { video: true, audio: false },
+    ];
+    let stream: MediaStream | null = null;
+    let lastErr: unknown;
+    for (const constraints of attempts) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!stream) {
+      console.warn("getUserMedia failed", lastErr);
       setErr("Caméra indisponible — utilisez Importer");
       fileRef.current?.click();
+      return;
     }
+    streamRef.current = stream;
+    setCamOpen(true);
+    setCamReady(false);
+    requestAnimationFrame(() => {
+      const video = videoRef.current;
+      if (!video) return;
+      video.srcObject = stream;
+      const markReady = () => {
+        if (video.videoWidth > 0) setCamReady(true);
+      };
+      video.onloadedmetadata = () => {
+        void video.play().then(markReady).catch(() => markReady());
+      };
+      void video.play().then(markReady).catch(() => undefined);
+    });
   }
 
   function snapPhoto() {

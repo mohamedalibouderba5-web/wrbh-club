@@ -99,8 +99,9 @@ export function RegistrationsPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
-  const [sortKey, setSortKey] = useState("recent");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortKey, setSortKey] = useState("number");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [archiveMatch, setArchiveMatch] = useState<ArchiveMatch | null>(null);
   const [reuseAthleteId, setReuseAthleteId] = useState<number | null>(null);
   const savingRef = useRef(false);
@@ -110,8 +111,17 @@ export function RegistrationsPage() {
       setSortDir((d) => (d === "desc" ? "asc" : "desc"));
     } else {
       setSortKey(key);
-      setSortDir(key === "name" ? "asc" : "desc");
+      setSortDir(key === "name" || key === "number" || key === "kit" ? "asc" : "desc");
     }
+  }
+
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleSelectAll() {
+    const ids = displayedRegs.map((r) => r.id);
+    setSelectedIds((prev) => (prev.length === ids.length && ids.every((id) => prev.includes(id)) ? [] : ids));
   }
   const [form, setForm] = useState({
     full_name: "",
@@ -204,11 +214,13 @@ export function RegistrationsPage() {
           ttlMs: 40_000,
           onUpdate: (fresh) => {
             setRegs(fresh);
+            setSelectedIds((prev) => prev.filter((id) => fresh.some((x) => x.id === id)));
             setListLoading(false);
             setLoading(false);
           },
         });
         setRegs(r);
+        setSelectedIds((prev) => prev.filter((id) => r.some((x) => x.id === id)));
       } catch (err) {
         if (!isNetworkError(err)) {
           setError(err instanceof Error ? err.message : "Erreur");
@@ -648,13 +660,47 @@ export function RegistrationsPage() {
       // Soft-delete (archive) — récupérable
       await api(`/api/v1/registrations/${id}`, { method: "DELETE" });
       setRegs((prev) => prev.filter((r) => r.id !== id));
+      setSelectedIds((prev) => prev.filter((x) => x !== id));
       if (editId === id) clearFormKeepSeason();
       toast("Dossier supprimé (récupérable dans Historique)", "success");
     } catch (err) {
       const m = err instanceof Error ? err.message : "Erreur";
+      if (/introuvable|404/i.test(m)) {
+        setRegs((prev) => prev.filter((r) => r.id !== id));
+        setSelectedIds((prev) => prev.filter((x) => x !== id));
+        toast("Déjà supprimé — liste actualisée", "success");
+        void loadRegs();
+        return;
+      }
       setError(m);
       toast(m, "error");
     }
+  }
+
+  async function deleteSelectedRegs() {
+    if (!canHardDelete || !selectedIds.length) return;
+    const ok = await confirmDialog({
+      title: "Supprimer la sélection",
+      message: `Supprimer ${selectedIds.length} dossier(s) sélectionné(s) ?\nRéversible (archivage — récupérable dans Historique).`,
+      confirmLabel: `Supprimer (${selectedIds.length})`,
+    });
+    if (!ok) return;
+    const ids = [...selectedIds];
+    let okCount = 0;
+    for (const id of ids) {
+      try {
+        await api(`/api/v1/registrations/${id}`, { method: "DELETE" });
+        okCount += 1;
+      } catch (err) {
+        const m = err instanceof Error ? err.message : "";
+        if (/introuvable|404/i.test(m)) okCount += 1;
+      }
+    }
+    setRegs((prev) => prev.filter((r) => !ids.includes(r.id)));
+    setSelectedIds([]);
+    if (editId && ids.includes(editId)) clearFormKeepSeason();
+    toast(`${okCount}/${ids.length} dossier(s) supprimé(s)`, okCount ? "success" : "error");
+    void loadRegs();
   }
 
   async function deliverKit(r: Reg) {
@@ -832,15 +878,17 @@ export function RegistrationsPage() {
             value={form.photo_path}
             previewUrl={photoPreview}
             onUploaded={(p) => {
-              setForm({ ...form, photo_path: p });
+              setForm((f) => ({ ...f, photo_path: p }));
               setPhotoFile(null);
-              if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
-              setPhotoPreview(null);
+              setPhotoPreview((prev) => {
+                if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+                return null;
+              });
             }}
             onLocalFile={(file, preview) => {
               setPhotoFile(file);
               setPhotoPreview(preview);
-              setForm({ ...form, photo_path: "" });
+              setForm((f) => ({ ...f, photo_path: "" }));
             }}
           />
           <div>
@@ -972,9 +1020,16 @@ export function RegistrationsPage() {
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <h3 style={{ marginTop: 0 }}>{t("files")}</h3>
-          <button type="button" className="secondary" onClick={() => loadRegs()}>
-            {t("retry")}
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {canHardDelete && selectedIds.length > 0 && (
+              <button type="button" className="danger" onClick={() => void deleteSelectedRegs()}>
+                Supprimer ({selectedIds.length})
+              </button>
+            )}
+            <button type="button" className="secondary" onClick={() => loadRegs()}>
+              {t("retry")}
+            </button>
+          </div>
         </div>
 
         {pending.length > 0 && (
@@ -1090,6 +1145,16 @@ export function RegistrationsPage() {
         <table>
           <thead>
             <tr>
+              {canHardDelete && (
+                <th style={{ width: 36 }}>
+                  <input
+                    type="checkbox"
+                    checked={displayedRegs.length > 0 && selectedIds.length === displayedRegs.length}
+                    onChange={toggleSelectAll}
+                    aria-label="Tout sélectionner"
+                  />
+                </th>
+              )}
               <SortHeader label="N° joueur" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Kit" sortKey="kit" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label="Réf." sortKey="reference" activeKey={sortKey} dir={sortDir} onSort={onSort} />
@@ -1106,6 +1171,16 @@ export function RegistrationsPage() {
           <tbody>
             {displayedRegs.map((r) => (
               <tr key={r.id}>
+                {canHardDelete && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(r.id)}
+                      onChange={() => toggleSelect(r.id)}
+                      aria-label={`Sélectionner ${r.athlete_name || r.id}`}
+                    />
+                  </td>
+                )}
                 <td className="ltr" title={`Identité historique : ${r.reference || "—"}`}>
                   {r.list_number ?? "—"}
                 </td>

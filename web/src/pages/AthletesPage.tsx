@@ -421,7 +421,7 @@ export function AthletesPage() {
       <form className="card" onSubmit={onCreate}>
         <h3 style={{ marginTop: 0 }}>{t("addPlayer")}</h3>
         <div className="form-split">
-          <PhotoCapture value={form.photo_path} onUploaded={(p) => setForm({ ...form, photo_path: p })} />
+          <PhotoCapture value={form.photo_path} onUploaded={(p) => setForm((f) => ({ ...f, photo_path: p }))} />
           <div>
             <div className="field">
               <label>Nom / الاسم</label>
@@ -742,7 +742,7 @@ export function AthletesPage() {
             <PhotoCapture
               value={editForm.photo_path}
               athleteId={editId ?? undefined}
-              onUploaded={(p) => setEditForm({ ...editForm, photo_path: p })}
+              onUploaded={(p) => setEditForm((f) => ({ ...f, photo_path: p }))}
             />
             <div>
           <div className="field">

@@ -210,6 +210,51 @@ def update_user(
     return target
 
 
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+):
+    """Supprime (désactive + détache) un coach/staff. Les admins ne sont pas effaçables ici."""
+    from app.models import Event, TeamCoach
+    from app.services.audit import write_audit
+
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "Utilisateur introuvable")
+    actor_club = getattr(actor, "club_id", None)
+    target_club = getattr(target, "club_id", None)
+    if actor_club and target_club not in (None, actor_club):
+        raise HTTPException(404, "Utilisateur introuvable")
+    if target.id == actor.id:
+        raise HTTPException(400, "Impossible de supprimer votre propre compte")
+    if target.role in (Role.SUPERADMIN, Role.ADMIN):
+        raise HTTPException(403, "Impossible de supprimer un compte admin")
+    if target.role not in (Role.COACH, Role.STAFF):
+        raise HTTPException(400, "Seuls coach / staff peuvent être supprimés ici")
+
+    # Détacher des équipes et des séances
+    db.query(TeamCoach).filter(TeamCoach.user_id == user_id).delete(synchronize_session=False)
+    for ev in db.query(Event).filter(Event.coach_id == user_id).all():
+        ev.coach_id = None
+    for ev in db.query(Event).filter(Event.substitute_coach_id == user_id).all():
+        ev.substitute_coach_id = None
+
+    target.is_active = False
+    write_audit(
+        db,
+        action="delete",
+        entity="user",
+        entity_id=target.id,
+        user_id=actor.id,
+        club_id=actor_club,
+        detail=f"role={target.role} name={target.full_name} soft_delete=1",
+    )
+    db.commit()
+    return {"deleted": user_id, "soft": True}
+
+
 club_router = APIRouter(prefix="/club", tags=["club"])
 
 
@@ -245,7 +290,7 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "1.15.1",
+        "version": "1.15.3",
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,
