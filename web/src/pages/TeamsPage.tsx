@@ -11,6 +11,15 @@ type Coach = {
   phone?: string;
   email?: string;
   is_active?: boolean;
+  categories?: string[];
+  teams?: { team_name: string; category_code?: string | null; role_label?: string }[];
+};
+type Category = {
+  id: number;
+  code: string;
+  name: string;
+  birth_year_min: number;
+  birth_year_max: number;
 };
 type TeamCoach = {
   id: number;
@@ -52,12 +61,25 @@ export function TeamsPage() {
   const [coachBusy, setCoachBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [tempPassword, setTempPassword] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [teamForm, setTeamForm] = useState({
+    category_id: "",
+    new_code: "",
+    new_name: "",
+    birth_year_min: "",
+    birth_year_max: "",
+    team_name: "",
+    coach_id: "",
+  });
+  const [teamBusy, setTeamBusy] = useState(false);
 
   async function load() {
     try {
-      const { data, errors } = await loadAllSettled<[TeamRow[], Coach[]]>([
+      const { data, errors } = await loadAllSettled<[TeamRow[], Coach[], Category[]]>([
         () => api<TeamRow[]>("/api/v1/teams/coaches"),
-        () => api<Coach[]>(`/api/v1/coaches?include_inactive=${canManageCoaches ? "true" : "false"}`),
+        () => api<Coach[]>(`/api/v1/coaches?include_inactive=true`),
+        () => api<Category[]>("/api/v1/categories"),
       ]);
       if (data[0]) {
         setTeams(data[0]);
@@ -68,6 +90,7 @@ export function TeamsPage() {
         }
       }
       if (data[1]) setCoaches(data[1]);
+      if (data[2]) setCategories(data[2]);
       if (errors.length) setMsg(errors.join(" · "));
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Erreur chargement");
@@ -93,11 +116,59 @@ export function TeamsPage() {
   const selected = useMemo(() => teams.find((t) => t.id === selectedId) || null, [teams, selectedId]);
 
   const activeCoaches = useMemo(() => coaches.filter((c) => c.is_active !== false), [coaches]);
+  const archivedCoaches = useMemo(() => coaches.filter((c) => c.is_active === false), [coaches]);
+  const visibleCoaches = showArchived ? archivedCoaches : activeCoaches;
 
   const available = useMemo(
     () => activeCoaches.filter((c) => !draft.some((d) => d.user_id === c.id)),
     [activeCoaches, draft],
   );
+
+  async function onCreateTeam(e: FormEvent) {
+    e.preventDefault();
+    if (!canManageCoaches || teamBusy) return;
+    setTeamBusy(true);
+    try {
+      const body: Record<string, unknown> = { auto_group: true };
+      if (teamForm.category_id) {
+        body.category_id = Number(teamForm.category_id);
+      } else {
+        if (!teamForm.new_code.trim() || !teamForm.new_name.trim()) {
+          toast("Code et nom de catégorie requis", "error");
+          setTeamBusy(false);
+          return;
+        }
+        body.category_code = teamForm.new_code.trim();
+        body.category_name = teamForm.new_name.trim();
+        body.birth_year_min = Number(teamForm.birth_year_min);
+        body.birth_year_max = Number(teamForm.birth_year_max);
+      }
+      if (teamForm.team_name.trim()) body.name = teamForm.team_name.trim();
+      if (teamForm.coach_id) {
+        body.coach_ids = [Number(teamForm.coach_id)];
+        body.primary_coach_id = Number(teamForm.coach_id);
+      }
+      const created = await api<{ code?: string; name: string }>("/api/v1/teams", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      toast(`Équipe créée : ${created.code || created.name}`, "success");
+      setTeamForm({
+        category_id: teamForm.category_id,
+        new_code: "",
+        new_name: "",
+        birth_year_min: "",
+        birth_year_max: "",
+        team_name: "",
+        coach_id: "",
+      });
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    } finally {
+      setTeamBusy(false);
+    }
+  }
 
   function addCoach() {
     if (!addCoachId) return;
@@ -265,11 +336,12 @@ export function TeamsPage() {
   }
 
   async function syncStructure() {
+    // Conservé en secours admin uniquement via confirm explicite
     if (!canManageCoaches || syncBusy) return;
     const ok = await confirmDialog({
-      title: "Créer les équipes",
+      title: "Structure type (secours)",
       message:
-        "Créer / compléter les équipes du club ?\nU14G1, U14G2, U13G1, U13G2, U11G1, U11G2, U9G1, U9G2, U7G1, U5G1",
+        "Créer / compléter les équipes type U14G1…U5G1 ?\nPréférez « Créer une équipe » personnalisée ci-dessous.",
       confirmLabel: "Créer / compléter",
       danger: false,
     });
@@ -323,17 +395,111 @@ export function TeamsPage() {
                 Ajouter ou modifier un coach comme pour un joueur, puis l’assigner à une équipe (U14G1, U11G2…).
               </p>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="accent" disabled={syncBusy} onClick={() => void syncStructure()}>
-                {syncBusy ? "…" : "Créer équipes U14G1…U5G1"}
-              </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.9rem" }}>
+                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+                Afficher coachs archivés
+              </label>
               <button type="button" className="secondary" disabled={syncBusy} onClick={() => void repairCoachAgenda()}>
                 Réparer agenda coachs
+              </button>
+              <button type="button" className="secondary" disabled={syncBusy} onClick={() => void syncStructure()}>
+                Structure type (secours)
               </button>
             </div>
           </div>
 
-          <form className="grid" style={{ gap: "0.75rem", marginTop: "1rem" }} onSubmit={onCreateCoach}>
+          <form className="grid" style={{ gap: "0.75rem", marginTop: "1rem" }} onSubmit={onCreateTeam}>
+            <h4 style={{ margin: 0 }}>Créer une équipe (personnalisé)</h4>
+            <p className="muted" style={{ margin: 0 }}>
+              Choisissez une catégorie existante ou créez-en une (années de naissance). Le n° d’équipe (G1, G2…) est
+              détecté automatiquement.
+            </p>
+            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label>Catégorie existante</label>
+                <select
+                  value={teamForm.category_id}
+                  onChange={(e) => setTeamForm({ ...teamForm, category_id: e.target.value })}
+                >
+                  <option value="">— Nouvelle catégorie —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} ({c.birth_year_min}–{c.birth_year_max})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {!teamForm.category_id && (
+                <>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Code catégorie *</label>
+                    <input
+                      placeholder="U11"
+                      value={teamForm.new_code}
+                      onChange={(e) => setTeamForm({ ...teamForm, new_code: e.target.value })}
+                    />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Nom catégorie *</label>
+                    <input
+                      placeholder="Sous 11"
+                      value={teamForm.new_name}
+                      onChange={(e) => setTeamForm({ ...teamForm, new_name: e.target.value })}
+                    />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Année naissance min *</label>
+                    <input
+                      className="ltr"
+                      inputMode="numeric"
+                      placeholder="2016"
+                      value={teamForm.birth_year_min}
+                      onChange={(e) => setTeamForm({ ...teamForm, birth_year_min: e.target.value })}
+                    />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Année naissance max *</label>
+                    <input
+                      className="ltr"
+                      inputMode="numeric"
+                      placeholder="2017"
+                      value={teamForm.birth_year_max}
+                      onChange={(e) => setTeamForm({ ...teamForm, birth_year_max: e.target.value })}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="field" style={{ margin: 0 }}>
+                <label>Nom équipe (auto si vide)</label>
+                <input
+                  placeholder="U11 Groupe 2"
+                  value={teamForm.team_name}
+                  onChange={(e) => setTeamForm({ ...teamForm, team_name: e.target.value })}
+                />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label>Coach titulaire</label>
+                <select
+                  value={teamForm.coach_id}
+                  onChange={(e) => setTeamForm({ ...teamForm, coach_id: e.target.value })}
+                >
+                  <option value="">—</option>
+                  {activeCoaches.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.full_name}
+                      {c.categories?.length ? ` (${c.categories.join(", ")})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <button type="submit" disabled={teamBusy}>
+              {teamBusy ? "…" : "Créer l’équipe"}
+            </button>
+          </form>
+
+          <form className="grid" style={{ gap: "0.75rem", marginTop: "1.25rem" }} onSubmit={onCreateCoach}>
             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
               <div className="field" style={{ margin: 0 }}>
                 <label>Nom complet *</label>
@@ -401,17 +567,27 @@ export function TeamsPage() {
             <thead>
               <tr>
                 <th>Coach</th>
+                <th>Catégories / équipes</th>
                 <th>Tél.</th>
                 <th>Statut</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {coaches.map((c) => (
+              {visibleCoaches.map((c) => (
                 <tr key={c.id} style={{ opacity: c.is_active === false ? 0.55 : 1 }}>
                   <td>
-                    {c.full_name}
-                    {c.full_name_ar ? ` · ${c.full_name_ar}` : ""}
+                    <div>{c.full_name}{c.full_name_ar ? ` · ${c.full_name_ar}` : ""}</div>
+                  </td>
+                  <td>
+                    <div style={{ fontSize: "0.88rem" }}>
+                      {(c.categories || []).join(", ") || "—"}
+                    </div>
+                    <div className="muted" style={{ fontSize: "0.8rem" }}>
+                      {(c.teams || [])
+                        .map((t) => `${t.category_code || "?"} · ${t.team_name}`)
+                        .join(" · ") || ""}
+                    </div>
                   </td>
                   <td className="ltr">{c.phone || "—"}</td>
                   <td>
@@ -432,10 +608,10 @@ export function TeamsPage() {
                   </td>
                 </tr>
               ))}
-              {!coaches.length && (
+              {!visibleCoaches.length && (
                 <tr>
-                  <td colSpan={4} className="muted">
-                    Aucun coach — ajoutez-en un ci-dessus
+                  <td colSpan={5} className="muted">
+                    {showArchived ? "Aucun coach archivé" : "Aucun coach actif — ajoutez-en un ci-dessus"}
                   </td>
                 </tr>
               )}
@@ -473,12 +649,16 @@ export function TeamsPage() {
                     {t.category_code || "?"} · {t.name}
                   </div>
                   <div style={{ fontSize: "0.85em", opacity: 0.9, fontWeight: 500 }}>
-                    {primary?.coach_name || "Sans coach"}
+                    {t.coaches.length
+                      ? t.coaches
+                          .map((c) => c.coach_name || `#${c.user_id}`)
+                          .join(" · ")
+                      : "Sans coach"}
                   </div>
                 </button>
               );
             })}
-            {!teams.length && <p className="muted">Aucune équipe — utilisez « Créer équipes U14G1…U5G1 ».</p>}
+            {!teams.length && <p className="muted">Aucune équipe — utilisez « Créer l’équipe » ci-dessus.</p>}
           </div>
         </div>
 

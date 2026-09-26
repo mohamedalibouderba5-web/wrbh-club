@@ -1,6 +1,14 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiGetFast, loadAllSettled } from "../api/client";
 import { confirmDialog } from "../components/ConfirmDialog";
+import {
+  DonutChart,
+  DualBarLineChart,
+  GroupedBarChart,
+  SoftAreaChart,
+  SlicerPeriod,
+  VerticalBarChart,
+} from "../components/Charts";
 import { SortHeader, type SortDir } from "../components/SortHeader";
 import { toast } from "../components/Toast";
 import { useAuth } from "../auth";
@@ -9,10 +17,19 @@ type Dash = {
   cotisations_due: number;
   cotisations_paid: number;
   ledger_expense: number;
+  ledger_income?: number;
   coach_payroll_total: number;
   monthly_subscription_dzd?: number;
   annual_insurance_dzd?: number;
   inscription_fee_dzd?: number;
+};
+type Analytics = {
+  months: string[];
+  payments_by_month: number[];
+  payments_cumulative: number[];
+  ledger_income_by_month: number[];
+  ledger_expense_by_month: number[];
+  installments_by_status: Record<string, number>;
 };
 type Ledger = {
   id: number;
@@ -26,7 +43,9 @@ type Ledger = {
   notes?: string;
   seq_no?: number;
   reference?: string;
+  created_at?: string;
 };
+type Season = { id: number; name: string; is_current: boolean };
 type Payroll = { id: number; user_id: number; label: string; amount: number; pay_type: string; status: string };
 type FeeSettings = {
   monthly_subscription_dzd: number;
@@ -90,6 +109,8 @@ export function FinancePage() {
   const canEditSettings = role === "admin" || role === "direction";
   const now = new Date();
   const [dash, setDash] = useState<Dash | null>(null);
+  const [seasons, setSeasons] = useState<Season[]>([]);
+  const [seasonFilter, setSeasonFilter] = useState<number | "all">("all");
   const [ledger, setLedger] = useState<Ledger[]>([]);
   const [payroll, setPayroll] = useState<Payroll[]>([]);
   const [settings, setSettings] = useState<FeeSettings | null>(null);
@@ -138,27 +159,40 @@ export function FinancePage() {
   const [editInst, setEditInst] = useState<Installment | null>(null);
   const [tab, setTab] = useState<FinanceTab>("cotisations");
   const [paySort, setPaySort] = useState({ key: "recent", dir: "desc" as SortDir });
-  const [ledSort, setLedSort] = useState({ key: "date", dir: "desc" as SortDir });
+  const [ledSort, setLedSort] = useState({ key: "datetime", dir: "desc" as SortDir });
   const [instSort, setInstSort] = useState({ key: "due", dir: "desc" as SortDir });
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [finPeriod, setFinPeriod] = useState<3 | 6 | 12>(12);
+  const [dashFullscreen, setDashFullscreen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    const seasonQ = seasonFilter === "all" ? "" : `?season_id=${seasonFilter}`;
     const { data, errors } = await loadAllSettled<
-      [Dash, Ledger[], Payroll[], FeeSettings, Category[], PaymentRow[], Installment[]]
+      [Dash, Ledger[], Payroll[], FeeSettings, Category[], PaymentRow[], Installment[], Season[], Analytics]
     >([
-      () => apiGetFast<Dash>("/api/v1/dashboard", { ttlMs: 20_000 }),
-      () => apiGetFast<Ledger[]>("/api/v1/ledger", { ttlMs: 20_000 }),
+      () => apiGetFast<Dash>(`/api/v1/dashboard${seasonQ}`, { ttlMs: 0 }),
+      () => apiGetFast<Ledger[]>("/api/v1/ledger?limit=300", { ttlMs: 0 }),
       () => apiGetFast<Payroll[]>("/api/v1/payroll", { ttlMs: 30_000 }).catch(() => []),
       () => apiGetFast<FeeSettings>("/api/v1/finance/settings", { ttlMs: 60_000 }),
       () => apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 120_000 }),
       () => api<PaymentRow[]>("/api/v1/payments/recent?limit=30").catch(() => []),
-      () => api<Installment[]>("/api/v1/installments?status=due&limit=40").catch(() => []),
+      () =>
+        api<Installment[]>(
+          `/api/v1/installments?status=due&limit=40${
+            seasonFilter !== "all" ? `&season_id=${seasonFilter}` : ""
+          }`,
+        ).catch(() => []),
+      () => apiGetFast<Season[]>("/api/v1/seasons", { ttlMs: 120_000 }).catch(() => []),
+      () => apiGetFast<Analytics>("/api/v1/stats/analytics", { ttlMs: 45_000 }).catch(() => null as unknown as Analytics),
     ]);
-    const [d, l, p, s, c, r, u] = data;
+    const [d, l, p, s, c, r, u, seas, an] = data;
     if (d) setDash(d);
     if (l) setLedger(l);
     if (p) setPayroll(p);
+    if (seas?.length) setSeasons(seas);
+    if (an) setAnalytics(an);
     if (s) {
       setSettings(s);
       setSettingsForm({
@@ -189,7 +223,7 @@ export function FinancePage() {
     }
     if (errors.length) setError(errors.join(" · "));
     setLoading(false);
-  }, []);
+  }, [seasonFilter]);
 
   useEffect(() => {
     load();
@@ -212,6 +246,55 @@ export function FinancePage() {
   const caisseRows = useMemo(
     () => ledger.filter((x) => x.category !== "equipment" && x.category !== "achat"),
     [ledger],
+  );
+
+  const financeBars = useMemo(() => {
+    if (!dash) return [];
+    return [
+      { name: "Encaissé", value: Math.round(dash.cotisations_paid) },
+      { name: "Impayés", value: Math.round(dash.cotisations_due) },
+      { name: "Recettes", value: Math.round(dash.ledger_income || 0) },
+      { name: "Dépenses", value: Math.round(dash.ledger_expense) },
+      { name: "Paie", value: Math.round(dash.coach_payroll_total) },
+    ];
+  }, [dash]);
+
+  const payTrend = useMemo(() => {
+    if (!analytics?.months?.length) return [];
+    const start = Math.max(0, analytics.months.length - finPeriod);
+    const mensuel = analytics.payments_by_month.slice(start).map((v) => Math.round(v || 0));
+    let run = 0;
+    const cumule = mensuel.map((v) => {
+      run += v;
+      return run;
+    });
+    return analytics.months.slice(start).map((name, i) => ({
+      name,
+      mensuel: mensuel[i],
+      cumule: cumule[i],
+    }));
+  }, [analytics, finPeriod]);
+
+  const cashTrend = useMemo(() => {
+    if (!analytics?.months?.length) return [];
+    const start = Math.max(0, analytics.months.length - finPeriod);
+    return analytics.months.slice(start).map((name, i) => {
+      const idx = start + i;
+      return {
+        name,
+        recettes: Math.round(analytics.ledger_income_by_month[idx] || 0),
+        depenses: Math.round(analytics.ledger_expense_by_month[idx] || 0),
+      };
+    });
+  }, [analytics, finPeriod]);
+
+  const instDonut = useMemo(
+    () =>
+      Object.entries(analytics?.installments_by_status || {}).map(([name, value]) => ({
+        name,
+        value: Number(value) || 0,
+      })),
+    [analytics?.installments_by_status],
   );
 
   const sortedInstallments = useMemo(() => {
@@ -262,9 +345,10 @@ export function FinancePage() {
         label: [a.label, b.label],
         amount: [a.amount, b.amount],
         date: [a.entry_date, b.entry_date],
+        datetime: [`${a.entry_date}T${a.created_at || ""}`, `${b.entry_date}T${b.created_at || ""}`],
         type: [a.entry_type, b.entry_type],
       };
-      const [va, vb] = map[ledSort.key] ?? [a.entry_date, b.entry_date];
+      const [va, vb] = map[ledSort.key] ?? map.datetime;
       return cmp(va, vb) * dir;
     });
     return rows;
@@ -280,14 +364,36 @@ export function FinancePage() {
         label: [a.label, b.label],
         amount: [a.amount, b.amount],
         date: [a.entry_date, b.entry_date],
+        datetime: [`${a.entry_date}T${a.created_at || ""}`, `${b.entry_date}T${b.created_at || ""}`],
         type: [a.entry_type, b.entry_type],
         category: [a.category, b.category],
       };
-      const [va, vb] = map[ledSort.key] ?? [a.entry_date, b.entry_date];
+      const [va, vb] = map[ledSort.key] ?? map.datetime;
       return cmp(va, vb) * dir;
     });
     return rows;
   }, [caisseRows, ledSort]);
+
+  function formatOpDateTime(row: Ledger): string {
+    if (row.created_at) {
+      try {
+        const d = new Date(row.created_at);
+        if (!Number.isNaN(d.getTime())) {
+          return d.toLocaleString("fr-DZ", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+        }
+      } catch {
+        /* fallthrough */
+      }
+    }
+    return row.entry_date;
+  }
 
   const purchaseTotal = useMemo(() => purchases.reduce((s, x) => s + Number(x.amount || 0), 0), [purchases]);
   const caisseExpense = useMemo(
@@ -530,6 +636,73 @@ export function FinancePage() {
     { id: "caisse", label: "Recettes / Dépenses" },
   ];
 
+  const financeDashboardBlock = (dash || analytics) && (
+    <div className="finance-charts">
+      <div className="finance-dash-head">
+        <div>
+          <h2 style={{ margin: 0, fontSize: "1.15rem" }}>Tableau de bord finance</h2>
+          <p className="muted" style={{ margin: "0.25rem 0 0" }}>
+            Analyse visuelle en bas de page — priorité aux opérations ci-dessus
+          </p>
+        </div>
+        <button type="button" className="accent" onClick={() => setDashFullscreen(true)}>
+          Afficher en plein écran
+        </button>
+      </div>
+      <div className="card slicer-panel" style={{ marginBottom: "1rem" }}>
+        <div className="slicer-panel-head">
+          <strong>Segments finance</strong>
+          <span className="muted" style={{ fontSize: "0.82rem" }}>
+            Étiquettes de données activées
+          </span>
+        </div>
+        <div className="slicer-grid">
+          <SlicerPeriod value={finPeriod} onChange={setFinPeriod} label="Période" />
+        </div>
+      </div>
+      <div className="charts-grid">
+        <VerticalBarChart
+          title="Synthèse (barres)"
+          subtitle="DZD — valeurs affichées"
+          data={financeBars}
+          color="#0f766e"
+          valueLabel="DZD"
+        />
+        <DonutChart title="Échéances (anneau)" subtitle="Valeurs + % sur l’anneau" data={instDonut} />
+      </div>
+      <div className="charts-grid charts-grid-wide" style={{ marginTop: "1rem" }}>
+        <DualBarLineChart
+          title="Encaissements + courbe cumulative"
+          subtitle={`Histogramme + courbe + étiquettes · ${finPeriod} mois`}
+          data={payTrend}
+          barKey="mensuel"
+          barLabel="Mensuel"
+          lineKey="cumule"
+          lineLabel="Cumulé"
+        />
+        <GroupedBarChart
+          title="Recettes vs dépenses"
+          subtitle="Barres groupées + valeurs (DZD)"
+          data={cashTrend}
+          series={[
+            { key: "recettes", label: "Recettes", color: "#16a34a" },
+            { key: "depenses", label: "Dépenses", color: "#dc2626" },
+          ]}
+        />
+      </div>
+      <div className="charts-grid" style={{ marginTop: "1rem" }}>
+        <SoftAreaChart
+          title="Courbe cumulative des encaissements"
+          subtitle="DZD — étiquettes"
+          data={payTrend}
+          keyName="cumule"
+          label="Cumulé"
+          color="#2563eb"
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="grid" style={{ gap: "1rem" }}>
       {loading && <p className="muted">Chargement…</p>}
@@ -541,6 +714,26 @@ export function FinancePage() {
           </button>
         </p>
       )}
+
+      <div className="card" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <strong>Saison (totaux cotisations)</strong>
+        <select
+          value={seasonFilter === "all" ? "all" : String(seasonFilter)}
+          onChange={(e) => setSeasonFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
+          style={{ maxWidth: 280 }}
+        >
+          <option value="all">Toutes les saisons</option>
+          {seasons.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+              {s.is_current ? " (actuelle 2026/2027)" : ""}
+            </option>
+          ))}
+        </select>
+        <span className="muted" style={{ fontSize: "0.85rem" }}>
+          Séparez 2025/2026 et 2026/2027 pour les totaux d’impayés / reçus.
+        </span>
+      </div>
 
       {dash && (
         <div className="grid stats">
@@ -565,17 +758,31 @@ export function FinancePage() {
         </div>
       )}
 
-      <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-        {tabs.map((t) => (
+      <div className="card finance-ops-tabs">
+        <div className="finance-ops-tabs-row">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`finance-tab-btn ${tab === t.id ? "selected" : ""}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
           <button
-            key={t.id}
             type="button"
-            className={tab === t.id ? "primary" : ""}
-            onClick={() => setTab(t.id)}
+            className="finance-tab-btn dash-launch"
+            onClick={() => setDashFullscreen(true)}
+            title="Ouvrir le tableau de bord en grand format"
           >
-            {t.label}
+            Tableau de bord plein écran
           </button>
-        ))}
+        </div>
+        <p className="muted" style={{ margin: "0.55rem 0 0", fontSize: "0.82rem" }}>
+          Onglet sélectionné en jaune — comme un segment Excel / Power BI. Les opérations restent prioritaires ;
+          le tableau de bord analytique est en bas de page.
+        </p>
       </div>
 
       {tab === "cotisations" && (
@@ -958,7 +1165,7 @@ export function FinancePage() {
                     <SortHeader label="Réf" sortKey="reference" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
                     <SortHeader label="Libellé" sortKey="label" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
                     <SortHeader label="Montant" sortKey="amount" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Date" sortKey="date" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Date & heure" sortKey="datetime" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -971,7 +1178,7 @@ export function FinancePage() {
                       </td>
                       <td>{row.label}</td>
                       <td>{Number(row.amount).toLocaleString()} DZD</td>
-                      <td>{row.entry_date}</td>
+                      <td className="ltr">{formatOpDateTime(row)}</td>
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <button type="button" onClick={() => setEditLedger({ ...row })}>
@@ -1122,7 +1329,7 @@ export function FinancePage() {
                     <SortHeader label="Catégorie" sortKey="category" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
                     <SortHeader label="Libellé" sortKey="label" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
                     <SortHeader label="Montant" sortKey="amount" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Date" sortKey="date" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label="Date & heure" sortKey="datetime" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -1137,7 +1344,7 @@ export function FinancePage() {
                       <td>{row.category}</td>
                       <td>{row.label}</td>
                       <td>{Number(row.amount).toLocaleString()} DZD</td>
-                      <td>{row.entry_date}</td>
+                      <td className="ltr">{formatOpDateTime(row)}</td>
                       <td style={{ display: "flex", gap: "0.35rem" }}>
                         <button type="button" onClick={() => setEditLedger({ ...row })}>
                           Modifier
@@ -1162,6 +1369,28 @@ export function FinancePage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Tableau de bord toujours en bas — après les opérations */}
+      {financeDashboardBlock}
+
+      {dashFullscreen && (
+        <div className="finance-dash-overlay" role="dialog" aria-modal="true" aria-label="Tableau de bord finance">
+          <div className="finance-dash-overlay-panel">
+            <div className="finance-dash-overlay-bar">
+              <div>
+                <strong>Tableau de bord finance — plein écran</strong>
+                <span className="muted" style={{ marginLeft: 10, fontSize: "0.85rem" }}>
+                  Segments + étiquettes de données
+                </span>
+              </div>
+              <button type="button" className="secondary" onClick={() => setDashFullscreen(false)}>
+                Fermer
+              </button>
+            </div>
+            <div className="finance-dash-overlay-body">{financeDashboardBlock}</div>
+          </div>
+        </div>
       )}
 
       {editInst && (

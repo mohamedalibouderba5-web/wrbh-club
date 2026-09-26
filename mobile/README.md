@@ -7,7 +7,7 @@ App Android native du club — package `dz.wrbh.club`.
 ```bash
 cd mobile
 npm install
-set EXPO_PUBLIC_API_URL=https://wrbh-api.onrender.com
+set EXPO_PUBLIC_API_URL=http://46.224.38.201:8081
 npx expo start
 ```
 
@@ -17,13 +17,15 @@ Prérequis : JDK 17 + Android SDK. Keystore hors dépôt (`~/.wrbh-signing` + `~
 
 ```bash
 cd mobile
-set EXPO_PUBLIC_API_URL=https://wrbh-api.onrender.com
+set EXPO_PUBLIC_API_URL=http://46.224.38.201:8081
 npx expo prebuild --platform android
 cd android
 gradlew.bat assembleRelease
 ```
 
 APK : `android/app/build/outputs/apk/release/app-release.apk`
+
+Téléchargement prod (Hetzner) : `http://46.224.38.201:8080/wrbh-club-1.5.2.apk`
 
 ## EAS (optionnel)
 

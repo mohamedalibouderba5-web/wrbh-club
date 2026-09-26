@@ -42,6 +42,112 @@ type TeamWithCoaches = {
   coaches: { user_id: number; coach_name?: string; role_label?: string }[];
 };
 
+type NotifPrefs = {
+  user_id: number;
+  notify_on_create: boolean;
+  notify_on_start: boolean;
+  notify_on_end: boolean;
+  notify_on_attendance: boolean;
+  notify_on_cancel: boolean;
+  remind_minutes_before: number;
+  remind_day_before: boolean;
+};
+
+function ParentNotifPrefs() {
+  const [prefs, setPrefs] = useState<NotifPrefs | null>(null);
+  const [msg, setMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      api<NotifPrefs>("/api/v1/parent/notification-prefs")
+        .then(setPrefs)
+        .catch(() => setPrefs(null));
+    }, []),
+  );
+
+  async function save(next: NotifPrefs) {
+    setSaving(true);
+    setMsg("");
+    try {
+      const { user_id: _u, ...body } = next;
+      const saved = await api<NotifPrefs>("/api/v1/parent/notification-prefs", {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+      setPrefs(saved);
+      setMsg("Préférences enregistrées");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggle(key: keyof NotifPrefs) {
+    if (!prefs) return;
+    const next = { ...prefs, [key]: !prefs[key] };
+    setPrefs(next);
+    void save(next);
+  }
+
+  if (!prefs) {
+    return (
+      <View style={{ marginTop: 10 }}>
+        <Text style={styles.muted}>Chargement préférences notifications…</Text>
+      </View>
+    );
+  }
+
+  const rows: { key: keyof NotifPrefs; label: string }[] = [
+    { key: "notify_on_create", label: "Nouvelle séance / match" },
+    { key: "notify_on_start", label: "Début de séance" },
+    { key: "notify_on_end", label: "Fin de séance" },
+    { key: "notify_on_attendance", label: "Présence / absence / retard" },
+    { key: "notify_on_cancel", label: "Annulation" },
+    { key: "remind_day_before", label: "Rappel la veille" },
+  ];
+
+  return (
+    <View style={{ marginTop: 12, gap: 8 }}>
+      <Text style={styles.section}>Suivi parental — notifications</Text>
+      <Text style={styles.muted}>Comme TeamSnap / Heja : choisissez ce que vous recevez.</Text>
+      {rows.map((r) => (
+        <Pressable
+          key={r.key}
+          style={[styles.chip, prefs[r.key] ? styles.chipOn : null]}
+          onPress={() => toggle(r.key)}
+          disabled={saving}
+        >
+          <Text style={[styles.chipText, prefs[r.key] ? styles.chipTextOn : null]}>
+            {prefs[r.key] ? "✓ " : "○ "}
+            {r.label}
+          </Text>
+        </Pressable>
+      ))}
+      <Text style={styles.muted}>Rappel avant séance</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {[0, 15, 60, 180].map((m) => (
+          <Pressable
+            key={m}
+            style={[styles.chip, prefs.remind_minutes_before === m && styles.chipOn]}
+            onPress={() => {
+              const next = { ...prefs, remind_minutes_before: m };
+              setPrefs(next);
+              void save(next);
+            }}
+          >
+            <Text style={[styles.chipText, prefs.remind_minutes_before === m && styles.chipTextOn]}>
+              {m === 0 ? "Off" : m < 60 ? `${m} min` : m === 60 ? "1 h" : "3 h"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {!!msg && <Text style={styles.meta}>{msg}</Text>}
+    </View>
+  );
+}
+
 export default function ProfileScreen() {
   const { fullName, role, logout } = useAuth();
   const [me, setMe] = useState<Me | null>(null);
@@ -112,11 +218,12 @@ export default function ProfileScreen() {
 
       <View style={styles.card}>
         <Text style={styles.section}>Accès application</Text>
-        {isParent && (
+      {isParent && (
           <Text style={styles.muted}>
-            Enfants liés · convocations · agenda · cotisations · annonces · messages au club
+            Enfants liés · convocations · agenda · cotisations · annonces · messages au club · suivi parental
           </Text>
         )}
+        {isParent && <ParentNotifPrefs />}
         {role === "coach" && (
           <Text style={styles.muted}>
             Créer des séances · présences · convocations · annonces · messages
@@ -240,4 +347,15 @@ const styles = StyleSheet.create({
   logoutT: { color: "white", fontWeight: "800" },
   version: { color: "#64748b", textAlign: "center", fontSize: 12, marginTop: 4 },
   ok: { color: colors.success, fontWeight: "700", textAlign: "center" },
+  chip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#fff",
+  },
+  chipOn: { backgroundColor: colors.blue, borderColor: colors.blue },
+  chipText: { color: colors.navy, fontWeight: "700", fontSize: 13 },
+  chipTextOn: { color: "#fff" },
 });

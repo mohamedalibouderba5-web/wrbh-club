@@ -54,8 +54,21 @@ export const statusLabel = (status: string) => {
     staff: "Staff",
     coach: "Coach",
     parent: "Parent",
+    scheduled: "Planifiée",
+    in_progress: "En cours",
+    completed: "Terminée",
+    cancelled: "Annulée",
+    pending_approval: "En validation",
   };
   return map[(status || "").toLowerCase()] || status;
+}
+
+export function sessionBadge(status?: string | null, cancelled?: boolean) {
+  if (cancelled || status === "cancelled") return { label: "Annulée", bg: "#fecaca", fg: "#991b1b" };
+  if (status === "in_progress") return { label: "En cours", bg: "#bbf7d0", fg: "#166534" };
+  if (status === "completed") return { label: "Terminée", bg: "#e2e8f0", fg: "#334155" };
+  if (status === "pending_approval") return { label: "Validation", bg: "#fef08a", fg: "#854d0e" };
+  return { label: "Planifiée", bg: "#dbeafe", fg: "#1e3a8a" };
 };
 
 export function fmtDate(iso?: string | null) {

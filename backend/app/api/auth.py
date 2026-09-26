@@ -181,6 +181,19 @@ def update_user(
 
     data = payload.model_dump(exclude_unset=True)
     new_password = data.pop("password", None)
+    new_role = data.pop("role", None)
+    if new_role is not None:
+        try:
+            role = Role(new_role)
+        except ValueError as exc:
+            raise HTTPException(400, f"Rôle invalide: {new_role}") from exc
+        if role == Role.ADMIN and actor.role != Role.ADMIN:
+            raise HTTPException(403, "Seul un admin peut attribuer le rôle admin")
+        if role == Role.SUPERADMIN:
+            raise HTTPException(403, "Rôle super-admin interdit")
+        if target.role == Role.ADMIN and actor.role != Role.ADMIN:
+            raise HTTPException(403, "Seul un admin peut modifier un compte admin")
+        target.role = str(role)
     if "email" in data and data["email"]:
         other = db.query(User).filter(User.email == data["email"], User.id != user_id).first()
         if other:
@@ -290,7 +303,7 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "1.15.3",
+        "version": "1.16.0",
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,

@@ -107,6 +107,7 @@ export function AppLayout() {
     { to: "/registrations", label: t("registrations"), short: lang === "ar" ? "تسجيل" : "Inscript.", roles: ["admin", "direction", "staff", "parent"] },
     { to: "/agenda", label: t("agenda"), short: lang === "ar" ? "جدول" : "Agenda", roles: null },
     { to: "/teams", label: t("teams"), short: lang === "ar" ? "فرق" : "Équipes", roles: ["admin", "direction", "staff", "coach"] },
+    { to: "/users", label: lang === "ar" ? "الحسابات" : "Comptes", short: lang === "ar" ? "حسابات" : "Comptes", roles: ["admin", "direction"] },
     { to: "/history", label: t("history"), short: lang === "ar" ? "سجل" : "Histo.", roles: ["admin", "direction", "staff"] },
     { to: "/feedback-admin", label: t("feedbackAdmin"), short: lang === "ar" ? "آراء" : "Feedback", roles: ["admin", "direction"] },
     { to: "/finance", label: t("finance"), short: lang === "ar" ? "مالية" : "Finance", roles: ["admin", "direction", "staff"] },

@@ -59,6 +59,7 @@ export function InstallPage() {
 
         <div className="install-actions">
           <Link className="btn-link" to="/login">{ar ? "دخول" : "Se connecter"}</Link>
+          <Link className="btn-link" to="/download">{ar ? "تحميل APK أندرويد" : "Télécharger l’APK Android"}</Link>
         </div>
       </div>
     </div>

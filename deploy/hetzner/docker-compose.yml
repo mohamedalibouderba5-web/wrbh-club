@@ -1,0 +1,76 @@
+# Production compose for /opt/wrbh-club on EXISTING Hetzner VPS only (ali-server).
+# HARD RULES:
+# - NEVER create another Hetzner Cloud server
+# - Do NOT touch /opt/esta or esta_* containers/volumes/networks
+# - Keep Render live until cutover is validated
+# - Bind to high ports so Caddy/esta keep 80/443
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: wrbh-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wrbh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-wrbh}
+    volumes:
+      - wrbh_pg_data:/var/lib/postgresql/data
+    networks:
+      - wrbh_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wrbh-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-wrbh}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wrbh}
+      ENVIRONMENT: production
+      PYTHONPATH: /app
+      PORT: "8000"
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      SECRET_KEY: ${SECRET_KEY}
+    volumes:
+      - wrbh_uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - wrbh_net
+    ports:
+      # Public high ports — does not conflict with esta Caddy :80/:443
+      - "8081:8000"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL}
+    container_name: wrbh-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - wrbh_net
+    ports:
+      - "8080:80"
+
+networks:
+  wrbh_net:
+    name: wrbh_net
+
+volumes:
+  wrbh_pg_data:
+    name: wrbh_pg_data
+  wrbh_uploads:
+    name: wrbh_uploads

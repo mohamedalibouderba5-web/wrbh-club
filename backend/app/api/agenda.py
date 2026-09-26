@@ -13,6 +13,7 @@ from app.models import (
     Athlete,
     Attendance,
     Club,
+    ClubSetting,
     Convocation,
     Event,
     Message,
@@ -34,12 +35,21 @@ from app.schemas import (
     EventCreate,
     EventOut,
     EventUpdate,
+    ParentNotificationPrefIn,
+    ParentNotificationPrefOut,
     RosterAthleteOut,
     ThreadCreate,
     ThreadReplyIn,
 )
-from app.services.notify import notify_team_parents
-
+from app.services.parental import (
+    get_or_create_parent_prefs,
+    notify_attendance_change,
+    notify_event_completed,
+    notify_event_created,
+    notify_event_started,
+    notify_team_parents_filtered,
+    send_due_reminders,
+)
 router = APIRouter(tags=["agenda"])
 
 
@@ -172,6 +182,25 @@ def my_coach_teams(
     return {"user_id": uid, "teams": teams, "count": len(teams)}
 
 
+def _club_setting(db: Session, club_id: int, key: str, default: str = "false") -> str:
+    row = (
+        db.query(ClubSetting)
+        .filter(ClubSetting.club_id == club_id, ClubSetting.key == key)
+        .first()
+    )
+    return (row.value if row else default) or default
+
+
+def _coach_needs_approval(db: Session, club_id: int, user: User) -> bool:
+    if user.role in {Role.ADMIN, Role.DIRECTION, Role.STAFF}:
+        return False
+    require = _club_setting(db, club_id, "parental_require_coach_approval", "false").lower()
+    auto = _club_setting(db, club_id, "parental_auto_approve_coach", "true").lower()
+    if require in {"1", "true", "yes"} and auto not in {"1", "true", "yes"}:
+        return True
+    return False
+
+
 @router.post("/events", response_model=EventOut)
 def create_event(
     payload: EventCreate,
@@ -184,8 +213,112 @@ def create_event(
         data["coach_id"] = _primary_coach_id(db, data["team_id"])
     if data.get("substitute_coach_id") and data.get("coach_id") == data.get("substitute_coach_id"):
         raise HTTPException(400, "Le remplaçant doit être différent du coach titulaire")
+    pending = _coach_needs_approval(db, club_id, user)
+    data["approval_status"] = "pending_approval" if pending else "approved"
+    data["session_status"] = "scheduled"
+    if pending:
+        # Pas de notif parents tant que non validé
+        pass
     event = Event(club_id=club_id, **data)
     db.add(event)
+    db.commit()
+    db.refresh(event)
+    notified = 0
+    if event.approval_status == "approved":
+        notified = notify_event_created(db, event)
+        db.commit()
+    out = _enrich_event(db, event)
+    # attach transient for clients
+    data_out = out.model_dump()
+    data_out["_parents_notified"] = notified
+    return EventOut(**{k: v for k, v in data_out.items() if k != "_parents_notified"})
+
+
+@router.post("/events/{event_id}/approve", response_model=EventOut)
+def approve_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
+    event.approval_status = "approved"
+    event.approved_by = user.id
+    event.approved_at = datetime.now(timezone.utc)
+    notify_event_created(db, event)
+    db.commit()
+    db.refresh(event)
+    return _enrich_event(db, event)
+
+
+@router.post("/events/{event_id}/reject", response_model=EventOut)
+def reject_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
+    event.approval_status = "rejected"
+    event.approved_by = user.id
+    event.approved_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(event)
+    return _enrich_event(db, event)
+
+
+@router.post("/events/{event_id}/start", response_model=EventOut)
+def start_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
+):
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
+    if event.is_cancelled:
+        raise HTTPException(400, "Séance annulée")
+    if event.approval_status != "approved":
+        raise HTTPException(400, "Séance non validée par l’administration")
+    if event.session_status == "completed":
+        raise HTTPException(400, "Séance déjà terminée")
+    event.session_status = "in_progress"
+    event.started_at = datetime.now(timezone.utc)
+    event.started_by = user.id
+    notify_event_started(db, event)
+    db.commit()
+    db.refresh(event)
+    return _enrich_event(db, event)
+
+
+@router.post("/events/{event_id}/complete", response_model=EventOut)
+def complete_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
+):
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
+    if event.is_cancelled:
+        raise HTTPException(400, "Séance annulée")
+    event.session_status = "completed"
+    event.completed_at = datetime.now(timezone.utc)
+    event.completed_by = user.id
+    if not event.started_at:
+        event.started_at = event.completed_at
+        event.started_by = user.id
+    notify_event_completed(db, event)
     db.commit()
     db.refresh(event)
     return _enrich_event(db, event)
@@ -334,13 +467,15 @@ def cancel_event(
     notified = 0
     if payload.notify and event.team_id:
         when = event.starts_at.strftime("%d/%m/%Y %H:%M")
-        notified = notify_team_parents(
+        notified = notify_team_parents_filtered(
             db,
             event.team_id,
             f"Séance annulée / إلغاء الحصة — {event.title}",
             f"{when} — {reason}",
             kind="cancel",
+            pref_flag="notify_on_cancel",
         )
+    event.session_status = "cancelled"
     db.commit()
     db.refresh(event)
     return _enrich_event(db, event)
@@ -387,11 +522,13 @@ def mark_attendance(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
 ):
-    if not db.get(Event, event_id):
+    event = db.get(Event, event_id)
+    if not event:
         raise HTTPException(404, "Événement introuvable")
     results = []
     for item in items:
         row = db.query(Attendance).filter_by(event_id=event_id, athlete_id=item.athlete_id).first()
+        prev = row.status if row else None
         if not row:
             row = Attendance(event_id=event_id, athlete_id=item.athlete_id)
             db.add(row)
@@ -399,9 +536,56 @@ def mark_attendance(
         row.note = item.note
         row.marked_by = user.id
         results.append(row)
+        if prev != item.status:
+            notify_attendance_change(db, event, item.athlete_id, item.status)
     db.commit()
     return {"saved": len(results)}
 
+
+@router.get("/parent/notification-prefs", response_model=ParentNotificationPrefOut)
+def get_parent_prefs(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    if user.role != Role.PARENT and user.role not in {Role.ADMIN, Role.DIRECTION}:
+        # staff may inspect own prefs too
+        pass
+    prefs = get_or_create_parent_prefs(db, user.id, club_id)
+    db.commit()
+    return ParentNotificationPrefOut(
+        user_id=user.id,
+        notify_on_create=prefs.notify_on_create,
+        notify_on_start=prefs.notify_on_start,
+        notify_on_end=prefs.notify_on_end,
+        notify_on_attendance=prefs.notify_on_attendance,
+        notify_on_cancel=prefs.notify_on_cancel,
+        remind_minutes_before=prefs.remind_minutes_before,
+        remind_day_before=prefs.remind_day_before,
+    )
+
+
+@router.put("/parent/notification-prefs", response_model=ParentNotificationPrefOut)
+def put_parent_prefs(
+    payload: ParentNotificationPrefIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    prefs = get_or_create_parent_prefs(db, user.id, club_id)
+    for k, v in payload.model_dump().items():
+        setattr(prefs, k, v)
+    db.commit()
+    db.refresh(prefs)
+    return ParentNotificationPrefOut(user_id=user.id, **payload.model_dump())
+
+
+@router.post("/jobs/parental-reminders")
+def job_parental_reminders(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+):
+    return send_due_reminders(db)
 
 comms_router = APIRouter(tags=["communication"])
 

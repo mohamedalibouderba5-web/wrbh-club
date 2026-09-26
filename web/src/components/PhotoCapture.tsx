@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { mediaUrl, uploadPhoto } from "../api/client";
+import { mediaUrl, uploadPhoto, stableMediaPath } from "../api/client";
 import { isNetworkError } from "../offline/registrationQueue";
 import { useI18n } from "../i18n";
 
@@ -142,7 +142,7 @@ export function PhotoCapture({ value, previewUrl, onUploaded, onLocalFile, athle
 
     try {
       const res = await uploadPhoto(file, athleteId);
-      onUploaded(res.path);
+      onUploaded(stableMediaPath(res.path) || res.path);
       setLocalPreview((prev) => {
         if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
         return null;

@@ -19,6 +19,12 @@ type EventRow = {
   substitute_coach_id?: number | null;
   coach_name?: string;
   substitute_coach_name?: string;
+  session_status?: string;
+  approval_status?: string;
+  notify_parents?: boolean;
+  location_text?: string;
+  started_at?: string;
+  completed_at?: string;
 };
 
 type Team = { id: number; name: string };
@@ -62,6 +68,8 @@ export function AgendaPage() {
     home_away: "home",
     coach_id: 0,
     substitute_coach_id: 0,
+    location_text: "",
+    notify_parents: true,
   });
   const [editForm, setEditForm] = useState({
     event_type: "training",
@@ -192,9 +200,47 @@ export function AgendaPage() {
           home_away: form.event_type === "match" ? form.home_away : null,
           coach_id: form.coach_id || null,
           substitute_coach_id: form.substitute_coach_id || null,
+          location_text: form.location_text.trim() || null,
+          notify_parents: form.notify_parents,
         }),
       });
-      toast("Séance créée", "success");
+      toast(form.notify_parents ? "Séance créée — parents informés" : "Séance créée", "success");
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  async function startSession() {
+    if (!selected) return;
+    try {
+      const ev = await api<EventRow>(`/api/v1/events/${selected.id}/start`, { method: "POST" });
+      setSelected(ev);
+      toast("Séance démarrée — parents notifiés", "success");
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  async function completeSession() {
+    if (!selected) return;
+    try {
+      const ev = await api<EventRow>(`/api/v1/events/${selected.id}/complete`, { method: "POST" });
+      setSelected(ev);
+      toast("Séance terminée — parents notifiés", "success");
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    }
+  }
+
+  async function approveSession() {
+    if (!selected) return;
+    try {
+      const ev = await api<EventRow>(`/api/v1/events/${selected.id}/approve`, { method: "POST" });
+      setSelected(ev);
+      toast("Séance validée — parents informés", "success");
       load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erreur", "error");
@@ -340,6 +386,22 @@ export function AgendaPage() {
               coachOptions.filter((c) => c.id !== form.coach_id),
             )}
           </div>
+          <div className="field">
+            <label>Lieu / stade (suivi parental)</label>
+            <input
+              value={form.location_text}
+              onChange={(e) => setForm({ ...form, location_text: e.target.value })}
+              placeholder="Ex. Stade communal, Terrain B…"
+            />
+          </div>
+          <label className="field" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={form.notify_parents}
+              onChange={(e) => setForm({ ...form, notify_parents: e.target.checked })}
+            />
+            Informer les parents (notifications)
+          </label>
           {form.event_type === "match" && (
             <>
               <div className="field">
@@ -417,6 +479,28 @@ export function AgendaPage() {
                 <h3 style={{ margin: 0 }}>{selected.title}</h3>
                 {selected.title_ar && <div className="ar-line">{selected.title_ar}</div>}
                 <div style={{ color: "var(--muted)" }}>{new Date(selected.starts_at).toLocaleString("fr-DZ")}</div>
+                {selected.location_text && (
+                  <div style={{ marginTop: 4 }}>📍 {selected.location_text}</div>
+                )}
+                <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <span className="badge">
+                    {selected.approval_status === "pending_approval"
+                      ? "En attente validation"
+                      : selected.approval_status === "rejected"
+                        ? "Rejetée"
+                        : "Validée"}
+                  </span>
+                  <span className="badge">
+                    {selected.session_status === "in_progress"
+                      ? "En cours"
+                      : selected.session_status === "completed"
+                        ? "Terminée"
+                        : selected.is_cancelled
+                          ? "Annulée"
+                          : "Planifiée"}
+                  </span>
+                  {selected.notify_parents !== false && <span className="badge">Parents notifiés</span>}
+                </div>
                 {(selected.coach_name || selected.substitute_coach_name) && (
                   <div style={{ color: "var(--muted)", marginTop: 4 }}>
                     {selected.substitute_coach_name
@@ -426,6 +510,28 @@ export function AgendaPage() {
                 )}
               </div>
               <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                {canEdit &&
+                  !selected.is_cancelled &&
+                  selected.approval_status === "pending_approval" &&
+                  (role === "admin" || role === "direction" || role === "staff") && (
+                    <button type="button" className="accent" onClick={() => void approveSession()}>
+                      Valider (parents)
+                    </button>
+                  )}
+                {canEdit &&
+                  !selected.is_cancelled &&
+                  selected.approval_status === "approved" &&
+                  selected.session_status !== "in_progress" &&
+                  selected.session_status !== "completed" && (
+                    <button type="button" className="accent" onClick={() => void startSession()}>
+                      Démarrer la séance
+                    </button>
+                  )}
+                {canEdit && !selected.is_cancelled && selected.session_status === "in_progress" && (
+                  <button type="button" className="primary" onClick={() => void completeSession()}>
+                    Terminer la séance
+                  </button>
+                )}
                 {canEdit && !selected.is_cancelled && (
                   <button type="button" onClick={() => setEditing((v) => !v)}>
                     {editing ? t("cancel") : t("edit")}

@@ -39,6 +39,14 @@ const ITEMS: Item[] = [
     roles: ["admin", "direction", "staff", "coach"],
   },
   {
+    title: "Comptes",
+    titleAr: "الحسابات",
+    subtitle: "Créer / activer coachs, staff, parents",
+    route: "/(tabs)/users",
+    icon: "shield-checkmark",
+    roles: ["admin", "direction"],
+  },
+  {
     title: "Finance / Caisse",
     titleAr: "المالية / الصندوق",
     subtitle: "Cotisations, recettes et dépenses",
@@ -76,6 +84,14 @@ const ITEMS: Item[] = [
     subtitle: "Annonces du club",
     route: "/(tabs)/messages",
     icon: "chatbubbles",
+    roles: null,
+  },
+  {
+    title: "Feedback",
+    titleAr: "ملاحظات",
+    subtitle: "Signaler un bug ou une idée par écran",
+    route: "/(tabs)/feedback",
+    icon: "chatbubble-ellipses",
     roles: null,
   },
   {

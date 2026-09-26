@@ -88,6 +88,9 @@ export function LoginPage() {
         <Link to="/install" className="login-link">
           {lang === "ar" ? "كيف أثبّت التطبيق ؟" : "Comment installer l'application ?"}
         </Link>
+        <Link to="/download" className="login-link">
+          {lang === "ar" ? "تحميل تطبيق أندرويد (APK)" : "Télécharger l’app Android (APK)"}
+        </Link>
       </form>
     </div>
   );

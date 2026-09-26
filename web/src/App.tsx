@@ -14,6 +14,7 @@ import { FinancePage } from "./pages/FinancePage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { AnnouncementsPage } from "./pages/AnnouncementsPage";
 import { DownloadPage } from "./pages/DownloadPage";
+import { UsersPage } from "./pages/UsersPage";
 
 function Private({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="registrations" element={<RegistrationsPage />} />
         <Route path="agenda" element={<AgendaPage />} />
         <Route path="teams" element={<TeamsPage />} />
+        <Route path="users" element={<UsersPage />} />
         <Route path="history" element={<HistoryPage />} />
         <Route path="feedback-admin" element={<FeedbackAdminPage />} />
         <Route path="finance" element={<FinancePage />} />

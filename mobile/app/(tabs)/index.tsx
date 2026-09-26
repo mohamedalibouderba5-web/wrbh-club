@@ -4,7 +4,7 @@ import { router, useFocusEffect } from "expo-router";
 import { api, wakeServer } from "../../src/api/client";
 import { mediaUrl } from "../../src/config";
 import { useAuth } from "../../src/context/AuthContext";
-import { colors, fmtDate, statusLabel } from "../../src/theme";
+import { colors, fmtDate, sessionBadge, statusLabel } from "../../src/theme";
 
 type Child = {
   id: number;
@@ -32,7 +32,10 @@ type Home = {
     starts_at: string;
     event_type: string;
     location?: string;
+    location_text?: string;
     opponent?: string;
+    session_status?: string;
+    is_cancelled?: boolean;
   }[];
   announcements: { id: number; title: string; title_ar?: string; body: string }[];
 };
@@ -170,16 +173,31 @@ export default function HomeScreen() {
       )}
 
       <Text style={styles.section}>Planning (30 jours) / برنامج الشهر</Text>
-      {(home?.upcoming_events || []).map((e) => (
-        <Pressable key={e.id} style={styles.card} onPress={() => router.push("/(tabs)/agenda")}>
-          <Text style={styles.badge}>{statusLabel(e.event_type)}</Text>
-          <Text style={styles.cardTitle}>{e.title}</Text>
-          <Text style={styles.muted}>{fmtDate(e.starts_at)}</Text>
-          {!!e.opponent && <Text style={styles.muted}>vs {e.opponent}</Text>}
-          {!!e.location && <Text style={styles.muted}>{e.location}</Text>}
-        </Pressable>
-      ))}
+      {(home?.upcoming_events || []).map((e) => {
+        const badge = sessionBadge(e.session_status, e.is_cancelled);
+        const place = e.location_text || e.location;
+        return (
+          <Pressable key={e.id} style={styles.card} onPress={() => router.push("/(tabs)/agenda")}>
+            <View style={styles.badgeRow}>
+              <Text style={styles.badge}>{statusLabel(e.event_type)}</Text>
+              <View style={[styles.pill, { backgroundColor: badge.bg }]}>
+                <Text style={[styles.pillT, { color: badge.fg }]}>{badge.label}</Text>
+              </View>
+            </View>
+            <Text style={styles.cardTitle}>{e.title}</Text>
+            <Text style={styles.muted}>{fmtDate(e.starts_at)}</Text>
+            {!!e.opponent && <Text style={styles.muted}>vs {e.opponent}</Text>}
+            {!!place && <Text style={styles.muted}>📍 {place}</Text>}
+          </Pressable>
+        );
+      })}
       {!home?.upcoming_events?.length && <Text style={styles.muted}>Aucun événement à venir</Text>}
+
+      {isParent && (
+        <Pressable style={[styles.shortcut, { marginTop: 4 }]} onPress={() => router.push("/(tabs)/profile")}>
+          <Text style={styles.shortcutT}>Préférences suivi parental</Text>
+        </Pressable>
+      )}
 
       <Text style={styles.section}>Annonces</Text>
       {(home?.announcements || []).map((a) => (
@@ -243,6 +261,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontWeight: "700", color: colors.navy, fontSize: 15 },
   badge: { color: colors.blue, fontWeight: "800", fontSize: 11, textTransform: "uppercase" },
+  badgeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  pill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
+  pillT: { fontSize: 11, fontWeight: "800" },
   wake: { marginVertical: 16, alignItems: "center" },
   wakeText: { color: colors.blue, fontWeight: "700" },
 });

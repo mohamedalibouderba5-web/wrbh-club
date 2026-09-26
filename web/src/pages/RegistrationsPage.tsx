@@ -1,6 +1,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, apiGetFast, formatDateFr, isDzMobile, loadAllSettled, mediaUrl, uploadPhoto } from "../api/client";
+import { api, apiGetFast, formatDateFr, isDzMobile, loadAllSettled, mediaUrl, stableMediaPath, uploadPhoto } from "../api/client";
 import { CallButton, PhoneCell } from "../components/CallButton";
+import { ExportPanel } from "../components/ExportPanel";
+import { KitSizeSelect } from "../components/KitSizeSelect";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { SortHeader, type SortDir } from "../components/SortHeader";
 import { confirmDialog } from "../components/ConfirmDialog";
@@ -325,6 +327,7 @@ export function RegistrationsPage() {
     setReuseAthleteId(null);
     if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
     setPhotoFile(null);
+    const existingPhoto = stableMediaPath(r.athlete_photo) || "";
     setPhotoPreview(null);
     setForm((f) => ({
       ...f,
@@ -337,14 +340,14 @@ export function RegistrationsPage() {
       subscription_fee: r.subscription_fee != null ? String(r.subscription_fee) : f.subscription_fee,
       parent_phone: r.parent_phone || "",
       parent_name: "",
-      photo_path: "",
+      photo_path: existingPhoto,
       blood_type: r.blood_type || "",
       kit_number: r.kit_number != null ? String(r.kit_number) : "",
       kit_size: r.kit_size || "",
       has_jersey: !!r.has_jersey,
       has_backpack: !!r.has_backpack,
     }));
-    // Chemin photo brut + champs complets depuis la fiche athlète
+    // Chemin photo stable + champs complets depuis la fiche athlète
     void api<{
       full_name: string;
       birth_date?: string;
@@ -360,7 +363,7 @@ export function RegistrationsPage() {
           birth_date: a.birth_date || f.birth_date,
           birth_place: a.birth_place || f.birth_place,
           blood_type: a.blood_type || f.blood_type,
-          photo_path: a.photo_path || "",
+          photo_path: stableMediaPath(a.photo_path) || f.photo_path || "",
           parent_phone: a.parent_phone || f.parent_phone,
         }));
       })
@@ -878,7 +881,7 @@ export function RegistrationsPage() {
             value={form.photo_path}
             previewUrl={photoPreview}
             onUploaded={(p) => {
-              setForm((f) => ({ ...f, photo_path: p }));
+              setForm((f) => ({ ...f, photo_path: stableMediaPath(p) || p }));
               setPhotoFile(null);
               setPhotoPreview((prev) => {
                 if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
@@ -952,14 +955,7 @@ export function RegistrationsPage() {
                 Rempli auto avec le plus petit n° libre de la catégorie — modifiable. À imprimer sur tenue et sac.
               </small>
             </div>
-            <div className="field">
-              <label>Taille / مقاس</label>
-              <input
-                placeholder="XS / S / M / L ou pointure"
-                value={form.kit_size}
-                onChange={(e) => setForm({ ...form, kit_size: e.target.value })}
-              />
-            </div>
+            <KitSizeSelect value={form.kit_size} onChange={(kit_size) => setForm({ ...form, kit_size })} />
             <div className="field" style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <input
@@ -1017,6 +1013,8 @@ export function RegistrationsPage() {
         {error && <p style={{ color: "var(--danger, #dc2626)" }}>{error}</p>}
       </form>
 
+      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <ExportPanel defaultSeasonId={form.season_id || undefined} />
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <h3 style={{ marginTop: 0 }}>{t("files")}</h3>
@@ -1274,6 +1272,7 @@ export function RegistrationsPage() {
             ))}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );

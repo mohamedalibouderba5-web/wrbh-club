@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { api, apiGetFast, formatDateFr, isDzMobile, mediaUrl } from "../api/client";
+import { api, apiGetFast, formatDateFr, isDzMobile, mediaUrl, stableMediaPath } from "../api/client";
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
 import { SortHeader, type SortDir } from "../components/SortHeader";
@@ -248,7 +248,7 @@ export function AthletesPage() {
       birth_place: r.birth_place || "",
       parent_phone: r.parent_phone || "",
       parent_name: "",
-      photo_path: r.photo_path || "",
+      photo_path: stableMediaPath(r.photo_path) || "",
     });
     setPayType("monthly");
     setEditPayments([]);
@@ -343,7 +343,7 @@ export function AthletesPage() {
         status: editStatus,
         notes: editNote,
         blood_type: editBlood || null,
-        photo_path: editForm.photo_path || null,
+        photo_path: stableMediaPath(editForm.photo_path) || null,
         confirm_status: true,
       };
       if (editForm.parent_phone) body.parent_phone = editForm.parent_phone;
@@ -742,7 +742,7 @@ export function AthletesPage() {
             <PhotoCapture
               value={editForm.photo_path}
               athleteId={editId ?? undefined}
-              onUploaded={(p) => setEditForm((f) => ({ ...f, photo_path: p }))}
+              onUploaded={(p) => setEditForm((f) => ({ ...f, photo_path: stableMediaPath(p) || p }))}
             />
             <div>
           <div className="field">

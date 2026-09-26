@@ -40,6 +40,22 @@ type Notif = {
   is_read: boolean;
   created_at?: string;
 };
+
+const NOTIF_KIND: Record<string, string> = {
+  session_create: "Nouvelle séance",
+  session_start: "Séance démarrée",
+  session_end: "Séance terminée",
+  attendance: "Présence",
+  cancel: "Annulation",
+  reminder: "Rappel",
+  info: "Info",
+};
+
+function kindLabel(kind?: string) {
+  if (!kind) return "Info";
+  return NOTIF_KIND[kind] || statusLabel(kind) || kind;
+}
+
 type ThreadDetail = {
   id: number;
   subject: string;
@@ -409,7 +425,7 @@ export default function MessagesScreen() {
               <Text style={styles.title}>{n.title}</Text>
               <Text style={styles.muted}>{n.body}</Text>
               <Text style={styles.meta}>
-                {n.kind || "info"}
+                {kindLabel(n.kind)}
                 {n.created_at ? ` · ${fmtDate(n.created_at)}` : ""}
               </Text>
             </View>

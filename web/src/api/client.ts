@@ -32,14 +32,30 @@ function authHeader(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export function stableMediaPath(path?: string | null): string | null {
+  if (!path) return null;
+  let p = path.trim();
+  try {
+    if (p.startsWith("http://") || p.startsWith("https://")) {
+      p = new URL(p).pathname;
+    }
+  } catch {
+    /* keep as-is */
+  }
+  p = p.split("?")[0];
+  return p || null;
+}
+
 export function mediaUrl(path?: string | null): string | undefined {
   if (!path) return undefined;
-  let url = path.startsWith("http") ? path : `${API_BASE}${path}`;
-  // Fallback auth pour chemins non signés (img ne peut pas envoyer Bearer)
-  if (url.includes("/media/") && !url.includes("sig=") && !url.includes("access_token=")) {
+  // Toujours chemin stable + token : les URLs signées expirent et cassent l’aperçu à la réédition
+  const stable = stableMediaPath(path) || path;
+  let url = stable.startsWith("http") ? stable : `${API_BASE}${stable}`;
+  if (url.includes("/media/")) {
     const token = localStorage.getItem("wrbh_token");
     if (token) {
-      url += `${url.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token)}`;
+      const base = url.split("?")[0];
+      url = `${base}?access_token=${encodeURIComponent(token)}`;
     }
   }
   return url;

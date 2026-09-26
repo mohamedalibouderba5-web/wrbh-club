@@ -34,6 +34,7 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     full_name: Optional[str] = None
     full_name_ar: Optional[str] = None
+    role: Optional[str] = None
     is_active: Optional[bool] = None
     locale: Optional[str] = None
     password: Optional[str] = Field(None, min_length=8)
@@ -111,6 +112,37 @@ class TeamOut(ORMModel):
     name: str
     name_ar: Optional[str]
     code: Optional[str]
+
+
+class TeamCreate(BaseModel):
+    """Création personnalisée d'équipe (+ catégorie si besoin)."""
+
+    category_id: Optional[int] = None
+    # Nouvelle catégorie si category_id absent
+    category_code: Optional[str] = Field(None, max_length=20)
+    category_name: Optional[str] = Field(None, max_length=80)
+    category_name_ar: Optional[str] = Field(None, max_length=80)
+    birth_year_min: Optional[int] = None
+    birth_year_max: Optional[int] = None
+    season_id: Optional[int] = None
+    # Équipe
+    name: Optional[str] = Field(None, max_length=80)
+    name_ar: Optional[str] = Field(None, max_length=80)
+    code: Optional[str] = Field(None, max_length=40)
+    # Auto : G1, G2… si non fourni
+    auto_group: bool = True
+    coach_ids: list[int] = Field(default_factory=list)
+    primary_coach_id: Optional[int] = None
+
+
+class CategoryCreate(BaseModel):
+    code: str = Field(max_length=20)
+    name: str = Field(max_length=80)
+    name_ar: Optional[str] = None
+    birth_year_min: int
+    birth_year_max: int
+    season_id: Optional[int] = None
+    discipline_id: Optional[int] = None
 
 
 class TeamCoachOut(BaseModel):
@@ -285,6 +317,8 @@ class EventCreate(BaseModel):
     home_away: Optional[str] = None
     coach_id: Optional[int] = None
     substitute_coach_id: Optional[int] = None
+    notify_parents: bool = True
+    location_text: Optional[str] = None
 
 
 class EventUpdate(BaseModel):
@@ -305,6 +339,8 @@ class EventUpdate(BaseModel):
     score_home: Optional[int] = None
     score_away: Optional[int] = None
     clear_substitute: bool = False
+    notify_parents: Optional[bool] = None
+    location_text: Optional[str] = None
 
 
 class EventOut(ORMModel):
@@ -327,11 +363,31 @@ class EventOut(ORMModel):
     substitute_coach_id: Optional[int] = None
     coach_name: Optional[str] = None
     substitute_coach_name: Optional[str] = None
+    approval_status: str = "approved"
+    session_status: str = "scheduled"
+    notify_parents: bool = True
+    location_text: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
 
 class EventCancelIn(BaseModel):
     reason: Optional[str] = None
     notify: bool = True
+
+
+class ParentNotificationPrefIn(BaseModel):
+    notify_on_create: bool = True
+    notify_on_start: bool = True
+    notify_on_end: bool = True
+    notify_on_attendance: bool = True
+    notify_on_cancel: bool = True
+    remind_minutes_before: int = 60
+    remind_day_before: bool = True
+
+
+class ParentNotificationPrefOut(ParentNotificationPrefIn):
+    user_id: int
 
 
 class RosterAthleteOut(BaseModel):
@@ -479,6 +535,8 @@ class LedgerOut(ORMModel):
     seq_no: Optional[int] = None
     reference: Optional[str] = None
     is_archived: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class AnnouncementCreate(BaseModel):

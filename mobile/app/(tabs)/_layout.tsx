@@ -89,11 +89,13 @@ export default function TabsLayout() {
 
       {/* Écrans accessibles depuis Plus (pas dans la barre) */}
       <Tabs.Screen name="profile" options={{ title: "Profil", href: null }} />
+      <Tabs.Screen name="feedback" options={{ title: "Feedback", href: null }} />
       <Tabs.Screen name="athletes" options={{ title: "Athlètes", href: null }} />
       <Tabs.Screen name="registrations" options={{ title: "Inscriptions", href: null }} />
       <Tabs.Screen name="inventory" options={{ title: "Matériel", href: null }} />
       <Tabs.Screen name="history" options={{ title: "Historique", href: null }} />
       <Tabs.Screen name="teams" options={{ title: "Équipes", href: null }} />
+      <Tabs.Screen name="users" options={{ title: "Comptes", href: null }} />
     </Tabs>
   );
 }

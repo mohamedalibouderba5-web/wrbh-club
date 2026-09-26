@@ -1,4 +1,5 @@
-from datetime import date
+from calendar import month_abbr
+from datetime import date, datetime, timezone
 from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,7 +10,7 @@ from app.api.deps import get_current_user, require_roles
 from app.core.tenant import assert_same_club, get_current_club_id
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.roles import Role
+from app.core.roles import Role, TEAM_COACH_ROLES
 from app.core.security import hash_password
 from app.models import (
     Announcement,
@@ -25,6 +26,7 @@ from app.models import (
     FeeInstallment,
     InventoryAssignment,
     InventoryItem,
+    LedgerEntry,
     Notification,
     ParentChild,
     Payment,
@@ -39,6 +41,7 @@ from app.schemas import (
     AthleteCreate,
     AthleteOut,
     AthleteUpdate,
+    CategoryCreate,
     CategoryOut,
     RegistrationCreate,
     RegistrationOut,
@@ -46,6 +49,7 @@ from app.schemas import (
     SeasonOut,
     TeamCoachAssignIn,
     TeamCoachOut,
+    TeamCreate,
     TeamOut,
     TeamWithCoachesOut,
 )
@@ -257,12 +261,19 @@ def bootstrap(db: Session = Depends(get_db), user: User = Depends(get_current_us
         except Exception:
             finance = None
 
+    analytics = None
+    try:
+        analytics = club_analytics(db, user)
+    except Exception:
+        analytics = None
+
     payload = {
         "seasons": [s.model_dump() if hasattr(s, "model_dump") else s for s in seasons],
         "categories": [c.model_dump() if hasattr(c, "model_dump") else c for c in categories],
         "stats": stats,
         "events_count": int(events_count),
         "finance": finance,
+        "analytics": analytics,
     }
     cache_set(key, payload, 25)
     return payload
@@ -377,8 +388,8 @@ def assign_team_coaches(
         if item.user_id in seen:
             continue
         coach = db.get(User, item.user_id)
-        if not coach or coach.role != Role.COACH:
-            raise HTTPException(400, f"Utilisateur {item.user_id} n'est pas un coach")
+        if not coach or coach.role not in TEAM_COACH_ROLES:
+            raise HTTPException(400, f"Utilisateur {item.user_id} ne peut pas être entraîneur")
         if getattr(coach, "club_id", None) not in (None, club_id):
             raise HTTPException(400, f"Coach {item.user_id} hors de ce club")
         label = "primary" if item.is_primary or item.role_label == "primary" else (item.role_label or "coach")
@@ -483,25 +494,193 @@ def list_coaches(
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
     club_id: int = Depends(get_current_club_id),
 ):
-    """Liste des utilisateurs rôle coach (pour sélection agenda / équipes)."""
+    """Liste des entraîneurs assignables + catégories/équipes liées."""
     q = db.query(User).filter(
-        User.role == Role.COACH,
+        User.role.in_(tuple(TEAM_COACH_ROLES)),
         or_(User.club_id == club_id, User.club_id.is_(None)),
     )
     if not include_inactive:
         q = q.filter(User.is_active.is_(True))
     rows = q.order_by(User.full_name).all()
-    return [
-        {
-            "id": u.id,
-            "full_name": u.full_name,
-            "full_name_ar": u.full_name_ar,
-            "phone": u.phone,
-            "email": u.email,
-            "is_active": u.is_active,
-        }
-        for u in rows
-    ]
+    cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+    cat_ids = set()
+    if cur:
+        cat_ids = {c.id for c in db.query(Category.id).filter(Category.season_id == cur.id)}
+    out = []
+    for u in rows:
+        links = (
+            db.query(TeamCoach, Team, Category)
+            .join(Team, Team.id == TeamCoach.team_id)
+            .outerjoin(Category, Category.id == Team.category_id)
+            .filter(TeamCoach.user_id == u.id)
+            .all()
+        )
+        teams_info = []
+        for tc, team, cat in links:
+            if cat_ids and team.category_id not in cat_ids:
+                continue
+            teams_info.append(
+                {
+                    "team_id": team.id,
+                    "team_name": team.name,
+                    "team_code": team.code,
+                    "category_code": cat.code if cat else None,
+                    "category_name": cat.name if cat else None,
+                    "role_label": tc.role_label,
+                }
+            )
+        cats = sorted({t["category_code"] for t in teams_info if t.get("category_code")})
+        out.append(
+            {
+                "id": u.id,
+                "full_name": u.full_name,
+                "full_name_ar": u.full_name_ar,
+                "phone": u.phone,
+                "email": u.email,
+                "is_active": u.is_active,
+                "role": u.role,
+                "categories": cats,
+                "teams": teams_info,
+            }
+        )
+    return out
+
+
+@router.post("/categories", response_model=CategoryOut)
+def create_category(
+    payload: CategoryCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    season_id = payload.season_id
+    if not season_id:
+        cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+        if not cur:
+            raise HTTPException(400, "Aucune saison courante")
+        season_id = cur.id
+    disc_id = payload.discipline_id
+    if not disc_id:
+        disc = db.query(Discipline).filter(or_(Discipline.club_id == club_id, Discipline.club_id.is_(None))).first()
+        if not disc:
+            raise HTTPException(400, "Aucune discipline configurée")
+        disc_id = disc.id
+    code = payload.code.strip().upper()
+    exists = (
+        db.query(Category)
+        .filter(Category.season_id == season_id, Category.code == code)
+        .first()
+    )
+    if exists:
+        raise HTTPException(400, f"Catégorie {code} déjà existante")
+    if payload.birth_year_min > payload.birth_year_max:
+        raise HTTPException(400, "Année min > année max")
+    cat = Category(
+        club_id=club_id,
+        season_id=season_id,
+        discipline_id=disc_id,
+        code=code,
+        name=payload.name.strip(),
+        name_ar=payload.name_ar,
+        birth_year_min=payload.birth_year_min,
+        birth_year_max=payload.birth_year_max,
+        is_active=True,
+    )
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    _bust_club_caches()
+    return CategoryOut.model_validate(cat)
+
+
+@router.post("/teams", response_model=TeamOut)
+def create_team(
+    payload: TeamCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Création personnalisée : catégorie existante ou nouvelle + équipe G1/G2/G3 auto."""
+    season_id = payload.season_id
+    if not season_id:
+        cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+        if not cur:
+            raise HTTPException(400, "Aucune saison courante")
+        season_id = cur.id
+
+    cat: Category | None = None
+    if payload.category_id:
+        cat = db.get(Category, payload.category_id)
+        if not cat:
+            raise HTTPException(404, "Catégorie introuvable")
+    else:
+        if not payload.category_code or not payload.category_name:
+            raise HTTPException(400, "category_id ou category_code+name requis")
+        if payload.birth_year_min is None or payload.birth_year_max is None:
+            raise HTTPException(400, "birth_year_min et birth_year_max requis pour une nouvelle catégorie")
+        if payload.birth_year_min > payload.birth_year_max:
+            raise HTTPException(400, "Année min > année max")
+        disc = db.query(Discipline).filter(or_(Discipline.club_id == club_id, Discipline.club_id.is_(None))).first()
+        if not disc:
+            raise HTTPException(400, "Aucune discipline configurée")
+        code_new = payload.category_code.strip().upper()
+        if db.query(Category).filter(Category.season_id == season_id, Category.code == code_new).first():
+            raise HTTPException(400, f"Catégorie {code_new} déjà existante")
+        cat = Category(
+            club_id=club_id,
+            season_id=season_id,
+            discipline_id=disc.id,
+            code=code_new,
+            name=payload.category_name.strip(),
+            name_ar=payload.category_name_ar,
+            birth_year_min=payload.birth_year_min,
+            birth_year_max=payload.birth_year_max,
+            is_active=True,
+        )
+        db.add(cat)
+        db.flush()
+
+    assert cat is not None
+    existing = db.query(Team).filter(Team.category_id == cat.id).order_by(Team.id).all()
+    next_n = len(existing) + 1
+    code = (payload.code or f"{cat.code}G{next_n}").strip().upper()
+    name = (payload.name or f"{cat.code} Groupe {next_n}").strip()
+    name_ar = payload.name_ar or f"{cat.code} مجموعة {next_n}"
+    if db.query(Team).filter(Team.category_id == cat.id, Team.code == code).first():
+        raise HTTPException(400, f"Équipe {code} déjà existante")
+
+    team = Team(club_id=club_id, category_id=cat.id, name=name, name_ar=name_ar, code=code)
+    db.add(team)
+    db.flush()
+
+    coach_ids = list(dict.fromkeys(payload.coach_ids or []))
+    primary = payload.primary_coach_id or (coach_ids[0] if coach_ids else None)
+    for uid in coach_ids:
+        cu = db.get(User, uid)
+        if not cu or cu.role not in TEAM_COACH_ROLES:
+            continue
+        db.add(
+            TeamCoach(
+                club_id=club_id,
+                team_id=team.id,
+                user_id=uid,
+                role_label="primary" if uid == primary else "coach",
+            )
+        )
+
+    write_audit(
+        db,
+        action="create",
+        entity="team",
+        entity_id=team.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"{code} cat={cat.code}",
+    )
+    db.commit()
+    db.refresh(team)
+    _bust_club_caches()
+    return TeamOut.model_validate(team)
 
 
 # Structure saison 2026/2027 demandée par le gérant du club (ABDO H)
@@ -712,6 +891,177 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
         "parents_count": int(parents),
     }
     _STATS_CACHE[club_id] = {"ts": now, "payload": payload}
+    return payload
+
+
+def _month_keys(months: int = 12) -> list[tuple[int, int, str]]:
+    """Liste (year, month, label) des N derniers mois, du plus ancien au plus récent."""
+    today = date.today().replace(day=1)
+    out: list[tuple[int, int, str]] = []
+    y, m = today.year, today.month
+    for _ in range(months):
+        label = f"{month_abbr[m]} {str(y)[2:]}"
+        out.append((y, m, label))
+        m -= 1
+        if m < 1:
+            m = 12
+            y -= 1
+    out.reverse()
+    return out
+
+
+@router.get("/stats/analytics")
+def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Séries pour tableaux de bord (barres, histogrammes, anneaux, secteurs, courbes)."""
+    club_id = getattr(user, "club_id", None)
+    cache_key = f"analytics:{club_id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    def _ath(q):
+        if club_id:
+            return q.filter(or_(Athlete.club_id == club_id, Athlete.club_id.is_(None)))
+        return q
+
+    months = _month_keys(12)
+    month_index = {(y, m): i for i, (y, m, _) in enumerate(months)}
+    labels = [lab for _, _, lab in months]
+
+    # --- Athlètes / categories (déjà dans stats, mais utile en standalone) ---
+    by_status = {
+        str(status or "—"): int(count)
+        for status, count in _ath(db.query(Athlete.status, func.count(Athlete.id)))
+        .group_by(Athlete.status)
+        .all()
+    }
+
+    season = db.query(Season).filter(Season.is_current.is_(True)).first()
+    categories: list[dict] = []
+    if season:
+        light = _ath(db.query(Athlete.birth_date)).all()
+        for cat in (
+            db.query(Category)
+            .filter(Category.season_id == season.id)
+            .order_by(Category.birth_year_min)
+            .all()
+        ):
+            n = sum(
+                1
+                for (bdate,) in light
+                if bdate and cat.birth_year_min <= bdate.year <= cat.birth_year_max
+            )
+            categories.append({"code": cat.code, "name": cat.name, "members": n})
+
+    # --- Inscriptions par mois ---
+    regs_series = [0] * len(months)
+    reg_q = db.query(
+        extract("year", Registration.created_at).label("y"),
+        extract("month", Registration.created_at).label("m"),
+        func.count(Registration.id),
+    )
+    if club_id:
+        reg_q = reg_q.filter(or_(Registration.club_id == club_id, Registration.club_id.is_(None)))
+    for y, m, cnt in reg_q.group_by("y", "m").all():
+        idx = month_index.get((int(y), int(m)))
+        if idx is not None:
+            regs_series[idx] = int(cnt)
+
+    # --- Paiements (montant) par mois ---
+    payments_series = [0.0] * len(months)
+    pay_q = db.query(
+        extract("year", Payment.paid_on).label("y"),
+        extract("month", Payment.paid_on).label("m"),
+        func.coalesce(func.sum(Payment.amount), 0),
+    )
+    if club_id:
+        pay_q = pay_q.filter(or_(Payment.club_id == club_id, Payment.club_id.is_(None)))
+    for y, m, total in pay_q.group_by("y", "m").all():
+        idx = month_index.get((int(y), int(m)))
+        if idx is not None:
+            payments_series[idx] = float(total or 0)
+
+    # --- Caisse revenus / dépenses par mois ---
+    income_series = [0.0] * len(months)
+    expense_series = [0.0] * len(months)
+    led_q = db.query(
+        extract("year", LedgerEntry.entry_date).label("y"),
+        extract("month", LedgerEntry.entry_date).label("m"),
+        LedgerEntry.entry_type,
+        func.coalesce(func.sum(LedgerEntry.amount), 0),
+    ).filter(or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)))
+    if club_id:
+        led_q = led_q.filter(or_(LedgerEntry.club_id == club_id, LedgerEntry.club_id.is_(None)))
+    for y, m, etype, total in led_q.group_by("y", "m", LedgerEntry.entry_type).all():
+        idx = month_index.get((int(y), int(m)))
+        if idx is None:
+            continue
+        if etype == "income":
+            income_series[idx] = float(total or 0)
+        elif etype == "expense":
+            expense_series[idx] = float(total or 0)
+
+    # --- Séances par mois + type ---
+    events_series = [0] * len(months)
+    events_by_type: dict[str, int] = {}
+    ev_q = db.query(
+        extract("year", Event.starts_at).label("y"),
+        extract("month", Event.starts_at).label("m"),
+        func.count(Event.id),
+    ).filter(Event.is_cancelled.is_(False))
+    if club_id:
+        ev_q = ev_q.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
+    for y, m, cnt in ev_q.group_by("y", "m").all():
+        idx = month_index.get((int(y), int(m)))
+        if idx is not None:
+            events_series[idx] = int(cnt)
+
+    type_q = db.query(Event.event_type, func.count(Event.id)).filter(Event.is_cancelled.is_(False))
+    if club_id:
+        type_q = type_q.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
+    for etype, cnt in type_q.group_by(Event.event_type).all():
+        events_by_type[str(etype or "other")] = int(cnt)
+
+    # --- Présences ---
+    attendance_by_status: dict[str, int] = {}
+    att_q = db.query(Attendance.status, func.count(Attendance.id))
+    if club_id:
+        att_q = att_q.filter(or_(Attendance.club_id == club_id, Attendance.club_id.is_(None)))
+    for st, cnt in att_q.group_by(Attendance.status).all():
+        attendance_by_status[str(st or "—")] = int(cnt)
+
+    # --- Échéances cotisations ---
+    installments_by_status: dict[str, int] = {}
+    inst_q = db.query(FeeInstallment.status, func.count(FeeInstallment.id))
+    if club_id:
+        inst_q = inst_q.filter(or_(FeeInstallment.club_id == club_id, FeeInstallment.club_id.is_(None)))
+    for st, cnt in inst_q.group_by(FeeInstallment.status).all():
+        installments_by_status[str(st or "—")] = int(cnt)
+
+    # Courbe cumulée encaissements
+    cumulative_payments: list[float] = []
+    running = 0.0
+    for v in payments_series:
+        running += v
+        cumulative_payments.append(round(running, 2))
+
+    payload = {
+        "currency": "DZD",
+        "months": labels,
+        "registrations_by_month": regs_series,
+        "payments_by_month": [round(v, 2) for v in payments_series],
+        "payments_cumulative": cumulative_payments,
+        "ledger_income_by_month": [round(v, 2) for v in income_series],
+        "ledger_expense_by_month": [round(v, 2) for v in expense_series],
+        "events_by_month": events_series,
+        "events_by_type": events_by_type,
+        "athletes_by_status": by_status,
+        "athletes_by_category": categories,
+        "attendance_by_status": attendance_by_status,
+        "installments_by_status": installments_by_status,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    cache_set(cache_key, payload, 45)
     return payload
 
 

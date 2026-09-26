@@ -2,7 +2,7 @@
   "expo": {
     "name": "WRBH Club",
     "slug": "wrbh-club",
-    "version": "1.5.1",
+    "version": "1.6.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "scheme": "wrbh",
@@ -23,7 +23,8 @@
         "backgroundColor": "#1E3A8A"
       },
       "package": "dz.wrbh.club",
-      "versionCode": 7,
+      "versionCode": 9,
+      "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.CAMERA",
@@ -70,7 +71,7 @@
       "expo-font"
     ],
     "extra": {
-      "apiUrl": "https://wrbh-api.onrender.com"
+      "apiUrl": "http://46.224.38.201:8081"
     }
   }
 }

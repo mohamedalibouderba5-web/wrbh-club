@@ -7,7 +7,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from app.api import agenda, auth, club, feedback, finance, mobile, uploads
+from app.api import agenda, auth, club, exports, feedback, finance, mobile, uploads
 from app.core.config import get_settings
 from app.core.database import Base, engine
 from app.services.feedback_store import append_event
@@ -74,6 +74,16 @@ def _ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS ix_registrations_athlete_season ON registrations (athlete_id, season_id)",
         "CREATE INDEX IF NOT EXISTS ix_emergency_contacts_athlete ON emergency_contacts (athlete_id)",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS substitute_coach_id INTEGER",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS approval_status VARCHAR(30) DEFAULT 'approved'",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS session_status VARCHAR(30) DEFAULT 'scheduled'",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS notify_parents BOOLEAN DEFAULT true",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS location_text VARCHAR(255)",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS started_by INTEGER",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS completed_by INTEGER",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS approved_by INTEGER",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ",
         # --- Multi-tenant (alembic 003) : champs Club ---
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS slug VARCHAR(60)",
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS favicon_path VARCHAR(255)",
@@ -208,7 +218,7 @@ _openapi = None if settings.is_production else "/api/openapi.json"
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.15.3",
+    version="1.16.0",
     docs_url=_docs,
     redoc_url=_redoc,
     openapi_url=_openapi,
@@ -284,6 +294,7 @@ app.include_router(finance.inv_router, prefix="/api/v1")
 app.include_router(mobile.router, prefix="/api/v1")
 app.include_router(uploads.router, prefix="/api/v1")
 app.include_router(feedback.router, prefix="/api/v1")
+app.include_router(exports.router, prefix="/api/v1")
 
 
 @app.exception_handler(Exception)

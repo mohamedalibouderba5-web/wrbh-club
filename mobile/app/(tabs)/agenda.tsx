@@ -11,7 +11,7 @@ import {
 import { useFocusEffect } from "expo-router";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/context/AuthContext";
-import { colors, fmtDate, statusColor, statusLabel } from "../../src/theme";
+import { colors, fmtDate, sessionBadge, statusColor, statusLabel } from "../../src/theme";
 
 type EventRow = {
   id: number;
@@ -27,6 +27,10 @@ type EventRow = {
   is_cancelled?: boolean;
   coach_name?: string;
   substitute_coach_name?: string;
+  session_status?: string;
+  approval_status?: string;
+  location_text?: string;
+  notify_parents?: boolean;
 };
 type Team = { id: number; name: string; category_code?: string; code?: string };
 type Conv = {
@@ -55,6 +59,7 @@ function tomorrowLocalParts() {
 export default function AgendaScreen() {
   const { role } = useAuth();
   const isCoach = role === "coach" || role === "admin" || role === "staff" || role === "direction";
+  const canApprove = role === "admin" || role === "direction" || role === "staff";
   const [events, setEvents] = useState<EventRow[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [convs, setConvs] = useState<Conv[]>([]);
@@ -77,6 +82,8 @@ export default function AgendaScreen() {
     opponent: "",
     home_away: "home",
     description: "",
+    location_text: "",
+    notify_parents: true,
   });
 
   const load = useCallback(async () => {
@@ -152,6 +159,84 @@ export default function AgendaScreen() {
     setRoster((rows) =>
       rows.map((r) => (r.athlete_id === athleteId ? { ...r, attendance_status: status } : r)),
     );
+    setMsg("Présence enregistrée — parent notifié");
+  }
+
+  async function startSession() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const ev = await api<EventRow>(`/api/v1/events/${selected.id}/start`, { method: "POST" });
+      setSelected(ev);
+      setMsg("Séance démarrée — parents informés");
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur démarrage");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function completeSession() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const ev = await api<EventRow>(`/api/v1/events/${selected.id}/complete`, { method: "POST" });
+      setSelected(ev);
+      setMsg("Séance terminée — parents informés");
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur fin de séance");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function approveSession() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const ev = await api<EventRow>(`/api/v1/events/${selected.id}/approve`, { method: "POST" });
+      setSelected(ev);
+      setMsg("Séance validée — parents informés si activé");
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur validation");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function rejectSession() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const ev = await api<EventRow>(`/api/v1/events/${selected.id}/reject`, { method: "POST" });
+      setSelected(ev);
+      setMsg("Séance rejetée");
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur rejet");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markAllPresent() {
+    if (!selected || !roster.length) return;
+    setSaving(true);
+    try {
+      await api(`/api/v1/events/${selected.id}/attendance`, {
+        method: "POST",
+        body: JSON.stringify(roster.map((r) => ({ athlete_id: r.athlete_id, status: "present" }))),
+      });
+      setRoster((rows) => rows.map((r) => ({ ...r, attendance_status: "present" })));
+      setMsg("Tous présents — parents notifiés");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur pointage");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function inviteAll() {
@@ -210,9 +295,11 @@ export default function AgendaScreen() {
           team_id: form.team_id || null,
           opponent: form.event_type === "match" ? form.opponent || null : null,
           home_away: form.event_type === "match" ? form.home_away : null,
+          location_text: form.location_text.trim() || null,
+          notify_parents: form.notify_parents,
         }),
       });
-      setMsg("Séance créée");
+      setMsg(form.notify_parents ? "Séance créée — parents informés" : "Séance créée");
       setShowCreate(false);
       setSelected(created);
       if (isCoach) {
@@ -369,6 +456,22 @@ export default function AgendaScreen() {
                 </>
               )}
 
+              <Text style={styles.label}>Lieu / stade</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Stade, terrain…"
+                value={form.location_text}
+                onChangeText={(t) => setForm((f) => ({ ...f, location_text: t }))}
+              />
+              <Pressable
+                style={[styles.chip, form.notify_parents && styles.chipOn, { alignSelf: "flex-start", marginBottom: 8 }]}
+                onPress={() => setForm((f) => ({ ...f, notify_parents: !f.notify_parents }))}
+              >
+                <Text style={[styles.chipText, form.notify_parents && styles.chipTextOn]}>
+                  {form.notify_parents ? "✓ Informer les parents" : "Ne pas informer les parents"}
+                </Text>
+              </Pressable>
+
               <Text style={styles.label}>Notes</Text>
               <TextInput
                 style={[styles.input, { minHeight: 64, textAlignVertical: "top" }]}
@@ -386,34 +489,55 @@ export default function AgendaScreen() {
       )}
 
       <Text style={styles.section}>Séances / الحصص</Text>
-      {upcoming.map((e) => (
-        <Pressable
-          key={e.id}
-          style={[styles.session, e.is_cancelled && styles.cancelled, selected?.id === e.id && styles.selected]}
-          onPress={() => openSession(e)}
-        >
-          <View style={styles.sessionTop}>
-            <Text style={styles.sessionType}>{statusLabel(e.event_type)}</Text>
-            {e.is_cancelled && <Text style={styles.badgeCancel}>ANNULÉ</Text>}
-          </View>
-          <Text style={styles.sessionTitle}>{e.title}</Text>
-          {!!e.title_ar && <Text style={styles.sessionAr}>{e.title_ar}</Text>}
-          <Text style={styles.sessionMeta}>{fmtDate(e.starts_at)}</Text>
-          {!!e.opponent && (
-            <Text style={styles.sessionMeta}>
-              vs {e.opponent}
-              {e.home_away ? ` · ${e.home_away === "home" ? "Domicile" : "Extérieur"}` : ""}
-            </Text>
-          )}
-          {!!e.coach_name && <Text style={styles.sessionMeta}>Coach : {e.coach_name}</Text>}
-        </Pressable>
-      ))}
+      {upcoming.map((e) => {
+        const badge = sessionBadge(
+          e.approval_status === "pending_approval" ? "pending_approval" : e.session_status,
+          e.is_cancelled,
+        );
+        return (
+          <Pressable
+            key={e.id}
+            style={[styles.session, e.is_cancelled && styles.cancelled, selected?.id === e.id && styles.selected]}
+            onPress={() => openSession(e)}
+          >
+            <View style={styles.sessionTop}>
+              <Text style={styles.sessionType}>{statusLabel(e.event_type)}</Text>
+              <View style={[styles.statusPill, { backgroundColor: badge.bg }]}>
+                <Text style={[styles.statusPillT, { color: badge.fg }]}>{badge.label}</Text>
+              </View>
+            </View>
+            <Text style={styles.sessionTitle}>{e.title}</Text>
+            {!!e.title_ar && <Text style={styles.sessionAr}>{e.title_ar}</Text>}
+            <Text style={styles.sessionMeta}>{fmtDate(e.starts_at)}</Text>
+            {!!e.location_text && <Text style={styles.sessionMeta}>📍 {e.location_text}</Text>}
+            {!!e.opponent && (
+              <Text style={styles.sessionMeta}>
+                vs {e.opponent}
+                {e.home_away ? ` · ${e.home_away === "home" ? "Domicile" : "Extérieur"}` : ""}
+              </Text>
+            )}
+            {!!e.coach_name && <Text style={styles.sessionMeta}>Coach : {e.coach_name}</Text>}
+          </Pressable>
+        );
+      })}
       {!upcoming.length && !loading && <Text style={styles.muted}>Aucune séance planifiée</Text>}
 
       {selected && (
         <View style={styles.card}>
           <Text style={styles.section}>Détail — {selected.title}</Text>
           <Text style={styles.muted}>{statusLabel(selected.event_type)} · {fmtDate(selected.starts_at)}</Text>
+          {!!selected.location_text && <Text style={styles.muted}>📍 {selected.location_text}</Text>}
+          <Text style={styles.muted}>
+            État :{" "}
+            {selected.session_status === "in_progress"
+              ? "En cours"
+              : selected.session_status === "completed"
+                ? "Terminée"
+                : selected.is_cancelled
+                  ? "Annulée"
+                  : "Planifiée"}
+            {selected.approval_status === "pending_approval" ? " · En attente validation" : ""}
+          </Text>
           {!!selected.description && <Text style={styles.body}>{selected.description}</Text>}
           {!!selected.coach_name && <Text style={styles.muted}>Coach : {selected.coach_name}</Text>}
           {!!selected.substitute_coach_name && (
@@ -422,9 +546,32 @@ export default function AgendaScreen() {
 
           {isCoach && !selected.is_cancelled && (
             <>
+              {canApprove && selected.approval_status === "pending_approval" && (
+                <View style={styles.rowBtns}>
+                  <Pressable style={styles.ok} onPress={approveSession} disabled={saving}>
+                    <Text style={styles.okT}>Valider séance</Text>
+                  </Pressable>
+                  <Pressable style={styles.no} onPress={rejectSession} disabled={saving}>
+                    <Text style={styles.noT}>Rejeter</Text>
+                  </Pressable>
+                </View>
+              )}
               <View style={styles.rowBtns}>
+                {selected.session_status !== "in_progress" && selected.session_status !== "completed" && (
+                  <Pressable style={styles.ok} onPress={startSession} disabled={saving}>
+                    <Text style={styles.okT}>Démarrer</Text>
+                  </Pressable>
+                )}
+                {selected.session_status === "in_progress" && (
+                  <Pressable style={styles.late} onPress={completeSession} disabled={saving}>
+                    <Text style={styles.lateT}>Terminer</Text>
+                  </Pressable>
+                )}
                 <Pressable style={styles.ok} onPress={inviteAll} disabled={saving || !roster.length}>
-                  <Text style={styles.okT}>Convoquer l’équipe</Text>
+                  <Text style={styles.okT}>Convoquer</Text>
+                </Pressable>
+                <Pressable style={styles.ok} onPress={markAllPresent} disabled={saving || !roster.length}>
+                  <Text style={styles.okT}>Tous présents</Text>
                 </Pressable>
               </View>
 
@@ -483,6 +630,8 @@ const styles = StyleSheet.create({
   selected: { borderWidth: 2, borderColor: colors.gold },
   sessionTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sessionType: { color: colors.gold, fontWeight: "800", fontSize: 12, textTransform: "uppercase" },
+  statusPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
+  statusPillT: { fontWeight: "800", fontSize: 11 },
   badgeCancel: { color: "#fecaca", fontWeight: "800", fontSize: 11 },
   sessionTitle: { color: "white", fontWeight: "800", fontSize: 17 },
   sessionAr: { color: "rgba(255,255,255,0.85)" },

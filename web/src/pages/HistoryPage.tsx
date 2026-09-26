@@ -24,7 +24,8 @@ function canRestore(r: AuditRow): boolean {
 }
 
 export function HistoryPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const ar = lang === "ar";
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [entity, setEntity] = useState("");
   const [loading, setLoading] = useState(true);
@@ -35,10 +36,16 @@ export function HistoryPage() {
     setLoading(true);
     setError("");
     try {
-      const q = new URLSearchParams({ limit: "80" });
-      if (filterEntity) q.set("entity", filterEntity);
+      const trashOnly = filterEntity === "trash";
+      const q = new URLSearchParams({ limit: trashOnly ? "120" : "80" });
+      if (filterEntity && !trashOnly) q.set("entity", filterEntity);
       const data = await api<AuditRow[]>(`/api/v1/audit?${q}`);
-      setRows(data);
+      const list = Array.isArray(data) ? data : [];
+      setRows(
+        trashOnly
+          ? list.filter((r) => ["delete", "archive"].includes((r.action || "").toLowerCase()))
+          : list,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
       setRows([]);
@@ -87,10 +94,11 @@ export function HistoryPage() {
 
   return (
     <div className="card">
-      <h3 style={{ marginTop: 0 }}>{t("history")}</h3>
+      <h3 style={{ marginTop: 0 }}>{ar ? "السجل / سلة المهملات" : "Historique / Corbeille"}</h3>
       <p className="muted" style={{ marginTop: 0 }}>
-        Journal des opérations — les suppressions / archives sont récupérables via le bouton{" "}
-        <strong>Restaurer</strong>.
+        {ar
+          ? "سجل العمليات — الحذف والأرشفة قابلة للاستعادة عبر زر استعادة. الوصول: مدير، إدارة، طاقم فقط (ليس المدرب ولا الولي)."
+          : "Journal des opérations — suppressions / archives récupérables via Restaurer. Accès : admin, direction, staff (pas coach ni parent)."}
       </p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         <select
@@ -101,13 +109,14 @@ export function HistoryPage() {
             void load(v);
           }}
         >
-          <option value="">Toutes les entités</option>
-          <option value="athlete">Athlètes</option>
-          <option value="registration">Inscriptions</option>
-          <option value="user">Utilisateurs / Coachs</option>
-          <option value="ledger">Caisse</option>
-          <option value="teams">Équipes</option>
-          <option value="payment">Paiements</option>
+          <option value="">{ar ? "كل الكيانات" : "Toutes les entités"}</option>
+          <option value="athlete">{ar ? "لاعبون" : "Athlètes"}</option>
+          <option value="registration">{ar ? "تسجيلات" : "Inscriptions"}</option>
+          <option value="user">{ar ? "مستخدمون / مدربون" : "Utilisateurs / Coachs"}</option>
+          <option value="ledger">{ar ? "صندوق" : "Caisse"}</option>
+          <option value="teams">{ar ? "فرق" : "Équipes"}</option>
+          <option value="payment">{ar ? "مدفوعات" : "Paiements"}</option>
+          <option value="trash">{ar ? "سلة فقط (حذف/أرشفة)" : "Corbeille seule (delete/archive)"}</option>
         </select>
         <button type="button" className="secondary" onClick={() => void load()}>
           {t("retry")}

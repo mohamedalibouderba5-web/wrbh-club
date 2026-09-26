@@ -268,6 +268,19 @@ class Event(Base, TimestampMixin):
     # Remplaçant si le coach titulaire est absent
     substitute_coach_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Suivi parental / cycle de vie séance (norme clubs internationaux)
+    approval_status: Mapped[str] = mapped_column(String(30), default="approved")
+    # draft | pending_approval | approved | rejected
+    session_status: Mapped[str] = mapped_column(String(30), default="scheduled")
+    # scheduled | in_progress | completed | cancelled
+    notify_parents: Mapped[bool] = mapped_column(Boolean, default=True)
+    location_text: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    completed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class EventException(Base):
@@ -470,6 +483,24 @@ class Notification(Base, TimestampMixin):
     kind: Mapped[str] = mapped_column(String(40), default="info")
     link: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ParentNotificationPref(Base, TimestampMixin):
+    """Préférences de suivi parental (rappels & types d'alertes) — 1 ligne / parent."""
+
+    __tablename__ = "parent_notification_prefs"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_parent_notif_pref_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    notify_on_create: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_on_start: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_on_end: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_on_attendance: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_on_cancel: Mapped[bool] = mapped_column(Boolean, default=True)
+    remind_minutes_before: Mapped[int] = mapped_column(Integer, default=60)  # 0 = off
+    remind_day_before: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class PushToken(Base, TimestampMixin):

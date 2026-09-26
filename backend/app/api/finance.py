@@ -623,7 +623,17 @@ def list_ledger(
         q = q.filter(or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)))
     if entry_type:
         q = q.filter(LedgerEntry.entry_type == entry_type)
-    return q.order_by(LedgerEntry.entry_date.desc()).offset(skip).limit(limit).all()
+    # Classement strict : date + heure (created_at) puis id — important pour n° de ligne / opérations
+    return (
+        q.order_by(
+            LedgerEntry.entry_date.desc(),
+            LedgerEntry.created_at.desc().nullslast(),
+            LedgerEntry.id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 @router.post("/ledger", response_model=LedgerOut)
@@ -833,21 +843,46 @@ def delete_payment(
 
 @router.get("/dashboard")
 def finance_dashboard(
+    season_id: int | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
     club_id: int = Depends(get_current_club_id),
 ):
-    cached = cache_get(f"finance:dashboard:{club_id}")
+    cache_key = f"finance:dashboard:{club_id}:s{season_id or 'all'}"
+    cached = cache_get(cache_key)
     if cached is not None:
         return cached
 
     def _cf(model):
         return or_(model.club_id == club_id, model.club_id.is_(None))
 
-    due = db.query(func.coalesce(func.sum(FeeInstallment.amount - FeeInstallment.amount_paid), 0)).filter(
-        FeeInstallment.status.in_(["due", "partial", "overdue"]), _cf(FeeInstallment)
-    ).scalar()
-    paid = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(_cf(Payment)).scalar()
+    ath_ids: list[int] | None = None
+    if season_id:
+        ath_ids = [
+            r[0]
+            for r in db.query(Registration.athlete_id)
+            .filter(
+                Registration.season_id == season_id,
+                Registration.status != "archived",
+                or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+            )
+            .distinct()
+            .all()
+        ]
+
+    due_q = db.query(func.coalesce(func.sum(FeeInstallment.amount - FeeInstallment.amount_paid), 0)).filter(
+        FeeInstallment.status.in_(["due", "partial", "overdue"]),
+        _cf(FeeInstallment),
+    )
+    if season_id:
+        due_q = due_q.filter(FeeInstallment.season_id == season_id)
+    due = due_q.scalar()
+
+    paid_q = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(_cf(Payment))
+    if ath_ids is not None:
+        paid_q = paid_q.filter(Payment.athlete_id.in_(ath_ids or [-1]))
+    paid = paid_q.scalar()
+
     income = db.query(func.coalesce(func.sum(LedgerEntry.amount), 0)).filter(
         LedgerEntry.entry_type == "income",
         _cf(LedgerEntry),
@@ -859,15 +894,22 @@ def finance_dashboard(
         or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)),
     ).scalar()
     payroll = db.query(func.coalesce(func.sum(CoachPayroll.amount), 0)).filter(_cf(CoachPayroll)).scalar()
-    overdue_count = (
-        db.query(func.count(FeeInstallment.id))
-        .filter(FeeInstallment.status == "overdue", _cf(FeeInstallment))
-        .scalar()
-        or 0
+    overdue_q = db.query(func.count(FeeInstallment.id)).filter(
+        FeeInstallment.status == "overdue",
+        _cf(FeeInstallment),
     )
+    if season_id:
+        overdue_q = overdue_q.filter(FeeInstallment.season_id == season_id)
+    overdue_count = overdue_q.scalar() or 0
     fees = get_fee_settings(db, club_id=club_id)
+    season_name = None
+    if season_id:
+        s = db.get(Season, season_id)
+        season_name = s.name if s else None
     payload = {
         "currency": "DZD",
+        "season_id": season_id,
+        "season_name": season_name,
         "cotisations_due": float(due or 0),
         "cotisations_paid": float(paid or 0),
         "ledger_income": float(income or 0),
@@ -878,7 +920,7 @@ def finance_dashboard(
         "annual_insurance_dzd": float(fees["annual_insurance_dzd"]),
         "inscription_fee_dzd": float(fees["inscription_fee_dzd"]),
     }
-    cache_set(f"finance:dashboard:{club_id}", payload, 40)
+    cache_set(cache_key, payload, 40)
     return payload
 
 

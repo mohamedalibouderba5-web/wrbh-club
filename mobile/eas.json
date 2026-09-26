@@ -14,7 +14,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://wrbh-api.onrender.com"
+        "EXPO_PUBLIC_API_URL": "http://46.224.38.201:8081"
       }
     },
     "production": {
@@ -22,7 +22,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://wrbh-api.onrender.com"
+        "EXPO_PUBLIC_API_URL": "http://46.224.38.201:8081"
       }
     }
   },
