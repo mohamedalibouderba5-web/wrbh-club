@@ -955,7 +955,7 @@ export function RegistrationsPage() {
                 Rempli auto avec le plus petit n° libre de la catégorie — modifiable. À imprimer sur tenue et sac.
               </small>
             </div>
-            <KitSizeSelect value={form.kit_size} onChange={(kit_size) => setForm({ ...form, kit_size })} />
+            <KitSizeSelect value={form.kit_size} onChange={(kit_size: string) => setForm({ ...form, kit_size })} />
             <div className="field" style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <input
