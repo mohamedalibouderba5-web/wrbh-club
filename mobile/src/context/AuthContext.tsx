@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { login as apiLogin, logout as apiLogout } from "../api/client";
+import { registerPushToken } from "../push";
 
 type Auth = {
   ready: boolean;
@@ -37,6 +38,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReady(true);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!ready || !token || mustChangePassword) return;
+    void registerPushToken();
+  }, [ready, token, mustChangePassword]);
 
   const value = useMemo<Auth>(
     () => ({

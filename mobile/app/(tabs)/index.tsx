@@ -40,9 +40,28 @@ type Home = {
   announcements: { id: number; title: string; title_ar?: string; body: string }[];
 };
 
+type Notif = {
+  id: number;
+  title: string;
+  body?: string;
+  kind?: string;
+  is_read?: boolean;
+  created_at?: string;
+};
+
+const NOTIF_KIND: Record<string, string> = {
+  session_create: "Nouvelle séance",
+  session_start: "Séance démarrée",
+  session_end: "Séance terminée",
+  attendance: "Présence",
+  cancel: "Annulation",
+  reminder: "Rappel",
+};
+
 export default function HomeScreen() {
   const { fullName, role } = useAuth();
   const [home, setHome] = useState<Home | null>(null);
+  const [notifs, setNotifs] = useState<Notif[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState("");
 
@@ -51,7 +70,12 @@ export default function HomeScreen() {
     setErr("");
     try {
       await wakeServer().catch(() => undefined);
-      setHome(await api<Home>("/api/v1/mobile/home"));
+      const [h, n] = await Promise.all([
+        api<Home>("/api/v1/mobile/home"),
+        api<Notif[]>("/api/v1/notifications").catch(() => [] as Notif[]),
+      ]);
+      setHome(h);
+      setNotifs(Array.isArray(n) ? n.slice(0, 6) : []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Erreur accueil");
     } finally {
@@ -199,6 +223,25 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
+      {(isParent || notifs.length > 0) && (
+        <>
+          <Text style={styles.section}>Notifications / الإشعارات</Text>
+          {notifs.map((n) => (
+            <Pressable key={n.id} style={[styles.card, !n.is_read && styles.unread]} onPress={() => router.push("/(tabs)/messages")}>
+              <Text style={styles.badge}>{NOTIF_KIND[n.kind || ""] || n.kind || "Info"}</Text>
+              <Text style={styles.cardTitle}>{n.title}</Text>
+              {!!n.body && (
+                <Text style={styles.muted} numberOfLines={2}>
+                  {n.body}
+                </Text>
+              )}
+              {!!n.created_at && <Text style={styles.muted}>{fmtDate(n.created_at)}</Text>}
+            </Pressable>
+          ))}
+          {!notifs.length && <Text style={styles.muted}>Aucune notification récente</Text>}
+        </>
+      )}
+
       <Text style={styles.section}>Annonces</Text>
       {(home?.announcements || []).map((a) => (
         <Pressable key={a.id} style={styles.card} onPress={() => router.push("/(tabs)/messages")}>
@@ -264,6 +307,7 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
   pill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
   pillT: { fontSize: 11, fontWeight: "800" },
+  unread: { borderColor: colors.gold, borderWidth: 1.5 },
   wake: { marginVertical: 16, alignItems: "center" },
   wakeText: { color: colors.blue, fontWeight: "700" },
 });
