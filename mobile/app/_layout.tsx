@@ -18,10 +18,11 @@ function Guard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!ready) return;
     const onLogin = segments[0] === "login";
+    const onOnboard = segments[0] === "onboard";
     const onChange = segments[0] === "change-password";
-    if (!token && !onLogin) router.replace("/login");
+    if (!token && !onLogin && !onOnboard) router.replace("/login");
     else if (token && mustChangePassword && !onChange) router.replace("/change-password");
-    else if (token && !mustChangePassword && onLogin) router.replace("/(tabs)");
+    else if (token && !mustChangePassword && (onLogin || onOnboard)) router.replace("/(tabs)");
   }, [ready, token, mustChangePassword, segments, router]);
 
   if (!ready) {
@@ -58,6 +59,7 @@ export default function RootLayout() {
         <Guard>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="login" />
+            <Stack.Screen name="onboard" />
             <Stack.Screen name="change-password" />
             <Stack.Screen name="(tabs)" />
           </Stack>

@@ -36,18 +36,18 @@ class Settings(BaseSettings):
     login_rate_limit: int = 10
     login_rate_window_seconds: int = 300
     # Mise à jour APK mobile (publié via env Render)
-    android_app_version: str = "1.6.0"
-    android_version_code: int = 9
+    android_app_version: str = "1.7.0"
+    android_version_code: int = 10
     android_apk_url: str = (
         "https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/"
-        "android-v1.6.0/wrbh-club-1.6.0.apk"
+        "android-v1.7.0/wrbh-club-1.7.0.apk"
     )
     android_force_update: bool = False
     android_release_notes: str = (
-        "Suivi parental complet : démarrer/terminer, présences, prefs notifs, comptes, badges séances."
+        "Multi-club login, branding, sports du club, menus par rôle (pas de Finance parent)."
     )
     android_release_notes_ar: str = (
-        "متابعة أولياء الأمور: بدء/إنهاء الحصة، الحضور، إعدادات الإشعارات، الحسابات."
+        "دخول متعدد الأندية، الهوية البصرية، رياضات النادي، قوائم حسب الدور."
     )
 
     @property

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
 import { AppLayout } from "./layouts/AppLayout";
 import { LoginPage } from "./pages/LoginPage";
+import { OnboardPage } from "./pages/OnboardPage";
 import { InstallPage } from "./pages/InstallPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AthletesPage } from "./pages/AthletesPage";
@@ -26,6 +27,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/onboard" element={<OnboardPage />} />
       <Route path="/install" element={<InstallPage />} />
       <Route path="/app" element={<InstallPage />} />
       <Route

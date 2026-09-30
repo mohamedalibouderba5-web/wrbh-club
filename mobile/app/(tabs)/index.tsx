@@ -114,9 +114,20 @@ export default function HomeScreen() {
           <Text style={styles.statN}>{home?.pending_convocations ?? "—"}</Text>
           <Text style={styles.statL}>Convocations</Text>
         </Pressable>
-        <Pressable style={styles.stat} onPress={() => router.push("/(tabs)/payments")}>
+        <Pressable
+          style={styles.stat}
+          onPress={() =>
+            router.push(
+              role === "admin" || role === "direction" || role === "staff"
+                ? "/(tabs)/payments"
+                : isParent
+                  ? "/(tabs)/profile"
+                  : "/(tabs)/agenda",
+            )
+          }
+        >
           <Text style={styles.statN}>{home?.unpaid_installments ?? "—"}</Text>
-          <Text style={styles.statL}>Impayés</Text>
+          <Text style={styles.statL}>{isParent ? "À suivre" : "Impayés"}</Text>
         </Pressable>
       </View>
 
@@ -124,9 +135,11 @@ export default function HomeScreen() {
         <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/agenda")}>
           <Text style={styles.shortcutT}>Agenda</Text>
         </Pressable>
-        <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/payments")}>
-          <Text style={styles.shortcutT}>Paiements</Text>
-        </Pressable>
+        {(role === "admin" || role === "direction" || role === "staff") && (
+          <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/payments")}>
+            <Text style={styles.shortcutT}>Paiements</Text>
+          </Pressable>
+        )}
         <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/messages")}>
           <Text style={styles.shortcutT}>Messages</Text>
         </Pressable>

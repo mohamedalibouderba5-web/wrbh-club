@@ -2,9 +2,9 @@ import { useI18n } from "../i18n";
 
 /** APK native — Hetzner (surcharge via VITE_ANDROID_APK_URL). */
 const DEFAULT_APK_URL =
-  "http://46.224.38.201:8080/wrbh-club-1.5.2.apk";
+  "http://46.224.38.201:8080/wrbh-club-1.7.0.apk";
 const APK_URL = (import.meta.env.VITE_ANDROID_APK_URL || DEFAULT_APK_URL).trim();
-const APP_VERSION = "1.5.2";
+const APP_VERSION = "1.7.0";
 
 export function DownloadPage() {
   const { lang } = useI18n();

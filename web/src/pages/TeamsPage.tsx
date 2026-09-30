@@ -20,7 +20,18 @@ type Category = {
   name: string;
   birth_year_min: number;
   birth_year_max: number;
+  discipline_id?: number | null;
+  discipline_code?: string | null;
+  discipline_name?: string | null;
 };
+type Discipline = {
+  id: number;
+  code: string;
+  name: string;
+  name_ar?: string | null;
+  categories_count: number;
+};
+type SportOpt = { code: string; label: string };
 type TeamCoach = {
   id: number;
   team_id: number;
@@ -63,6 +74,10 @@ export function TeamsPage() {
   const [tempPassword, setTempPassword] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [disciplines, setDisciplines] = useState<Discipline[]>([]);
+  const [sportCatalog, setSportCatalog] = useState<SportOpt[]>([]);
+  const [addSport, setAddSport] = useState("football");
+  const [sportBusy, setSportBusy] = useState(false);
   const [teamForm, setTeamForm] = useState({
     category_id: "",
     new_code: "",
@@ -76,10 +91,11 @@ export function TeamsPage() {
 
   async function load() {
     try {
-      const { data, errors } = await loadAllSettled<[TeamRow[], Coach[], Category[]]>([
+      const { data, errors } = await loadAllSettled<[TeamRow[], Coach[], Category[], Discipline[]]>([
         () => api<TeamRow[]>("/api/v1/teams/coaches"),
         () => api<Coach[]>(`/api/v1/coaches?include_inactive=true`),
         () => api<Category[]>("/api/v1/categories"),
+        () => api<Discipline[]>("/api/v1/disciplines").catch(() => []),
       ]);
       if (data[0]) {
         setTeams(data[0]);
@@ -91,6 +107,7 @@ export function TeamsPage() {
       }
       if (data[1]) setCoaches(data[1]);
       if (data[2]) setCategories(data[2]);
+      if (data[3]) setDisciplines(data[3]);
       if (errors.length) setMsg(errors.join(" · "));
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Erreur chargement");
@@ -99,8 +116,28 @@ export function TeamsPage() {
 
   useEffect(() => {
     load();
+    api<SportOpt[]>("/api/v1/club/sports")
+      .then((rows) => setSportCatalog(Array.isArray(rows) ? rows : []))
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function onAddSport() {
+    if (!canManageCoaches || sportBusy) return;
+    setSportBusy(true);
+    try {
+      const created = await api<Discipline>("/api/v1/disciplines", {
+        method: "POST",
+        body: JSON.stringify({ sport: addSport, seed_categories: true }),
+      });
+      toast(`Sport ajouté : ${created.name} (${created.categories_count} catégories)`, "success");
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur", "error");
+    } finally {
+      setSportBusy(false);
+    }
+  }
 
   function selectTeam(t: TeamRow) {
     setSelectedId(t.id);
@@ -386,6 +423,46 @@ export function TeamsPage() {
 
   return (
     <div className="grid" style={{ gap: "1rem" }}>
+      {canManageCoaches && (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Sports du club (multisport)</h3>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Un même club peut organiser plusieurs activités : football, judo, karaté, natation…
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+            {disciplines.map((d) => (
+              <span key={d.id} className="badge">
+                {d.name} · {d.code} · {d.categories_count} cat.
+              </span>
+            ))}
+            {!disciplines.length && <span className="muted">Aucun sport configuré</span>}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+            <label className="field" style={{ margin: 0, minWidth: 180 }}>
+              Ajouter un sport
+              <select value={addSport} onChange={(e) => setAddSport(e.target.value)}>
+                {(sportCatalog.length
+                  ? sportCatalog
+                  : [
+                      { code: "football", label: "Football" },
+                      { code: "judo", label: "Judo" },
+                      { code: "karate", label: "Karaté" },
+                      { code: "swimming", label: "Natation" },
+                      { code: "athletics", label: "Athlétisme" },
+                    ]
+                ).map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" disabled={sportBusy} onClick={() => void onAddSport()}>
+              {sportBusy ? "…" : "Ajouter + catégories d’âge"}
+            </button>
+          </div>
+        </div>
+      )}
       {canManageCoaches && (
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>

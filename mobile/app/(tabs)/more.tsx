@@ -52,7 +52,7 @@ const ITEMS: Item[] = [
     subtitle: "Cotisations, recettes et dépenses",
     route: "/(tabs)/payments",
     icon: "cash",
-    roles: ["admin", "direction", "staff", "coach", "parent"],
+    roles: ["admin", "direction", "staff"],
   },
   {
     title: "Matériel",

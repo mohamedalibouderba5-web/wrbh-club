@@ -43,6 +43,8 @@ from app.schemas import (
     AthleteUpdate,
     CategoryCreate,
     CategoryOut,
+    DisciplineCreate,
+    DisciplineOut,
     RegistrationCreate,
     RegistrationOut,
     RegistrationUpdate,
@@ -62,6 +64,14 @@ from app.services.notify import notify_parents_of_athlete, notify_role
 from app.services.parents import ensure_parent_account
 from app.services.phone import normalize_phone, validate_dz_mobile
 from app.services.media import enrich_media_path, extract_media_id, media_public_path
+from app.services.sports import (
+    SPORT_LABELS,
+    SPORT_LABELS_AR,
+    category_code_for,
+    default_age_bands,
+    normalize_sport,
+    sport_code_short,
+)
 
 TEST_MARKER = "TEST-WRBH-BATCH"
 settings = get_settings()
@@ -210,14 +220,148 @@ def archive_season_roster(
     }
 
 
+def _category_out(cat: Category, disc: Discipline | None = None) -> CategoryOut:
+    return CategoryOut(
+        id=cat.id,
+        season_id=cat.season_id,
+        code=cat.code,
+        name=cat.name,
+        name_ar=cat.name_ar,
+        birth_year_min=cat.birth_year_min,
+        birth_year_max=cat.birth_year_max,
+        is_active=cat.is_active,
+        discipline_id=cat.discipline_id,
+        discipline_code=disc.code if disc else None,
+        discipline_name=disc.name if disc else None,
+    )
+
+
+@router.get("/disciplines", response_model=list[DisciplineOut])
+def list_disciplines(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Sports / activités du club (un club peut être multisport)."""
+    rows = (
+        db.query(Discipline)
+        .filter(or_(Discipline.club_id == club_id, Discipline.club_id.is_(None)))
+        .order_by(Discipline.name)
+        .all()
+    )
+    out: list[DisciplineOut] = []
+    for d in rows:
+        n = (
+            db.query(func.count(Category.id))
+            .filter(Category.discipline_id == d.id)
+            .scalar()
+            or 0
+        )
+        out.append(
+            DisciplineOut(
+                id=d.id,
+                club_id=d.club_id,
+                code=d.code,
+                name=d.name,
+                name_ar=d.name_ar,
+                categories_count=int(n),
+            )
+        )
+    return out
+
+
+@router.post("/disciplines", response_model=DisciplineOut)
+def add_discipline(
+    payload: DisciplineCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Ajoute un sport au club (ex. football + judo + natation)."""
+    sport = normalize_sport(payload.sport)
+    code = sport_code_short(sport)
+    existing = (
+        db.query(Discipline)
+        .filter(
+            or_(Discipline.club_id == club_id, Discipline.club_id.is_(None)),
+            Discipline.code == code,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(409, f"Sport déjà présent : {existing.name}")
+
+    disc = Discipline(
+        club_id=club_id,
+        code=code,
+        name=(payload.name or SPORT_LABELS.get(sport, sport.title())).strip(),
+        name_ar=(payload.name_ar or SPORT_LABELS_AR.get(sport)),
+    )
+    db.add(disc)
+    db.flush()
+
+    cats_created = 0
+    if payload.seed_categories:
+        cur = (
+            db.query(Season)
+            .filter(Season.is_current.is_(True), or_(Season.club_id == club_id, Season.club_id.is_(None)))
+            .first()
+        )
+        if cur:
+            for suffix, name, name_ar, ymin, ymax in default_age_bands(sport):
+                cat_code = category_code_for(sport, suffix)
+                if (
+                    db.query(Category)
+                    .filter(Category.season_id == cur.id, Category.code == cat_code)
+                    .first()
+                ):
+                    continue
+                db.add(
+                    Category(
+                        club_id=club_id,
+                        season_id=cur.id,
+                        discipline_id=disc.id,
+                        code=cat_code,
+                        name=f"{disc.name} {name}",
+                        name_ar=f"{(disc.name_ar or '')} {name_ar}".strip(),
+                        birth_year_min=ymin,
+                        birth_year_max=ymax,
+                        is_active=True,
+                    )
+                )
+                cats_created += 1
+
+    write_audit(
+        db,
+        action="create",
+        entity="discipline",
+        entity_id=disc.id,
+        user_id=user.id,
+        club_id=club_id,
+        detail=f"sport={sport} cats={cats_created}",
+    )
+    db.commit()
+    db.refresh(disc)
+    _bust_club_caches()
+    return DisciplineOut(
+        id=disc.id,
+        club_id=disc.club_id,
+        code=disc.code,
+        name=disc.name,
+        name_ar=disc.name_ar,
+        categories_count=cats_created,
+    )
+
+
 @router.get("/categories", response_model=list[CategoryOut])
 def list_categories(
     season_id: int | None = None,
+    discipline_id: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     club_id = getattr(user, "club_id", None)
-    key = f"categories:{club_id}:{season_id or 'current'}"
+    key = f"categories:{club_id}:{season_id or 'current'}:{discipline_id or 'all'}"
     cached = cache_get(key)
     if cached is not None:
         return cached
@@ -230,8 +374,15 @@ def list_categories(
         current = db.query(Season).filter(Season.is_current.is_(True)).first()
         if current:
             q = q.filter(Category.season_id == current.id)
+    if discipline_id:
+        q = q.filter(Category.discipline_id == discipline_id)
     rows = q.order_by(Category.birth_year_min).all()
-    out = [CategoryOut.model_validate(c) for c in rows]
+    disc_ids = {c.discipline_id for c in rows if c.discipline_id}
+    discs = {
+        d.id: d
+        for d in db.query(Discipline).filter(Discipline.id.in_(disc_ids or {-1})).all()
+    }
+    out = [_category_out(c, discs.get(c.discipline_id)) for c in rows]
     cache_set(key, out, 120)
     return out
 
@@ -590,7 +741,8 @@ def create_category(
     db.commit()
     db.refresh(cat)
     _bust_club_caches()
-    return CategoryOut.model_validate(cat)
+    disc = db.get(Discipline, cat.discipline_id) if cat.discipline_id else None
+    return _category_out(cat, disc)
 
 
 @router.post("/teams", response_model=TeamOut)
@@ -2188,6 +2340,7 @@ def create_registration(
                 phone=parent_phone,
                 full_name=parent_name,
                 athlete_id=athlete_id,
+                club_id=club_id,
             )
             parent_meta = {"temp_password": temp_pw, "created": created, "phone": parent.phone}
             if payload.parent_password and created:

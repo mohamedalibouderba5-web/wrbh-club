@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
 import { Text, View } from "react-native";
+import { useAuth } from "../../src/context/AuthContext";
 
 const BLUE = "#1E3A8A";
 const NAVY = "#0f1f4d";
@@ -46,6 +47,9 @@ function TabIcon({
 }
 
 export default function TabsLayout() {
+  const { role } = useAuth();
+  const canFinance = role === "admin" || role === "direction" || role === "staff";
+
   return (
     <Tabs
       screenOptions={({ route }) => {
@@ -73,10 +77,16 @@ export default function TabsLayout() {
         };
       }}
     >
-      {/* 5 onglets visibles sur le téléphone */}
       <Tabs.Screen name="index" options={{ title: "Accueil", tabBarLabel: "Accueil" }} />
       <Tabs.Screen name="agenda" options={{ title: "Agenda", tabBarLabel: "Agenda" }} />
-      <Tabs.Screen name="payments" options={{ title: "Paiements", tabBarLabel: "Paiements" }} />
+      <Tabs.Screen
+        name="payments"
+        options={{
+          title: "Paiements",
+          tabBarLabel: "Paiements",
+          href: canFinance ? undefined : null,
+        }}
+      />
       <Tabs.Screen name="messages" options={{ title: "Messages", tabBarLabel: "Messages" }} />
       <Tabs.Screen
         name="more"
@@ -87,7 +97,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* Écrans accessibles depuis Plus (pas dans la barre) */}
       <Tabs.Screen name="profile" options={{ title: "Profil", href: null }} />
       <Tabs.Screen name="feedback" options={{ title: "Feedback", href: null }} />
       <Tabs.Screen name="athletes" options={{ title: "Athlètes", href: null }} />

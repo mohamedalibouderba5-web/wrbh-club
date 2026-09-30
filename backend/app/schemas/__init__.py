@@ -1,8 +1,23 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Annotated, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+def _optional_email(value: object) -> str | None:
+    """Accepte aussi les domaines .local (comptes démo club) rejetés par EmailStr strict."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if "@" not in text or text.startswith("@") or text.endswith("@"):
+        raise ValueError("Email invalide")
+    return text
+
+
+LooseEmail = Annotated[Optional[str], BeforeValidator(_optional_email)]
 
 
 class ORMModel(BaseModel):
@@ -20,7 +35,7 @@ class TokenOut(BaseModel):
 
 
 class UserCreate(BaseModel):
-    email: Optional[EmailStr] = None
+    email: LooseEmail = None
     phone: Optional[str] = None
     full_name: str
     full_name_ar: Optional[str] = None
@@ -30,7 +45,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    email: Optional[EmailStr] = None
+    email: LooseEmail = None
     phone: Optional[str] = None
     full_name: Optional[str] = None
     full_name_ar: Optional[str] = None
@@ -86,6 +101,47 @@ class ClubOut(ORMModel):
     plan: Optional[str] = None
 
 
+class ClubPublicOut(BaseModel):
+    """Liste publique pour le sélecteur de connexion."""
+
+    slug: str
+    name: str
+    name_ar: Optional[str] = None
+    acronym: str = "CLUB"
+    sport: str = "football"
+    primary_color: str = "#1E3A8A"
+    accent_color: str = "#F5C518"
+    logo_path: Optional[str] = None
+    app_name: Optional[str] = None
+
+
+class ClubOnboardIn(BaseModel):
+    """Création self-serve d'un club (essai commercial)."""
+
+    club_name: str = Field(min_length=2, max_length=200)
+    club_name_ar: Optional[str] = Field(None, max_length=200)
+    slug: str = Field(min_length=2, max_length=60, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    acronym: str = Field(default="CLUB", max_length=20)
+    sport: str = Field(default="football", max_length=40)
+    sports: list[str] = Field(default_factory=list)  # sports additionnels (club multisport)
+    admin_full_name: str = Field(min_length=2, max_length=200)
+    admin_email: LooseEmail
+    admin_phone: Optional[str] = Field(None, max_length=40)
+    admin_password: str = Field(min_length=8, max_length=128)
+    locale: str = Field(default="fr", max_length=10)
+
+
+class ClubOnboardOut(BaseModel):
+    club_id: int
+    slug: str
+    name: str
+    sport: str
+    plan: str
+    trial_ends_on: Optional[date] = None
+    admin_email: Optional[str] = None
+    login_hint: str
+
+
 class SeasonOut(ORMModel):
     id: int
     name: str
@@ -104,6 +160,27 @@ class CategoryOut(ORMModel):
     birth_year_min: int
     birth_year_max: int
     is_active: bool
+    discipline_id: Optional[int] = None
+    discipline_code: Optional[str] = None
+    discipline_name: Optional[str] = None
+
+
+class DisciplineOut(ORMModel):
+    id: int
+    club_id: Optional[int] = None
+    code: str
+    name: str
+    name_ar: Optional[str] = None
+    categories_count: int = 0
+
+
+class DisciplineCreate(BaseModel):
+    """Ajoute un sport au club (multisport) + catégories d'âge saison courante."""
+
+    sport: str = Field(min_length=2, max_length=40)
+    name: Optional[str] = Field(None, max_length=80)
+    name_ar: Optional[str] = Field(None, max_length=80)
+    seed_categories: bool = True
 
 
 class TeamOut(ORMModel):

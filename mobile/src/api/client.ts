@@ -61,8 +61,9 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
 }
 
-export async function login(username: string, password: string) {
+export async function login(username: string, password: string, clubSlug?: string) {
   const body = new URLSearchParams({ username, password });
+  if (clubSlug?.trim()) body.set("club_slug", clubSlug.trim());
   let res: Response;
   try {
     res = await fetchWithTimeout(`${API_BASE}/api/v1/auth/login`, {
@@ -73,12 +74,22 @@ export async function login(username: string, password: string) {
   } catch (e) {
     throw e instanceof Error ? e : new Error("Erreur réseau");
   }
-  if (!res.ok) throw new Error("Identifiants incorrects");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Identifiants incorrects" }));
+    const msg =
+      typeof err.detail === "string"
+        ? err.detail
+        : Array.isArray(err.detail)
+          ? err.detail.map((d: { msg?: string }) => d.msg || "").filter(Boolean).join(" · ") || "Identifiants incorrects"
+          : "Identifiants incorrects";
+    throw new Error(msg);
+  }
   const data = await res.json();
   await AsyncStorage.setItem("wrbh_token", data.access_token);
   await AsyncStorage.setItem("wrbh_role", data.role);
   await AsyncStorage.setItem("wrbh_name", data.full_name);
   await AsyncStorage.setItem("wrbh_must_pwd", data.must_change_password ? "1" : "0");
+  if (clubSlug?.trim()) await AsyncStorage.setItem("wrbh_club_slug", clubSlug.trim());
   return data;
 }
 

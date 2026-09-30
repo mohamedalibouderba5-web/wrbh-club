@@ -6,7 +6,7 @@ type AuthState = {
   role: string | null;
   fullName: string | null;
   mustChangePassword: boolean;
-  login: (u: string, p: string) => Promise<void>;
+  login: (u: string, p: string, clubSlug?: string) => Promise<void>;
   logout: () => void;
   clearMustChangePassword: () => void;
 };
@@ -54,8 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role,
       fullName,
       mustChangePassword,
-      async login(username, password) {
-        const data: TokenPayload = await apiLogin(username, password);
+      async login(username, password, clubSlug) {
+        const data: TokenPayload = await apiLogin(username, password, clubSlug);
         localStorage.setItem("wrbh_token", data.access_token);
         localStorage.setItem("wrbh_role", data.role);
         localStorage.setItem("wrbh_name", data.full_name);

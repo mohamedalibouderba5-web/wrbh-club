@@ -257,14 +257,28 @@ export async function uploadPhoto(file: File, athleteId?: number, registrationId
   return api<{ path: string; url: string }>(`/api/v1/uploads/photo${q}`, { method: "POST", body: fd });
 }
 
-export async function login(username: string, password: string): Promise<TokenPayload> {
+export async function login(
+  username: string,
+  password: string,
+  clubSlug?: string,
+): Promise<TokenPayload> {
   const body = new URLSearchParams({ username, password });
+  if (clubSlug) body.set("club_slug", clubSlug);
   const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-  if (!res.ok) throw new Error("Identifiants incorrects");
+  if (!res.ok) {
+    let msg = "Identifiants incorrects";
+    try {
+      const j = await res.json();
+      if (typeof j.detail === "string") msg = j.detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
   invalidateApiCache();
   return res.json();
 }

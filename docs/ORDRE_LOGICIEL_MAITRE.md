@@ -16,6 +16,7 @@
 3. Toute PR mobile doit citer la section modifiée (ex. `§5 Agenda`).  
 4. Documents satellites :
    - `ORDRE_DEV_SUIVI_PARENTAL.md` — cycle séances & parents  
+   - `ORDRE_DEV_APP_ANDROID.md` — **ordre synchro développeur application**  
    - `MATRICE_ROLES_ACCES.md` — tableau exhaustif droits  
    - `RAPPORT_PRODUIT_COMMERCIAL.md` — vision non technique  
 
@@ -248,7 +249,11 @@ Page `/history` :
 | 2026-09-26 | Création ORDRE_LOGICIEL_MAÎTRE + matrice rôles + vue parent site | Lire §4 parent |
 | 2026-09-26 | Accueil parent web (`ParentHomePage`) : enfants, séances, notifs, prefs, limites UI | Miroir app Accueil |
 | 2026-09-26 | Comptes : tableau limites rôles in-app ; Historique renommé Corbeille + filtre trash | Respecter mêmes menus app |
+| 2026-09-30 | Multi-club produit : login `club_slug`, liste clubs, onboarding `/onboard` (essai discovery 14j, sports DZ) | App : stocker slug club + même login |
+| 2026-09-30 | Multisport par club : `GET/POST /disciplines`, catégories préfixées, UI Équipes | App : section Sports du club |
+| 2026-09-30 | **ORDRE_DEV_APP_ANDROID.md** — ordre synchro développeur application | **À exécuter avant d’avancer produit** |
 | 2026-09-26 | **App 1.6.0** : miroir parental (start/complete/approve/attendance/prefs), badges, comptes, Accueil parent | Expo `1.6.0` / versionCode 9 |
+| 2026-09-30 | **App 1.7.0** : login multi-club + branding, Sports du club, menus rôles (pas Finance parent/coach), onboard essai | Expo `1.7.0` / versionCode 10 |
 
 ---
 

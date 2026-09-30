@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from collections import defaultdict
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -12,9 +12,27 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.roles import Role
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import Athlete, Club, ParentChild, Registration, User
-from app.schemas import ClubOut, PasswordChangeIn, TokenOut, UserCreate, UserOut, UserUpdate
+from app.models import Athlete, Category, Club, Discipline, ParentChild, Registration, Season, User
+from app.schemas import (
+    ClubOnboardIn,
+    ClubOnboardOut,
+    ClubOut,
+    ClubPublicOut,
+    PasswordChangeIn,
+    TokenOut,
+    UserCreate,
+    UserOut,
+    UserUpdate,
+)
 from app.services.parents import find_user_by_phone
+from app.services.sports import (
+    SPORT_LABELS,
+    SPORT_LABELS_AR,
+    category_code_for,
+    default_age_bands,
+    normalize_sport,
+    sport_code_short,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -46,29 +64,70 @@ def _rate_limit_login(request: Request, username: str) -> None:
         _login_hits[key] = hits
 
 
+def _resolve_club_id(db: Session, club_slug: str | None) -> int | None:
+    if not club_slug or not club_slug.strip():
+        return None
+    club = db.query(Club).filter(Club.slug == club_slug.strip().lower()).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Club introuvable (code club incorrect)")
+    if club.status == "suspended":
+        raise HTTPException(status_code=403, detail="Club suspendu — contactez le support")
+    return int(club.id)
+
+
 @router.post("/login", response_model=TokenOut)
 def login(
     request: Request,
     form: OAuth2PasswordRequestForm = Depends(),
+    club_slug: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     _rate_limit_login(request, form.username)
-    user = db.query(User).filter(User.email == form.username).first()
+    club_id = _resolve_club_id(db, club_slug)
+
+    user = None
+    email = (form.username or "").strip()
+    if email and "@" in email:
+        q = db.query(User).filter(User.email == email)
+        if club_id is not None:
+            q = q.filter(or_(User.club_id == club_id, User.club_id.is_(None)))
+        user = q.first()
     if not user:
-        user = find_user_by_phone(db, form.username)
+        user = find_user_by_phone(db, form.username, club_id=club_id)
+    # Compat mono-club : si slug fourni mais user trouvé ailleurs, refuse
+    if not user and club_id is not None:
+        # retente sans filtre pour message clair
+        other = db.query(User).filter(User.email == email).first() if "@" in email else find_user_by_phone(db, form.username)
+        if other and getattr(other, "club_id", None) not in (None, club_id):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Ce compte appartient à un autre club — vérifiez le code club",
+            )
     if not user or not verify_password(form.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Identifiants incorrects")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Compte désactivé")
+    # Si un slug est fourni, l'utilisateur doit appartenir à ce club (sauf superadmin)
+    if club_id is not None and user.role != Role.SUPERADMIN:
+        if getattr(user, "club_id", None) not in (None, club_id):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Ce compte n'appartient pas à ce club",
+            )
+        # Rattache les anciens comptes NULL au club choisi (migration douce)
+        if getattr(user, "club_id", None) is None and user.role != Role.SUPERADMIN:
+            user.club_id = club_id
+            db.commit()
+    token_club = getattr(user, "club_id", None) or club_id
     token = create_access_token(
-        user.id, {"role": user.role, "club_id": getattr(user, "club_id", None)}
+        user.id, {"role": user.role, "club_id": token_club}
     )
     return TokenOut(
         access_token=token,
         role=user.role,
         user_id=user.id,
         full_name=user.full_name,
-        club_id=getattr(user, "club_id", None),
+        club_id=token_club,
         must_change_password=bool(getattr(user, "must_change_password", False)),
     )
 
@@ -271,6 +330,88 @@ def delete_user(
 club_router = APIRouter(prefix="/club", tags=["club"])
 
 
+def _slugify_candidate(raw: str) -> str:
+    import re
+
+    s = (raw or "").strip().lower()
+    s = re.sub(r"[^a-z0-9\-]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    return s[:60]
+
+
+@club_router.get("/list", response_model=list[ClubPublicOut])
+def list_public_clubs(db: Session = Depends(get_db)):
+    """Clubs actifs visibles à la connexion (multi-club phase produit)."""
+    rows = (
+        db.query(Club)
+        .filter(Club.status.in_(["active", "trial"]), Club.slug.isnot(None))
+        .order_by(Club.name.asc())
+        .all()
+    )
+    out: list[ClubPublicOut] = []
+    for c in rows:
+        if not c.slug:
+            continue
+        out.append(
+            ClubPublicOut(
+                slug=c.slug,
+                name=c.name,
+                name_ar=c.name_ar,
+                acronym=c.acronym or "CLUB",
+                sport=c.sport or "football",
+                primary_color=c.primary_color or "#1E3A8A",
+                accent_color=c.accent_color or "#F5C518",
+                logo_path=c.logo_path,
+                app_name=c.app_name,
+            )
+        )
+    return out
+
+
+@club_router.get("/sports")
+def list_sports():
+    """Sports prioritaires marché Algérie (commercialisation)."""
+    return [
+        {"code": k, "label": v, "label_ar": SPORT_LABELS_AR.get(k)}
+        for k, v in SPORT_LABELS.items()
+    ]
+
+
+def _seed_discipline_categories(
+    db: Session,
+    *,
+    club_id: int,
+    season_id: int,
+    disc: Discipline,
+    sport: str,
+) -> int:
+    created = 0
+    for suffix, name, name_ar, ymin, ymax in default_age_bands(sport):
+        code = category_code_for(sport, suffix)
+        exists = (
+            db.query(Category)
+            .filter(Category.season_id == season_id, Category.code == code)
+            .first()
+        )
+        if exists:
+            continue
+        db.add(
+            Category(
+                club_id=club_id,
+                season_id=season_id,
+                discipline_id=disc.id,
+                code=code,
+                name=f"{SPORT_LABELS.get(sport, sport)} {name}",
+                name_ar=f"{SPORT_LABELS_AR.get(sport, '')} {name_ar}".strip(),
+                birth_year_min=ymin,
+                birth_year_max=ymax,
+                is_active=True,
+            )
+        )
+        created += 1
+    return created
+
+
 @club_router.get("/branding", response_model=ClubOut)
 def branding(slug: str | None = None, db: Session = Depends(get_db)):
     """Branding public. Phase 1 multi-club : sélection par slug à la connexion.
@@ -285,6 +426,110 @@ def branding(slug: str | None = None, db: Session = Depends(get_db)):
     if not club:
         raise HTTPException(404, "Club non configuré")
     return club
+
+
+@club_router.post("/onboard", response_model=ClubOnboardOut)
+def onboard_club(payload: ClubOnboardIn, request: Request, db: Session = Depends(get_db)):
+    """Crée un club + admin + saison + disciplines (essai discovery 14 jours)."""
+    _rate_limit_login(request, payload.admin_email or payload.slug)
+    slug = _slugify_candidate(payload.slug)
+    if len(slug) < 2:
+        raise HTTPException(400, "Code club (slug) invalide")
+    if db.query(Club).filter(Club.slug == slug).first():
+        raise HTTPException(409, "Ce code club est déjà pris — choisissez-en un autre")
+    if not payload.admin_email:
+        raise HTTPException(400, "Email admin obligatoire")
+    if db.query(User).filter(User.email == payload.admin_email).first():
+        raise HTTPException(409, "Email admin déjà utilisé")
+
+    primary = normalize_sport(payload.sport)
+    extra = [normalize_sport(s) for s in (payload.sports or [])]
+    sports_ordered: list[str] = []
+    for s in [primary, *extra]:
+        if s not in sports_ordered:
+            sports_ordered.append(s)
+
+    from datetime import date, timedelta
+
+    trial_end = date.today() + timedelta(days=14)
+    club = Club(
+        slug=slug,
+        name=payload.club_name.strip(),
+        name_ar=(payload.club_name_ar or "").strip() or None,
+        acronym=(payload.acronym or "CLUB").strip().upper()[:20],
+        sport=primary,
+        status="trial",
+        plan="discovery",
+        trial_ends_on=trial_end,
+        locale_default=payload.locale or "fr",
+        currency="DZD",
+        app_name=payload.club_name.strip()[:120],
+    )
+    db.add(club)
+    db.flush()
+
+    admin = User(
+        club_id=club.id,
+        email=payload.admin_email,
+        phone=(payload.admin_phone or "").strip() or None,
+        full_name=payload.admin_full_name.strip(),
+        role=Role.ADMIN,
+        password_hash=hash_password(payload.admin_password),
+        locale=payload.locale or "fr",
+        must_change_password=False,
+        is_active=True,
+    )
+    db.add(admin)
+    db.flush()
+
+    now = datetime.now(timezone.utc)
+    y = now.year
+    season = Season(
+        club_id=club.id,
+        name=f"{y}/{y + 1}",
+        starts_on=date(y, 8, 1),
+        ends_on=date(y + 1, 7, 31),
+        is_current=True,
+        registration_open=True,
+    )
+    db.add(season)
+    db.flush()
+
+    for sport in sports_ordered:
+        disc = Discipline(
+            club_id=club.id,
+            name=SPORT_LABELS.get(sport, sport.title()),
+            name_ar=SPORT_LABELS_AR.get(sport),
+            code=sport_code_short(sport),
+        )
+        db.add(disc)
+        db.flush()
+        _seed_discipline_categories(
+            db, club_id=club.id, season_id=season.id, disc=disc, sport=sport
+        )
+
+    from app.services.audit import write_audit
+
+    write_audit(
+        db,
+        action="onboard",
+        entity="club",
+        entity_id=club.id,
+        user_id=admin.id,
+        club_id=club.id,
+        detail=f"slug={slug} sports={','.join(sports_ordered)} plan=discovery",
+    )
+    db.commit()
+    return ClubOnboardOut(
+        club_id=club.id,
+        slug=slug,
+        name=club.name,
+        sport=primary,
+        plan="discovery",
+        trial_ends_on=trial_end,
+        admin_email=payload.admin_email,
+        login_hint=f"Connectez-vous avec le code club « {slug} » et l'email {payload.admin_email}",
+    )
 
 
 system_router = APIRouter(prefix="/system", tags=["system"])
@@ -303,7 +548,7 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "1.16.0",
+        "version": "1.17.0",
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,
