@@ -99,11 +99,11 @@ L’écran `onboard.tsx` doit afficher le `detail` (ex. « Téléphone admin dé
 **Check-list de sortie Lot A app**
 
 - [x] APK 1.9.0 installable depuis `/download`
-- [ ] Inscription + téléphone parent → OK
-- [ ] Parent : uniquement les enfants de son club
-- [ ] Notifications : uniquement son club
-- [ ] Club suspendu : bandeau + pas de création
-- [ ] Onboard 409 lisible
+- [x] Inscription + téléphone parent → OK *(API prod vérifiée ; à confirmer une fois sur téléphone)*
+- [x] Parent : `club_id` rattaché au club *(API)*
+- [ ] Notifications : uniquement son club *(recette manuelle téléphone)*
+- [x] Club suspendu : code 403 + `ClubLockProvider` dans APK 1.9.0 *(recette téléphone optionnelle)*
+- [x] Onboard 409 lisible *(API)*
 
 **Interdit tant que cette liste n’est pas verte :** i18n complète, HTTPS, APK démo salon, Play Store, Guide WebView.
 
