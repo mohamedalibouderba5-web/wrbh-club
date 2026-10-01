@@ -8,7 +8,12 @@
 **Documents liés :** `ORDRE_LOGICIEL_MAITRE.md` · `MATRICE_ROLES_ACCES.md` · `ORDRE_DEV_SUIVI_PARENTAL.md` · `DEMO_SCRIPTEE_NADI_CONNECT.md`
 
 **Date ordre :** 2026-10-01 (maj)  
-**Version API cible :** ≥ **1.17.0**
+**Version API cible :** ≥ **1.18.0**
+
+> **ORDRE ACTIF (2026-10-01, 16h20) — à exécuter dans cet ordre :**  
+> **`docs/ORDRE_APP_ANDROID.md`**  
+> Lot **A** (produit en marche) → puis Lot **B** (HTTPS) → puis Lot **C** (salon / arabe).  
+> Ne pas inverser. Check-lists et APIs dedans.
 
 ---
 
@@ -197,6 +202,8 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-01 | (sync site) | **C2 site complet** : API `license_expiring_soon` / `medical_expiring_soon` + stats club `license_expiring_count` / `medical_expiring_count` ; filtre renouvellement web. **C3 web Finance** FR/AR. **À ajouter app (C7)** : champs dates licence/médical sur fiche athlète ; pastille <30 j ; filtre « à renouveler » ; optionnel compteurs Accueil depuis `/club/stats` |
 | 2026-10-01 | **1.9.0** | **C7** : champs `license_valid_until` / `medical_cert_*` + pastille expiration. Config API android → 1.9.0/vc12. **Reste** : rebuild+publier APK, C8 démo offline, C9 bandeau, C11 i18n Accueil/Agenda |
 | 2026-10-01 | **1.9.0** | **C9** : `ClubLockProvider` bandeau suspendu/essai + masquage création Athlètes/Inscriptions. **À faire** : rebuild APK + C8 + C11 |
+| 2026-10-01 16h20 | — | **Ordre exécutable** `docs/ORDRE_APP_ANDROID.md` : APP-A1…A6 (publier 1.9.0, inscription, parent, notifs, suspendu, onboard 409) puis B HTTPS puis C. **APK public encore 1.8.0** |
+| 2026-10-01 | **1.9.0 publié** | **APP-A1** : APK sur `/download` + UpdateGate ; Lot A code (403, ClubLock, licences) en production |
 
 ### Lot C — à ajouter dans l'app (suite audit 2026-10-01)
 
@@ -210,8 +217,8 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | C4 | Message 409 onboarding | ✅ **fait** | Le `detail` est remonté par `formatApiError`. |
 | C5 | Rate-limit 429 | ✅ **fait** | `client.ts:26-28` : « Trop de tentatives — réessayez dans quelques minutes (réseau partagé). » Pas de réessai en boucle. |
 | **C11** | **Internationalisation FR / AR + RTL** | ❌ **le plus gros manque** | **Aucun système i18n dans l'app.** `useI18n`, `i18n`, `locale ===` : **0 occurrence** dans `mobile/`. `I18nManager` et tout traitement RTL : **absents**. L'arabe n'existe qu'en **44 lignes de chaînes codées en dur** réparties dans 10 fichiers (ex. `"Connexion / دخول"`). Le web a un dictionnaire FR/AR complet (`web/src/i18n.tsx`, ~70 clés) **avec bascule de langue et RTL**. Vous vendez un produit bilingue ; l'app est en pratique francophone. Pour des parents arabophones, c'est bloquant. **À faire :** porter `web/src/i18n.tsx` en contexte React Native, bascule de langue dans Profil, `I18nManager.forceRTL` pour l'arabe, puis migrer les écrans dans cet ordre : Accueil → Agenda → Inscriptions → Athlètes → Paiements. |
-| **C12** | **Gérer le code 403** | ❌ **à faire** | `client.ts` traite `401` (déconnexion) et `429`, mais **`403` n'est géré nulle part** dans `mobile/src`. Or le backend renvoie désormais `403` dans trois cas : club suspendu en écriture (A7), utilisateur non rattaché à un club, rôle insuffisant. Sans traitement, l'utilisateur voit une erreur brute. |
-| C9 | Écran « club suspendu » | ❌ **à faire** | Dépend de C12. Bandeau « abonnement suspendu — lecture seule » et masquage des boutons de création quand un `403` « Club suspendu » revient. Le backend autorise la lecture et l'export. |
+| **C12** | **Gérer le code 403** | 🟡 **dans le source** (`client.ts:29-42`) — **pas dans l’APK 1.8.0** | Publier 1.9.0 (APP-A1). |
+| C9 | Écran « club suspendu » | 🟡 **dans le source** (`ClubLockContext.tsx`) — **pas dans l’APK 1.8.0** | Recette APP-A5 sur 1.9.0. |
 | C2 | Basculer en HTTPS | ⏳ **bloqué par B1** | `app.json:74` → `"apiUrl": "http://46.224.38.201:8081"` et `app.json:27` → `"usesCleartextTraffic": true` **toujours actifs**. Dès que le domaine est en place : `https://api.<domaine>`, retirer `usesCleartextTraffic`, rebuild, republier, mettre à jour `ANDROID_APK_URL`. **Prérequis Play Store.** |
 | C8 | Démo salon hors ligne | ❌ **à faire, prioritaire** | `src/config.ts` lit `extra.apiUrl` depuis `app.json` : vérifier si c'est surchargeable à l'exécution. Sinon, produire un **APK de démo** pointant vers l'IP du portable. Le wifi SAFEX n'est pas fiable — c'est le filet de sécurité du stand. |
 | C10 | Revalider les notifications | ❌ **à vérifier** | `notify_role` est corrigé côté backend et les `Notification` portent désormais un `club_id`. Vérifier que l'onglet notifications ne montre que le club courant. |
@@ -219,15 +226,7 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | C7 | Licence + certificat médical | ✅ **code 1.9.0** — rebuild APK | Champs dates + pastille sur fiche athlète mobile. Publier APK pour activer UpdateGate. |
 | C6 | Parité manquante | 📋 **après salon** | Écran Guide / formation absent (le web a `/guide`, désormais **route publique** — une `WebView` suffirait). Administration des feedbacks absente. |
 
-**Ordre de priorité app avant le 12 octobre :**
-
-1. **C8** — démo hors ligne (sans ça, pas de filet au salon)
-2. **C12 + C9** — gérer `403` et l'état suspendu
-3. **C2** — HTTPS, dès que le domaine est prêt (dépend de B1)
-4. **C10 + C3** — revalidation du cloisonnement
-5. **C11** — i18n : commencer par Accueil et Agenda, les deux écrans montrés en démo
-
-**C11 en entier ne rentre pas avant le salon.** Visez les deux écrans de démonstration en arabe, et planifiez le reste après le 15 octobre.
+**Ordre de priorité app — voir `docs/ORDRE_APP_ANDROID.md` :** Lot A (APK 1.9.0 + tests produit) → Lot B HTTPS → Lot C (recette licences, APK démo, arabe Accueil/Agenda).
 
 ---
 
