@@ -286,6 +286,9 @@ class AthleteUpdate(BaseModel):
 class AthleteOut(ORMModel):
     id: int
     legacy_number: Optional[int]
+    list_number: Optional[int] = None
+    kit_number: Optional[int] = None
+    registration_reference: Optional[str] = None
     full_name: str
     full_name_ar: Optional[str]
     birth_date: Optional[date]

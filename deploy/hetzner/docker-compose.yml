@@ -28,6 +28,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     container_name: wrbh-api
     restart: unless-stopped
     env_file:
@@ -39,6 +41,7 @@ services:
       PORT: "8000"
       CORS_ORIGINS: ${CORS_ORIGINS}
       SECRET_KEY: ${SECRET_KEY}
+      GIT_SHA: ${GIT_SHA:-unknown}
     volumes:
       - wrbh_uploads:/app/uploads
     depends_on:

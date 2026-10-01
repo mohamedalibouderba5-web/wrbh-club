@@ -33,8 +33,14 @@ class Settings(BaseSettings):
     max_page_size: int = 200
     allow_test_cleanup: bool = False
     sentry_dsn: str = ""
+    # B3 : plafond par compte (strict) + plafond IP large (NAT club / stand salon)
     login_rate_limit: int = 10
+    login_rate_limit_ip: int = 100
     login_rate_window_seconds: int = 300
+    onboard_rate_limit: int = 5
+    onboard_rate_limit_ip: int = 30
+    app_version: str = "1.18.0"
+    git_sha: str = ""  # injecté au déploiement (env GIT_SHA)
     # Mise à jour APK mobile (publié via env Render)
     android_app_version: str = "1.8.0"
     android_version_code: int = 11

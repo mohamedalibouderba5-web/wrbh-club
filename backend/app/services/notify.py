@@ -12,8 +12,21 @@ def notify_user(
     body: str,
     kind: str = "info",
     link: str | None = None,
+    club_id: int | None = None,
 ) -> Notification:
-    n = Notification(user_id=user_id, title=title, body=body, kind=kind, link=link)
+    # Si club_id omis, le prendre du destinataire (évite NULL → fuite multi-tenant)
+    cid = club_id
+    if cid is None:
+        u = db.get(User, user_id)
+        cid = getattr(u, "club_id", None) if u else None
+    n = Notification(
+        user_id=user_id,
+        title=title,
+        body=body,
+        kind=kind,
+        link=link,
+        club_id=cid,
+    )
     db.add(n)
     return n
 
@@ -24,12 +37,13 @@ def notify_parents_of_athlete(
     title: str,
     body: str,
     kind: str = "info",
+    club_id: int | None = None,
 ) -> int:
     parent_ids = [
         r[0] for r in db.query(ParentChild.parent_id).filter(ParentChild.athlete_id == athlete_id)
     ]
     for pid in parent_ids:
-        notify_user(db, pid, title, body, kind=kind)
+        notify_user(db, pid, title, body, kind=kind, club_id=club_id)
     return len(parent_ids)
 
 
@@ -39,6 +53,7 @@ def notify_team_parents(
     title: str,
     body: str,
     kind: str = "info",
+    club_id: int | None = None,
 ) -> int:
     athlete_ids = [
         r[0]
@@ -49,12 +64,27 @@ def notify_team_parents(
     ]
     count = 0
     for aid in athlete_ids:
-        count += notify_parents_of_athlete(db, aid, title, body, kind=kind)
+        count += notify_parents_of_athlete(db, aid, title, body, kind=kind, club_id=club_id)
     return count
 
 
-def notify_role(db: Session, role: str, title: str, body: str, kind: str = "info") -> int:
-    users = db.query(User).filter(User.role == role, User.is_active.is_(True)).all()
+def notify_role(
+    db: Session,
+    role: str,
+    title: str,
+    body: str,
+    kind: str = "info",
+    *,
+    club_id: int,
+) -> int:
+    """Notifie les utilisateurs d'un rôle — **toujours** scopé au club (A8)."""
+    if not club_id:
+        raise ValueError("notify_role exige club_id (isolation multi-tenant)")
+    users = (
+        db.query(User)
+        .filter(User.role == role, User.is_active.is_(True), User.club_id == club_id)
+        .all()
+    )
     for u in users:
-        notify_user(db, u.id, title, body, kind=kind)
+        notify_user(db, u.id, title, body, kind=kind, club_id=club_id)
     return len(users)

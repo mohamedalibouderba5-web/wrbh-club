@@ -4,6 +4,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY scripts ./scripts
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
 ENV PYTHONPATH=/app
 ENV ENVIRONMENT=production
 ENV PYTHONIOENCODING=utf-8

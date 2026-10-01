@@ -90,7 +90,28 @@ def _bust_club_caches() -> None:
     cache_delete_prefix("categories:")
     cache_delete_prefix("seasons:")
     cache_delete_prefix("finance:")
+    cache_delete_prefix("analytics:")
     _STATS_CACHE.clear()
+
+
+def _current_season(db: Session, club_id: int | None) -> Season | None:
+    """Saison courante du club (jamais celle d'un autre tenant)."""
+    if club_id:
+        s = (
+            db.query(Season)
+            .filter(Season.is_current.is_(True), Season.club_id == club_id)
+            .first()
+        )
+        if s:
+            return s
+        s = (
+            db.query(Season)
+            .filter(Season.is_current.is_(True), Season.club_id.is_(None))
+            .first()
+        )
+        if s:
+            return s
+    return db.query(Season).filter(Season.is_current.is_(True)).first()
 
 
 @router.get("/seasons", response_model=list[SeasonOut])
@@ -371,7 +392,7 @@ def list_categories(
     if season_id:
         q = q.filter(Category.season_id == season_id)
     else:
-        current = db.query(Season).filter(Season.is_current.is_(True)).first()
+        current = _current_season(db, club_id)
         if current:
             q = q.filter(Category.season_id == current.id)
     if discipline_id:
@@ -390,15 +411,19 @@ def list_categories(
 @router.get("/bootstrap")
 def bootstrap(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Un seul appel : saisons + catégories + stats + finance (si staff) + compte événements."""
-    key = f"bootstrap:{user.role}:{user.id}"
+    club_id = getattr(user, "club_id", None)
+    key = f"bootstrap:{club_id}:{user.role}:{user.id}"
     cached = cache_get(key)
     if cached is not None:
         return cached
 
     seasons = list_seasons(db, user)
-    categories = list_categories(None, db, user)
+    try:
+        # list_categories(season_id, discipline_id, db, user)
+        categories = list_categories(None, None, db, user)
+    except Exception:
+        categories = []
     stats = club_stats(db, user)
-    club_id = getattr(user, "club_id", None)
     events_q = db.query(func.count(Event.id)).filter(Event.is_cancelled.is_(False))
     if club_id:
         events_q = events_q.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
@@ -408,7 +433,8 @@ def bootstrap(db: Session = Depends(get_db), user: User = Depends(get_current_us
         from app.api.finance import finance_dashboard
 
         try:
-            finance = finance_dashboard(db, user, club_id)
+            # finance_dashboard(season_id, db, user, club_id)
+            finance = finance_dashboard(None, db, user, int(club_id))
         except Exception:
             finance = None
 
@@ -964,7 +990,7 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
             return query.filter(or_(Athlete.club_id == club_id, Athlete.club_id.is_(None)))
         return query
 
-    season = db.query(Season).filter(Season.is_current.is_(True)).first()
+    season = _current_season(db, club_id)
 
     athletes_total = _cf(db.query(func.count(Athlete.id))).scalar() or 0
     athletes_active = (
@@ -1028,8 +1054,13 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
         if status == "Active" and bdate is not None and aid not in classified_active
     )
 
-    regs_pending = db.query(func.count(Registration.id)).filter(Registration.status == "pending").scalar() or 0
-    parents = db.query(func.count(User.id)).filter(User.role == Role.PARENT).scalar() or 0
+    regs_q = db.query(func.count(Registration.id)).filter(Registration.status == "pending")
+    parents_q = db.query(func.count(User.id)).filter(User.role == Role.PARENT)
+    if club_id:
+        regs_q = regs_q.filter(or_(Registration.club_id == club_id, Registration.club_id.is_(None)))
+        parents_q = parents_q.filter(or_(User.club_id == club_id, User.club_id.is_(None)))
+    regs_pending = regs_q.scalar() or 0
+    parents = parents_q.scalar() or 0
     payload = {
         "season": season.name if season else None,
         "athletes_total": int(athletes_total),
@@ -1088,7 +1119,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
         .all()
     }
 
-    season = db.query(Season).filter(Season.is_current.is_(True)).first()
+    season = _current_season(db, club_id)
     categories: list[dict] = []
     if season:
         light = _ath(db.query(Athlete.birth_date)).all()
@@ -1358,6 +1389,9 @@ def _to_athlete_out(
     parent_phone: str | None | object = _MISSING,
     category_id: int | None = None,
     category_code: str | None = None,
+    list_number: int | None = None,
+    kit_number: int | None = None,
+    registration_reference: str | None = None,
 ) -> AthleteOut:
     # Important : si parent_phone vient du bulk (même None), ne pas retomber en N+1
     phone = (
@@ -1366,6 +1400,9 @@ def _to_athlete_out(
     return AthleteOut(
         id=athlete.id,
         legacy_number=athlete.legacy_number,
+        list_number=list_number,
+        kit_number=kit_number,
+        registration_reference=registration_reference,
         full_name=athlete.full_name,
         full_name_ar=athlete.full_name_ar,
         birth_date=athlete.birth_date,
@@ -1381,12 +1418,14 @@ def _to_athlete_out(
     )
 
 
-def _category_map_for_season(db: Session, season_id: int | None) -> list[Category]:
+def _category_map_for_season(
+    db: Session, season_id: int | None, club_id: int | None = None
+) -> list[Category]:
     q = db.query(Category)
     if season_id:
         q = q.filter(Category.season_id == season_id)
     else:
-        current = db.query(Season).filter(Season.is_current.is_(True)).first()
+        current = _current_season(db, club_id)
         if current:
             q = q.filter(Category.season_id == current.id)
     return q.order_by(Category.birth_year_min).all()
@@ -1424,9 +1463,9 @@ def list_athletes(
 
     season = season_id
     if not season:
-        current = db.query(Season).filter(Season.is_current.is_(True)).first()
+        current = _current_season(db, club_id)
         season = current.id if current else None
-    cats = _category_map_for_season(db, season)
+    cats = _category_map_for_season(db, season, club_id)
 
     # Téléphones parents en une seule jointure (plus de requêtes N+1)
     parent_phone_sq = (
@@ -1523,14 +1562,39 @@ def list_athletes(
             )
             if last:
                 last_pay[aid] = (last.paid_on, last.amount)
+
+    # N° joueur = même rang compact que Inscriptions (list_number), pas l'id base
+    reg_by_athlete: dict[int, Registration] = {}
+    list_numbers: dict[int, int] = {}
+    if season and athlete_ids:
+        regs = (
+            db.query(Registration)
+            .filter(
+                Registration.athlete_id.in_(athlete_ids),
+                Registration.season_id == season,
+                Registration.status != "archived",
+                or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+            )
+            .order_by(Registration.created_at.asc(), Registration.id.asc())
+            .all()
+        )
+        for r in regs:
+            if r.athlete_id not in reg_by_athlete:
+                reg_by_athlete[r.athlete_id] = r
+        list_numbers = _registration_list_numbers(db, club_id=club_id, season_ids={int(season)})
+
     out: list[AthleteOut] = []
     for athlete, phone in rows:
         cid, ccode = _cat_for_birth(cats, athlete.birth_date)
         lp = last_pay.get(athlete.id)
+        reg = reg_by_athlete.get(athlete.id)
         out.append(
             AthleteOut(
                 id=athlete.id,
                 legacy_number=athlete.legacy_number,
+                list_number=list_numbers.get(reg.id) if reg else None,
+                kit_number=getattr(reg, "kit_number", None) if reg else None,
+                registration_reference=getattr(reg, "reference", None) if reg else None,
                 full_name=athlete.full_name,
                 full_name_ar=athlete.full_name_ar,
                 birth_date=athlete.birth_date,
@@ -1595,6 +1659,7 @@ def create_athlete(
                 phone=payload.parent_phone,
                 full_name=payload.parent_name,
                 athlete_id=athlete.id,
+                club_id=club_id,
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -1727,6 +1792,7 @@ def update_athlete(
                 phone=payload.parent_phone,
                 full_name=payload.parent_name,
                 athlete_id=athlete.id,
+                club_id=club_id,
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -1736,7 +1802,7 @@ def update_athlete(
         title = f"Joueur — {athlete.full_name}"
         body = f"Statut mis à jour : {new_status}. {note}".strip()
         notify_parents_of_athlete(db, athlete.id, title, body, kind="status")
-        notify_role(db, Role.ADMIN, title, body, kind="status")
+        notify_role(db, Role.ADMIN, title, body, kind="status", club_id=club_id)
 
     write_audit(
         db,
@@ -2715,6 +2781,7 @@ def update_registration(
                 phone=payload.parent_phone,
                 full_name=payload.parent_name,
                 athlete_id=athlete.id,
+                club_id=club_id,
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc

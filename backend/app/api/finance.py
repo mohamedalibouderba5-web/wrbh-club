@@ -238,11 +238,20 @@ def list_installments(
     if season_id:
         q = q.filter(FeeInstallment.season_id == season_id)
     if status:
-        q = q.filter(FeeInstallment.status == status)
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) == 1:
+            q = q.filter(FeeInstallment.status == statuses[0])
+        elif statuses:
+            q = q.filter(FeeInstallment.status.in_(statuses))
     if user.role == Role.PARENT:
         ids = {r[0] for r in db.query(ParentChild.athlete_id).filter(ParentChild.parent_id == user.id)}
         q = q.filter(FeeInstallment.athlete_id.in_(ids or {-1}))
-    rows = q.order_by(FeeInstallment.due_date.desc().nullslast(), FeeInstallment.id.desc()).offset(skip).limit(limit).all()
+    rows = (
+        q.order_by(FeeInstallment.seq_no.asc().nullslast(), FeeInstallment.id.asc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
     names = _athlete_names(db, [r.athlete_id for r in rows])
     return [_installment_out(r, names) for r in rows]
 
@@ -825,6 +834,8 @@ def delete_payment(
             else:
                 inst.status = "paid"
     detail = f"athlete={payment.athlete_id} amount={payment.amount}"
+    # Receipts.payment_id is unique FK without cascade — delete receipt first
+    db.query(Receipt).filter(Receipt.payment_id == payment_id).delete(synchronize_session=False)
     db.delete(payment)
     write_audit(
         db,

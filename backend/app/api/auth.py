@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from collections import defaultdict
+import os
 import time
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
@@ -47,21 +48,66 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _rate_limit_login(request: Request, username: str) -> None:
-    ip = _client_ip(request)
+def _rate_hit(key: str, *, limit: int, window: int, detail: str) -> None:
     now = time.time()
+    hits = [t for t in _login_hits[key] if now - t < window]
+    if len(hits) >= limit:
+        raise HTTPException(status_code=429, detail=detail)
+    hits.append(now)
+    _login_hits[key] = hits
+
+
+def _rate_limit_login(request: Request, username: str) -> None:
+    """B3 : limite stricte par compte + plafond IP large (NAT / stand salon)."""
+    ip = _client_ip(request)
     window = settings.login_rate_window_seconds
-    limit = settings.login_rate_limit
-    keys = [f"ip:{ip}", f"user:{(username or '').strip().lower()}:{ip}"]
-    for key in keys:
-        hits = [t for t in _login_hits[key] if now - t < window]
-        if len(hits) >= limit:
-            raise HTTPException(
-                status_code=429,
-                detail="Trop de tentatives de connexion. Réessayez plus tard.",
-            )
-        hits.append(now)
-        _login_hits[key] = hits
+    account = (username or "").strip().lower() or "anonymous"
+    _rate_hit(
+        f"login:user:{account}",
+        limit=settings.login_rate_limit,
+        window=window,
+        detail="Trop de tentatives de connexion pour ce compte. Réessayez plus tard.",
+    )
+    _rate_hit(
+        f"login:ip:{ip}",
+        limit=settings.login_rate_limit_ip,
+        window=window,
+        detail="Trop de tentatives de connexion depuis ce réseau. Réessayez plus tard.",
+    )
+
+
+def _rate_limit_onboard(request: Request, key: str) -> None:
+    """Compteur séparé du login — message adapté à la création de club."""
+    ip = _client_ip(request)
+    window = settings.login_rate_window_seconds
+    ident = (key or "").strip().lower() or "anonymous"
+    _rate_hit(
+        f"onboard:user:{ident}",
+        limit=settings.onboard_rate_limit,
+        window=window,
+        detail="Trop de tentatives de création de club. Réessayez plus tard.",
+    )
+    _rate_hit(
+        f"onboard:ip:{ip}",
+        limit=settings.onboard_rate_limit_ip,
+        window=window,
+        detail="Trop de créations de club depuis ce réseau. Réessayez plus tard.",
+    )
+
+
+def _deploy_git_sha() -> str:
+    sha = (settings.git_sha or os.environ.get("GIT_SHA") or os.environ.get("GIT_COMMIT") or "").strip()
+    if sha:
+        return sha[:40]
+    try:
+        from pathlib import Path
+
+        baked = Path(__file__).resolve().parents[2] / "GIT_SHA"
+        if baked.exists():
+            return baked.read_text(encoding="utf-8").strip()[:40]
+    except Exception:
+        pass
+    return "unknown"
 
 
 def _resolve_club_id(db: Session, club_slug: str | None) -> int | None:
@@ -341,16 +387,26 @@ def _slugify_candidate(raw: str) -> str:
 
 @club_router.get("/list", response_model=list[ClubPublicOut])
 def list_public_clubs(db: Session = Depends(get_db)):
-    """Clubs actifs visibles à la connexion (multi-club phase produit)."""
+    """Vitrine publique uniquement (`is_platform=True`).
+
+    B4 : ne plus exposer le portefeuille clients. Le login se fait par slug saisi.
+    """
     rows = (
         db.query(Club)
-        .filter(Club.status.in_(["active", "trial"]), Club.slug.isnot(None))
+        .filter(
+            Club.is_platform.is_(True),
+            Club.status.in_(["active", "trial"]),
+            Club.slug.isnot(None),
+        )
         .order_by(Club.name.asc())
         .all()
     )
     out: list[ClubPublicOut] = []
     for c in rows:
         if not c.slug:
+            continue
+        slug_l = c.slug.lower()
+        if slug_l.startswith("zztest") or slug_l.startswith("test-") or "zztest" in slug_l:
             continue
         out.append(
             ClubPublicOut(
@@ -431,7 +487,7 @@ def branding(slug: str | None = None, db: Session = Depends(get_db)):
 @club_router.post("/onboard", response_model=ClubOnboardOut)
 def onboard_club(payload: ClubOnboardIn, request: Request, db: Session = Depends(get_db)):
     """Crée un club + admin + saison + disciplines (essai discovery 14 jours)."""
-    _rate_limit_login(request, payload.admin_email or payload.slug)
+    _rate_limit_onboard(request, payload.admin_email or payload.slug)
     slug = _slugify_candidate(payload.slug)
     if len(slug) < 2:
         raise HTTPException(400, "Code club (slug) invalide")
@@ -441,6 +497,16 @@ def onboard_club(payload: ClubOnboardIn, request: Request, db: Session = Depends
         raise HTTPException(400, "Email admin obligatoire")
     if db.query(User).filter(User.email == payload.admin_email).first():
         raise HTTPException(409, "Email admin déjà utilisé")
+    admin_phone = (payload.admin_phone or "").strip() or None
+    if admin_phone:
+        from app.services.phone import normalize_phone, phone_lookup_variants
+
+        variants = [v for v in phone_lookup_variants(admin_phone) if v]
+        n = normalize_phone(admin_phone)
+        if n and n not in variants:
+            variants.append(n)
+        if variants and db.query(User).filter(User.phone.in_(variants)).first():
+            raise HTTPException(409, "Téléphone admin déjà utilisé")
 
     primary = normalize_sport(payload.sport)
     extra = [normalize_sport(s) for s in (payload.sports or [])]
@@ -471,7 +537,7 @@ def onboard_club(payload: ClubOnboardIn, request: Request, db: Session = Depends
     admin = User(
         club_id=club.id,
         email=payload.admin_email,
-        phone=(payload.admin_phone or "").strip() or None,
+        phone=admin_phone,
         full_name=payload.admin_full_name.strip(),
         role=Role.ADMIN,
         password_hash=hash_password(payload.admin_password),
@@ -480,7 +546,16 @@ def onboard_club(payload: ClubOnboardIn, request: Request, db: Session = Depends
         is_active=True,
     )
     db.add(admin)
-    db.flush()
+    try:
+        db.flush()
+    except Exception as exc:
+        db.rollback()
+        # IntegrityError téléphone/email (course) → 409 propre
+        from sqlalchemy.exc import IntegrityError
+
+        if isinstance(exc, IntegrityError):
+            raise HTTPException(409, "Email ou téléphone admin déjà utilisé") from exc
+        raise
 
     now = datetime.now(timezone.utc)
     y = now.year
@@ -545,10 +620,12 @@ def health():
         insecure.append("default_admin_password_in_config")
     if "*" in settings.cors_origin_list:
         insecure.append("cors_wildcard")
+    sha = _deploy_git_sha()
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "1.17.0",
+        "version": settings.app_version or "1.18.0",
+        "git_sha": sha[:12] if sha and sha != "unknown" else sha,
         "environment": settings.environment,
         "time": datetime.now(timezone.utc).isoformat(),
         "last_wake": _last_wake.isoformat() if _last_wake else None,
