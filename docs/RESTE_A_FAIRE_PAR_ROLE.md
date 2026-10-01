@@ -29,9 +29,7 @@
 
 ### Bloquant immédiat
 
-**A10 — la production exécute du code non commité.** Vérifié : `POST /club/onboard` renvoie `409`, un message qui n'existe que dans la copie de travail. Dans `HEAD`, trois des quatre appels de `club.py` ne passent toujours pas `club_id`.
-
-Conséquence : **le prochain déploiement depuis git ferait régresser la production.** Tant que ce point n'est pas traité, aucune autre tâche n'est fiable. C'est la première chose à faire, avant tout le reste.
+**A10 — fait (2026-10-01).** Commit `7b46f2d` poussé + redéploiement depuis git. `/health` expose `version=1.18.0` et `git_sha`. Règle permanente : plus aucun déploiement depuis une copie de travail.
 
 ---
 
