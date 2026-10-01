@@ -191,6 +191,7 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-09-30 | **1.7.0** | A1–A6 (+A3) : multi-club login/branding, sports, rôles, onboard |
 | 2026-10-01 | **1.8.0** | Lot B+C : liens Offres/Guide/Pilote, N° joueur `list_number`, msgs 429/500/409 ; sync fix parents `club_id` |
 | 2026-10-01 | (sync site) | **Lot A backend déployé** : inscriptions OK en prod ; parents `club_id` ; notifs scopées ; club suspendu lecture seule ; `/guide` `/download` publics. **À faire app** : C1 retest, C3, C9, C10 (voir tableau) |
+| 2026-10-01 | (sync site) | **A10/B3/B4** : `/health.git_sha` ; login par code club (liste vitrine `is_platform` seulement). **App** : champ slug obligatoire, ne plus dépendre d’un annuaire clients ; afficher `429` compte vs réseau si `detail` change |
 
 ### Lot C — à ajouter dans l'app (suite audit 2026-10-01)
 

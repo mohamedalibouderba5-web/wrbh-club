@@ -16,7 +16,7 @@ echo "RESTORE_TEST dump=$DUMP"
 docker rm -f wrbh-restore-test >/dev/null 2>&1 || true
 docker run -d --name wrbh-restore-test \
   -e POSTGRES_USER=wrbh -e POSTGRES_PASSWORD=wrbh -e POSTGRES_DB=wrbh_restore \
-  postgres:16-alpine >/dev/null
+  postgres:17-alpine >/dev/null
 sleep 4
 docker cp "$DUMP" wrbh-restore-test:/tmp/restore.dump
 # Créer DB + restore

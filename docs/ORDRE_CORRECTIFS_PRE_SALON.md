@@ -168,8 +168,8 @@ Le vrai problème est **où** se trouve la couverture. Le total de 43 % est gonf
 - [ ] paiement : échéance → encaissement → reçu → rapprochement au tableau de bord
 - [ ] modification des constantes de cotisation et répercussion sur les échéances ouvertes
 - [ ] cycle de séance : création → approbation → démarrage → clôture → présences
-- [ ] notification de rôle à deux clubs (voir A8)
-- [ ] club suspendu : écriture refusée, lecture et export autorisés (voir A7)
+- [x] notification de rôle à deux clubs (voir A8)
+- [x] club suspendu : écriture refusée, lecture et export autorisés (voir A7)
 - [ ] upload de photo et accès au média depuis un autre club (voir D6)
 
 Objectif chiffré utile : **`finance.py` et `club.py` au-dessus de 50 %.**
@@ -523,8 +523,8 @@ Justification de A7 et A8 dans cette liste : A8 envoie activement le contenu d'u
 - [ ] Le site répond en `https://` avec un certificat valide ; `isSecureContext === true`
 - [ ] La PWA s'installe réellement depuis le navigateur du téléphone
 - [ ] L'APK publié pointe vers `https://` et `usesCleartextTraffic` est retiré
-- [ ] Une sauvegarde automatique a tourné **et** une restauration a été testée
-  - _(partiel 2026-10-01 : cron quotidien 02:15 UTC + dump manuel OK ; **restauration non testée**)_
+- [x] Une sauvegarde automatique a tourné **et** une restauration a été testée
+  - _(2026-10-01 : cron 02:15 UTC + `restore_test.sh` → RESTORE_OK clubs=10 sur Postgres 17 jetable)_
 - [ ] 30 connexions successives depuis la même IP ne déclenchent pas de `429`
 - [x] `GET /club/list` n'expose plus la liste des clients
 - [x] `/download` et `/guide` s'ouvrent sans être connecté
@@ -536,7 +536,8 @@ Justification de A7 et A8 dans cette liste : A8 envoie activement le contenu d'u
 - [ ] Suite de tests verte, couverture backend ≥ 20 %
 - [ ] Revue du développeur senior effectuée et remarques traitées
 - [ ] Code gelé, sauvegarde de la base prise, aucun déploiement prévu du 12 au 15
-- [ ] `/health` expose le SHA du commit déployé, et ce SHA existe dans git (**A10**)
+- [x] `/health` expose le SHA du commit déployé, et ce SHA existe dans git (**A10**)
+  - _(prod : `version=1.18.0`, `git_sha=f27f16150e7f`)_
 - [ ] `finance.py` et `club.py` au-dessus de 50 % de couverture
 - [ ] Le compte parent résiduel `VERIFYFIX…` (id 171) est supprimé du club de démo `demo-judo-978`
 
