@@ -1,7 +1,7 @@
 {
-  "name": "WRBH Club",
-  "short_name": "WRBH",
-  "description": "Application Widad Riadi Baladiat Hammadi — parents et coaches",
+  "name": "Nadi Connect",
+  "short_name": "Nadi",
+  "description": "Nadi Connect — le club connecté. Gestion multi-clubs sportifs (Algérie).",
   "lang": "fr",
   "dir": "ltr",
   "start_url": "/login",
