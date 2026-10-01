@@ -113,17 +113,7 @@ def apply_settings_to_open_installments(
         )
         .all()
     )
-    # Tolère club_id NULL legacy
-    rows_ass_null = (
-        db.query(FeeInstallment)
-        .filter(
-            FeeInstallment.label == "assurance",
-            FeeInstallment.status.in_(open_status),
-            FeeInstallment.club_id.is_(None),
-        )
-        .all()
-    )
-    for row in list(rows_ass) + list(rows_ass_null):
+    for row in list(rows_ass):
         new_amt = fees["annual_insurance_dzd"]
         if row.amount != new_amt:
             paid = Decimal(str(row.amount_paid or 0))
@@ -145,7 +135,7 @@ def apply_settings_to_open_installments(
             FeeInstallment.status.in_(open_status),
         )
         .filter(
-            (FeeInstallment.club_id == club_id) | (FeeInstallment.club_id.is_(None))
+            (FeeInstallment.club_id == club_id)
         )
         .all()
     )

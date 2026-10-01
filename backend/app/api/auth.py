@@ -261,7 +261,7 @@ def list_users(
     q = db.query(User)
     club_id = getattr(actor, "club_id", None)
     if club_id:
-        q = q.filter(or_(User.club_id == club_id, User.club_id.is_(None)))
+        q = q.filter(User.club_id == club_id)
     return q.order_by(User.full_name).all()
 
 

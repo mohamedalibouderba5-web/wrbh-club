@@ -33,7 +33,7 @@ def next_seq(db: Session, model, *, club_id: int | None, season_id: int | None =
     """Compteur max+1 (paiements, caisse, échéances)."""
     q = db.query(func.coalesce(func.max(model.seq_no), 0))
     if club_id is not None and hasattr(model, "club_id"):
-        q = q.filter((model.club_id == club_id) | (model.club_id.is_(None)))
+        q = q.filter((model.club_id == club_id))
     if season_id is not None and hasattr(model, "season_id"):
         q = q.filter(model.season_id == season_id)
     return int(q.scalar() or 0) + 1
@@ -43,7 +43,7 @@ def next_registration_seq(db: Session, *, club_id: int | None, season_id: int | 
     """Prochain compteur historique, archives incluses (jamais réutilisé)."""
     q = db.query(func.coalesce(func.max(Registration.seq_no), 0))
     if club_id is not None:
-        q = q.filter((Registration.club_id == club_id) | (Registration.club_id.is_(None)))
+        q = q.filter((Registration.club_id == club_id))
     if season_id is not None:
         q = q.filter(Registration.season_id == season_id)
     return int(q.scalar() or 0) + 1
@@ -97,7 +97,7 @@ def assign_payment_identity(db: Session, payment: Payment, *, club_id: int | Non
         # Compteur club (toutes saisons) pour les paiements
         q = db.query(func.coalesce(func.max(Payment.seq_no), 0))
         if club_id is not None:
-            q = q.filter((Payment.club_id == club_id) | (Payment.club_id.is_(None)))
+            q = q.filter((Payment.club_id == club_id))
         payment.seq_no = int(q.scalar() or 0) + 1
     if not payment.reference:
         payment.reference = build_op_reference("PAY", year, int(payment.seq_no))
@@ -110,7 +110,7 @@ def assign_ledger_identity(db: Session, entry: LedgerEntry, *, club_id: int | No
     if not getattr(entry, "seq_no", None):
         q = db.query(func.coalesce(func.max(LedgerEntry.seq_no), 0))
         if club_id is not None:
-            q = q.filter((LedgerEntry.club_id == club_id) | (LedgerEntry.club_id.is_(None)))
+            q = q.filter((LedgerEntry.club_id == club_id))
         entry.seq_no = int(q.scalar() or 0) + 1
     if not getattr(entry, "reference", None):
         prefix = "REC" if entry.entry_type == "income" else "DEP"
@@ -126,7 +126,7 @@ def assign_installment_identity(db: Session, inst: FeeInstallment, *, club_id: i
     if not getattr(inst, "seq_no", None):
         q = db.query(func.coalesce(func.max(FeeInstallment.seq_no), 0))
         if club_id is not None:
-            q = q.filter((FeeInstallment.club_id == club_id) | (FeeInstallment.club_id.is_(None)))
+            q = q.filter((FeeInstallment.club_id == club_id))
         inst.seq_no = int(q.scalar() or 0) + 1
     if not getattr(inst, "reference", None):
         inst.reference = build_op_reference("ECH", year, int(inst.seq_no))

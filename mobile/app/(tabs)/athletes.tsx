@@ -12,6 +12,7 @@ import {
 import { useFocusEffect } from "expo-router";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/context/AuthContext";
+import { useClubLock } from "../../src/context/ClubLockContext";
 import { colors, statusColor, statusLabel } from "../../src/theme";
 
 type Athlete = {
@@ -53,8 +54,9 @@ const emptyForm = {
 
 export default function AthletesScreen() {
   const { role } = useAuth();
-  const canEdit = role === "admin" || role === "direction" || role === "staff";
-  const canDelete = role === "admin" || role === "direction";
+  const { readOnly } = useClubLock();
+  const canEdit = !readOnly && (role === "admin" || role === "direction" || role === "staff");
+  const canDelete = !readOnly && (role === "admin" || role === "direction");
   const [rows, setRows] = useState<Athlete[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);

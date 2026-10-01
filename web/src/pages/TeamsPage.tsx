@@ -427,7 +427,7 @@ export function TeamsPage() {
     <div className="grid" style={{ gap: "1rem" }} dir={lang === "ar" ? "rtl" : "ltr"}>
       {canManageCoaches && (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Sports du club (multisport)</h3>
+          <h3 style={{ marginTop: 0 }}>{t("teamsSports")}</h3>
           <p className="muted" style={{ marginTop: 0 }}>
             Un même club peut organiser plusieurs activités : football, judo, karaté, natation…
           </p>
@@ -469,7 +469,7 @@ export function TeamsPage() {
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <div>
-              <h3 style={{ margin: 0 }}>Coachs / المدربون</h3>
+              <h3 style={{ margin: 0 }}>{t("teamsCoaches")}</h3>
               <p className="muted" style={{ margin: "0.35rem 0 0" }}>
                 Ajouter ou modifier un coach comme pour un joueur, puis l’assigner à une équipe (U14G1, U11G2…).
               </p>

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { DEMO_CLUB_SLUG } from "../config";
 import { useI18n } from "../i18n";
 
 /** Page programme pilotes — vente assistée 2–3 clubs. */
@@ -72,7 +73,7 @@ export function PilotPage() {
         </Link>
         <Link
           className="button landing-cta-secondary"
-          to={`/login?club=${encodeURIComponent(import.meta.env.VITE_DEMO_CLUB_SLUG || "demo-judo-978")}`}
+          to={`/login?club=${encodeURIComponent(DEMO_CLUB_SLUG)}`}
         >
           {ar ? "تجربة النادي التجريبي" : "Voir la démo live"}
         </Link>

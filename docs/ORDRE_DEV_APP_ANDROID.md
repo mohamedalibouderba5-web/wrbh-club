@@ -196,6 +196,7 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-01 | (sync site) | **Lot C** : champs licence/certificat médical API ; messages **403** (suspendu / essai) dans `client.ts`. **À faire app** : formulaire licence+médical + bandeau lecture seule (C9) |
 | 2026-10-01 | (sync site) | **C2 site complet** : API `license_expiring_soon` / `medical_expiring_soon` + stats club `license_expiring_count` / `medical_expiring_count` ; filtre renouvellement web. **C3 web Finance** FR/AR. **À ajouter app (C7)** : champs dates licence/médical sur fiche athlète ; pastille <30 j ; filtre « à renouveler » ; optionnel compteurs Accueil depuis `/club/stats` |
 | 2026-10-01 | **1.9.0** | **C7** : champs `license_valid_until` / `medical_cert_*` + pastille expiration. Config API android → 1.9.0/vc12. **Reste** : rebuild+publier APK, C8 démo offline, C9 bandeau, C11 i18n Accueil/Agenda |
+| 2026-10-01 | **1.9.0** | **C9** : `ClubLockProvider` bandeau suspendu/essai + masquage création Athlètes/Inscriptions. **À faire** : rebuild APK + C8 + C11 |
 
 ### Lot C — à ajouter dans l'app (suite audit 2026-10-01)
 

@@ -166,7 +166,7 @@ def my_coach_teams(
     rows = (
         db.query(TeamCoach, Team)
         .join(Team, Team.id == TeamCoach.team_id)
-        .filter(TeamCoach.user_id == uid, or_(Team.club_id == club_id, Team.club_id.is_(None)))
+        .filter(TeamCoach.user_id == uid, Team.club_id == club_id)
         .all()
     )
     teams = [

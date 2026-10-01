@@ -56,7 +56,7 @@ def _season(db: Session, club_id: int, season_id: Optional[int]) -> Season | Non
         return s
     return (
         db.query(Season)
-        .filter(or_(Season.club_id == club_id, Season.club_id.is_(None)), Season.is_current.is_(True))
+        .filter(Season.club_id == club_id, Season.is_current.is_(True))
         .first()
     )
 
@@ -116,7 +116,7 @@ def export_workbook(
         .outerjoin(Team, Team.id == Registration.team_id)
         .filter(
             Registration.season_id == season.id,
-            or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+            Registration.club_id == club_id,
             Registration.status != "archived",
         )
     )

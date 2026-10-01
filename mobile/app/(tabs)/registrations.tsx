@@ -13,6 +13,7 @@ import { useFocusEffect } from "expo-router";
 import { api } from "../../src/api/client";
 import { PhotoPicker } from "../../src/components/PhotoPicker";
 import { useAuth } from "../../src/context/AuthContext";
+import { useClubLock } from "../../src/context/ClubLockContext";
 import { colors, fmtMoney, statusColor, statusLabel } from "../../src/theme";
 import { API_BASE } from "../../src/config";
 
@@ -66,8 +67,9 @@ const emptyForm = {
 
 export default function RegistrationsScreen() {
   const { role } = useAuth();
-  const isStaff = role === "admin" || role === "direction" || role === "staff";
-  const canDelete = role === "admin" || role === "direction";
+  const { readOnly } = useClubLock();
+  const isStaff = !readOnly && (role === "admin" || role === "direction" || role === "staff");
+  const canDelete = !readOnly && (role === "admin" || role === "direction");
   const [rows, setRows] = useState<Reg[]>([]);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [cats, setCats] = useState<Category[]>([]);

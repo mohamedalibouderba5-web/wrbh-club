@@ -229,9 +229,9 @@ app = FastAPI(
     default_response_class=ORJSONResponse,
 )
 
-# Origines web exactes (pas de regex *.onrender.com en prod)
+# Origines web exactes (Hetzner prod ; plus de Render)
 KNOWN_WEB_ORIGINS = (
-    "https://wrbh-web.onrender.com",
+    "http://46.224.38.201:8080",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",

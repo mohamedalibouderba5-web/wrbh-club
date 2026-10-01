@@ -261,7 +261,7 @@ export function FinancePage() {
       { name: t("financeUnpaid"), value: Math.round(dash.cotisations_due) },
       { name: t("financeIncome"), value: Math.round(dash.ledger_income || 0) },
       { name: t("financeExpense"), value: Math.round(dash.ledger_expense) },
-      { name: "Paie", value: Math.round(dash.coach_payroll_total) },
+      { name: t("financePayroll"), value: Math.round(dash.coach_payroll_total) },
     ];
   }, [dash, t]);
 

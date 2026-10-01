@@ -231,7 +231,7 @@ def list_installments(
     club_id: int = Depends(get_current_club_id),
 ):
     q = db.query(FeeInstallment).filter(
-        or_(FeeInstallment.club_id == club_id, FeeInstallment.club_id.is_(None))
+        FeeInstallment.club_id == club_id
     )
     if athlete_id:
         q = q.filter(FeeInstallment.athlete_id == athlete_id)
@@ -291,7 +291,7 @@ def update_installment(
     # Numéro / réf immuables si absents
     if not getattr(inst, "seq_no", None):
         q = db.query(func.coalesce(func.max(FeeInstallment.seq_no), 0)).filter(
-            or_(FeeInstallment.club_id == club_id, FeeInstallment.club_id.is_(None))
+            FeeInstallment.club_id == club_id
         )
         inst.seq_no = int(q.scalar() or 0) + 1
     if not getattr(inst, "reference", None):
@@ -593,7 +593,7 @@ def list_recent_payments(
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
     club_id: int = Depends(get_current_club_id),
 ):
-    q = db.query(Payment).filter(or_(Payment.club_id == club_id, Payment.club_id.is_(None)))
+    q = db.query(Payment).filter(Payment.club_id == club_id)
     if athlete_id:
         q = q.filter(Payment.athlete_id == athlete_id)
     rows = q.order_by(Payment.id.desc()).offset(skip).limit(limit).all()
@@ -626,7 +626,7 @@ def list_ledger(
     club_id: int = Depends(get_current_club_id),
 ):
     q = db.query(LedgerEntry).filter(
-        or_(LedgerEntry.club_id == club_id, LedgerEntry.club_id.is_(None))
+        LedgerEntry.club_id == club_id
     )
     if not include_archived:
         q = q.filter(or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)))
@@ -865,7 +865,7 @@ def finance_dashboard(
         return cached
 
     def _cf(model):
-        return or_(model.club_id == club_id, model.club_id.is_(None))
+        return model.club_id == club_id
 
     ath_ids: list[int] | None = None
     if season_id:
@@ -875,7 +875,7 @@ def finance_dashboard(
             .filter(
                 Registration.season_id == season_id,
                 Registration.status != "archived",
-                or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+                Registration.club_id == club_id,
             )
             .distinct()
             .all()
@@ -943,7 +943,7 @@ def list_payroll(
 ):
     rows = (
         db.query(CoachPayroll)
-        .filter(or_(CoachPayroll.club_id == club_id, CoachPayroll.club_id.is_(None)))
+        .filter(CoachPayroll.club_id == club_id)
         .order_by(CoachPayroll.id.desc())
         .limit(300)
         .all()
@@ -978,7 +978,7 @@ def list_items(
         return cached
     rows = (
         db.query(InventoryItem)
-        .filter(or_(InventoryItem.club_id == club_id, InventoryItem.club_id.is_(None)))
+        .filter(InventoryItem.club_id == club_id)
         .order_by(InventoryItem.name)
         .all()
     )
@@ -1078,7 +1078,7 @@ def inventory_alerts(
 ):
     items = (
         db.query(InventoryItem)
-        .filter(or_(InventoryItem.club_id == club_id, InventoryItem.club_id.is_(None)))
+        .filter(InventoryItem.club_id == club_id)
         .all()
     )
     return [
@@ -1128,7 +1128,7 @@ def list_assignments(
     club_id: int = Depends(get_current_club_id),
 ):
     q = db.query(InventoryAssignment).filter(
-        or_(InventoryAssignment.club_id == club_id, InventoryAssignment.club_id.is_(None))
+        InventoryAssignment.club_id == club_id
     )
     if athlete_id:
         q = q.filter(InventoryAssignment.athlete_id == athlete_id)

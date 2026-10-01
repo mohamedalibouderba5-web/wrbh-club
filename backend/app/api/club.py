@@ -123,7 +123,7 @@ def list_seasons(db: Session = Depends(get_db), user: User = Depends(get_current
         return cached
     q = db.query(Season)
     if club_id:
-        q = q.filter(or_(Season.club_id == club_id, Season.club_id.is_(None)))
+        q = q.filter(Season.club_id == club_id)
     rows = q.order_by(Season.starts_on.desc()).all()
     out = [SeasonOut.model_validate(s) for s in rows]
     cache_set(key, out, 120)
@@ -148,7 +148,7 @@ def archive_season_roster(
         db.query(Registration)
         .filter(
             Registration.season_id == season_id,
-            or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+            Registration.club_id == club_id,
             Registration.status != "archived",
         )
         .all()
@@ -196,7 +196,7 @@ def archive_season_roster(
     from app.models import LedgerEntry
 
     ledger_q = db.query(LedgerEntry).filter(
-        or_(LedgerEntry.club_id == club_id, LedgerEntry.club_id.is_(None)),
+        LedgerEntry.club_id == club_id,
         or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)),
     )
     # season_id sur ledger si présent
@@ -266,7 +266,7 @@ def list_disciplines(
     """Sports / activités du club (un club peut être multisport)."""
     rows = (
         db.query(Discipline)
-        .filter(or_(Discipline.club_id == club_id, Discipline.club_id.is_(None)))
+        .filter(Discipline.club_id == club_id)
         .order_by(Discipline.name)
         .all()
     )
@@ -304,7 +304,7 @@ def add_discipline(
     existing = (
         db.query(Discipline)
         .filter(
-            or_(Discipline.club_id == club_id, Discipline.club_id.is_(None)),
+            Discipline.club_id == club_id,
             Discipline.code == code,
         )
         .first()
@@ -325,7 +325,7 @@ def add_discipline(
     if payload.seed_categories:
         cur = (
             db.query(Season)
-            .filter(Season.is_current.is_(True), or_(Season.club_id == club_id, Season.club_id.is_(None)))
+            .filter(Season.is_current.is_(True), Season.club_id == club_id)
             .first()
         )
         if cur:
@@ -388,7 +388,7 @@ def list_categories(
         return cached
     q = db.query(Category)
     if club_id:
-        q = q.filter(or_(Category.club_id == club_id, Category.club_id.is_(None)))
+        q = q.filter(Category.club_id == club_id)
     if season_id:
         q = q.filter(Category.season_id == season_id)
     else:
@@ -426,7 +426,7 @@ def bootstrap(db: Session = Depends(get_db), user: User = Depends(get_current_us
     stats = club_stats(db, user)
     events_q = db.query(func.count(Event.id)).filter(Event.is_cancelled.is_(False))
     if club_id:
-        events_q = events_q.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
+        events_q = events_q.filter(Event.club_id == club_id)
     events_count = events_q.scalar() or 0
     finance = None
     if user.role in {Role.ADMIN, Role.DIRECTION, Role.STAFF} and club_id:
@@ -472,7 +472,7 @@ def list_teams(
     club_id: int = Depends(get_current_club_id),
 ):
     """Par défaut : équipes de la saison courante uniquement (évite les doublons inter-saisons)."""
-    q = db.query(Team).filter(or_(Team.club_id == club_id, Team.club_id.is_(None)))
+    q = db.query(Team).filter(Team.club_id == club_id)
     if category_id:
         q = q.filter(Team.category_id == category_id)
     else:
@@ -517,7 +517,7 @@ def list_teams_with_coaches(
 ):
     """Vue équipes + coachs (saison courante)."""
     cur = db.query(Season).filter(Season.is_current.is_(True)).first()
-    q = db.query(Team).filter(or_(Team.club_id == club_id, Team.club_id.is_(None)))
+    q = db.query(Team).filter(Team.club_id == club_id)
     cats: dict[int, Category] = {}
     if cur:
         cat_rows = db.query(Category).filter(Category.season_id == cur.id).all()
@@ -630,7 +630,7 @@ def backfill_event_coaches(
     """
     links = (
         db.query(TeamCoach)
-        .filter(or_(TeamCoach.club_id == club_id, TeamCoach.club_id.is_(None)))
+        .filter(TeamCoach.club_id == club_id)
         .all()
     )
     primary_by_team: dict[int, int] = {}
@@ -651,7 +651,7 @@ def backfill_event_coaches(
             db.query(Event)
             .filter(
                 Event.team_id == team_id,
-                or_(Event.club_id == club_id, Event.club_id.is_(None)),
+                Event.club_id == club_id,
                 Event.coach_id.is_(None),
             )
             .update({Event.coach_id: coach_id}, synchronize_session=False)
@@ -681,7 +681,7 @@ def list_coaches(
     """Liste des entraîneurs assignables + catégories/équipes liées."""
     q = db.query(User).filter(
         User.role.in_(tuple(TEAM_COACH_ROLES)),
-        or_(User.club_id == club_id, User.club_id.is_(None)),
+        User.club_id == club_id,
     )
     if not include_inactive:
         q = q.filter(User.is_active.is_(True))
@@ -745,7 +745,7 @@ def create_category(
         season_id = cur.id
     disc_id = payload.discipline_id
     if not disc_id:
-        disc = db.query(Discipline).filter(or_(Discipline.club_id == club_id, Discipline.club_id.is_(None))).first()
+        disc = db.query(Discipline).filter(Discipline.club_id == club_id).first()
         if not disc:
             raise HTTPException(400, "Aucune discipline configurée")
         disc_id = disc.id
@@ -805,7 +805,7 @@ def create_team(
             raise HTTPException(400, "birth_year_min et birth_year_max requis pour une nouvelle catégorie")
         if payload.birth_year_min > payload.birth_year_max:
             raise HTTPException(400, "Année min > année max")
-        disc = db.query(Discipline).filter(or_(Discipline.club_id == club_id, Discipline.club_id.is_(None))).first()
+        disc = db.query(Discipline).filter(Discipline.club_id == club_id).first()
         if not disc:
             raise HTTPException(400, "Aucune discipline configurée")
         code_new = payload.category_code.strip().upper()
@@ -994,7 +994,7 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
 
     def _cf(query):
         if club_id:
-            return query.filter(or_(Athlete.club_id == club_id, Athlete.club_id.is_(None)))
+            return query.filter(Athlete.club_id == club_id)
         return query
 
     season = _current_season(db, club_id)
@@ -1064,8 +1064,8 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
     regs_q = db.query(func.count(Registration.id)).filter(Registration.status == "pending")
     parents_q = db.query(func.count(User.id)).filter(User.role == Role.PARENT)
     if club_id:
-        regs_q = regs_q.filter(or_(Registration.club_id == club_id, Registration.club_id.is_(None)))
-        parents_q = parents_q.filter(or_(User.club_id == club_id, User.club_id.is_(None)))
+        regs_q = regs_q.filter(Registration.club_id == club_id)
+        parents_q = parents_q.filter(User.club_id == club_id)
     regs_pending = regs_q.scalar() or 0
     parents = parents_q.scalar() or 0
     today = date.today()
@@ -1135,7 +1135,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
 
     def _ath(q):
         if club_id:
-            return q.filter(or_(Athlete.club_id == club_id, Athlete.club_id.is_(None)))
+            return q.filter(Athlete.club_id == club_id)
         return q
 
     months = _month_keys(12)
@@ -1175,7 +1175,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
         func.count(Registration.id),
     )
     if club_id:
-        reg_q = reg_q.filter(or_(Registration.club_id == club_id, Registration.club_id.is_(None)))
+        reg_q = reg_q.filter(Registration.club_id == club_id)
     for y, m, cnt in reg_q.group_by("y", "m").all():
         idx = month_index.get((int(y), int(m)))
         if idx is not None:
@@ -1189,7 +1189,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
         func.coalesce(func.sum(Payment.amount), 0),
     )
     if club_id:
-        pay_q = pay_q.filter(or_(Payment.club_id == club_id, Payment.club_id.is_(None)))
+        pay_q = pay_q.filter(Payment.club_id == club_id)
     for y, m, total in pay_q.group_by("y", "m").all():
         idx = month_index.get((int(y), int(m)))
         if idx is not None:
@@ -1205,7 +1205,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
         func.coalesce(func.sum(LedgerEntry.amount), 0),
     ).filter(or_(LedgerEntry.is_archived.is_(False), LedgerEntry.is_archived.is_(None)))
     if club_id:
-        led_q = led_q.filter(or_(LedgerEntry.club_id == club_id, LedgerEntry.club_id.is_(None)))
+        led_q = led_q.filter(LedgerEntry.club_id == club_id)
     for y, m, etype, total in led_q.group_by("y", "m", LedgerEntry.entry_type).all():
         idx = month_index.get((int(y), int(m)))
         if idx is None:
@@ -1224,7 +1224,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
         func.count(Event.id),
     ).filter(Event.is_cancelled.is_(False))
     if club_id:
-        ev_q = ev_q.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
+        ev_q = ev_q.filter(Event.club_id == club_id)
     for y, m, cnt in ev_q.group_by("y", "m").all():
         idx = month_index.get((int(y), int(m)))
         if idx is not None:
@@ -1232,7 +1232,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
 
     type_q = db.query(Event.event_type, func.count(Event.id)).filter(Event.is_cancelled.is_(False))
     if club_id:
-        type_q = type_q.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
+        type_q = type_q.filter(Event.club_id == club_id)
     for etype, cnt in type_q.group_by(Event.event_type).all():
         events_by_type[str(etype or "other")] = int(cnt)
 
@@ -1240,7 +1240,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
     attendance_by_status: dict[str, int] = {}
     att_q = db.query(Attendance.status, func.count(Attendance.id))
     if club_id:
-        att_q = att_q.filter(or_(Attendance.club_id == club_id, Attendance.club_id.is_(None)))
+        att_q = att_q.filter(Attendance.club_id == club_id)
     for st, cnt in att_q.group_by(Attendance.status).all():
         attendance_by_status[str(st or "—")] = int(cnt)
 
@@ -1248,7 +1248,7 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
     installments_by_status: dict[str, int] = {}
     inst_q = db.query(FeeInstallment.status, func.count(FeeInstallment.id))
     if club_id:
-        inst_q = inst_q.filter(or_(FeeInstallment.club_id == club_id, FeeInstallment.club_id.is_(None)))
+        inst_q = inst_q.filter(FeeInstallment.club_id == club_id)
     for st, cnt in inst_q.group_by(FeeInstallment.status).all():
         installments_by_status[str(st or "—")] = int(cnt)
 
@@ -1329,7 +1329,7 @@ def _next_kit_number(
         Registration.kit_number.isnot(None),
     )
     if club_id is not None:
-        q = q.filter(or_(Registration.club_id == club_id, Registration.club_id.is_(None)))
+        q = q.filter(Registration.club_id == club_id)
     if exclude_reg_id:
         q = q.filter(Registration.id != exclude_reg_id)
     used = {int(n) for (n,) in q.all() if n is not None and int(n) > 0}
@@ -1355,7 +1355,7 @@ def _kit_number_taken(
         Registration.status != "archived",
     )
     if club_id is not None:
-        q = q.filter(or_(Registration.club_id == club_id, Registration.club_id.is_(None)))
+        q = q.filter(Registration.club_id == club_id)
     if exclude_reg_id:
         q = q.filter(Registration.id != exclude_reg_id)
     return q.first() is not None
@@ -1547,7 +1547,7 @@ def list_athletes(
     )
     # Isolation tenant : uniquement les athlètes du club courant
     # (tolère les anciennes lignes NULL pendant la migration)
-    query = query.filter(or_(Athlete.club_id == club_id, Athlete.club_id.is_(None)))
+    query = query.filter(Athlete.club_id == club_id)
     if user.role == Role.PARENT:
         ids = _parent_athlete_ids(db, user)
         query = query.filter(Athlete.id.in_(ids or {-1}))
@@ -1619,7 +1619,7 @@ def list_athletes(
                 Registration.athlete_id.in_(athlete_ids),
                 Registration.season_id == season,
                 Registration.status != "archived",
-                or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+                Registration.club_id == club_id,
             )
             .order_by(Registration.created_at.asc(), Registration.id.asc())
             .all()
@@ -1756,7 +1756,7 @@ def archive_lookup(
         db.query(Registration)
         .filter(
             Registration.athlete_id == athlete.id,
-            or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+            Registration.club_id == club_id,
         )
         .order_by(Registration.id.desc())
         .first()
@@ -2077,7 +2077,7 @@ def _registration_list_numbers(
 ) -> dict[int, int]:
     """Rangs compacts 1..N des dossiers actifs, par saison et par ancienneté."""
     q = db.query(Registration.id, Registration.season_id).filter(
-        or_(Registration.club_id == club_id, Registration.club_id.is_(None)),
+        Registration.club_id == club_id,
         Registration.status != "archived",
     )
     if season_ids:
@@ -2226,7 +2226,7 @@ def list_registrations(
         return cached
 
     q = db.query(Registration).filter(
-        or_(Registration.club_id == club_id, Registration.club_id.is_(None))
+        Registration.club_id == club_id
     )
     if season_id:
         q = q.filter(Registration.season_id == season_id)
@@ -2974,7 +2974,7 @@ def _find_stock_item(db: Session, club_id: int, kind: str) -> InventoryItem | No
     item = (
         db.query(InventoryItem)
         .filter(
-            or_(InventoryItem.club_id == club_id, InventoryItem.club_id.is_(None)),
+            InventoryItem.club_id == club_id,
             InventoryItem.item_kind == kind,
             InventoryItem.quantity > 0,
         )
@@ -2992,7 +2992,7 @@ def _find_stock_item(db: Session, club_id: int, kind: str) -> InventoryItem | No
         item = (
             db.query(InventoryItem)
             .filter(
-                or_(InventoryItem.club_id == club_id, InventoryItem.club_id.is_(None)),
+                InventoryItem.club_id == club_id,
                 InventoryItem.quantity > 0,
                 func.lower(InventoryItem.name).like(f"%{kw}%"),
             )
@@ -3114,7 +3114,7 @@ def list_audit(
     club_id: int = Depends(get_current_club_id),
 ):
     """Historique des opérations (récupération / traçabilité)."""
-    q = db.query(AuditLog).filter(or_(AuditLog.club_id == club_id, AuditLog.club_id.is_(None)))
+    q = db.query(AuditLog).filter(AuditLog.club_id == club_id)
     if entity:
         q = q.filter(AuditLog.entity == entity)
     if action:

@@ -143,7 +143,7 @@ def mobile_home(db: Session = Depends(get_db), user: User = Depends(get_current_
             Event.starts_at >= now, Event.starts_at <= soon, Event.is_cancelled.is_(False)
         )
         if club_id:
-            eq = eq.filter(or_(Event.club_id == club_id, Event.club_id.is_(None)))
+            eq = eq.filter(Event.club_id == club_id)
         events = eq.order_by(Event.starts_at).limit(40).all()
 
     audience = ["all"]
@@ -154,7 +154,7 @@ def mobile_home(db: Session = Depends(get_db), user: User = Depends(get_current_
     ann_q = db.query(Announcement).filter(Announcement.audience.in_(audience))
     if club_id:
         ann_q = ann_q.filter(
-            or_(Announcement.club_id == club_id, Announcement.club_id.is_(None))
+            Announcement.club_id == club_id
         )
     anns = ann_q.order_by(Announcement.is_pinned.desc(), Announcement.id.desc()).limit(5).all()
 

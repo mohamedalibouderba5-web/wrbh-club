@@ -50,10 +50,10 @@ Le planning J1–J11 de l’ordre salon reste la **loi**. Ci-dessous : ce qui re
 | ID | Tâche | Priorité | État |
 |----|-------|----------|------|
 | B1 | Domaine + HTTPS + CORS | P0 | ❌ attendre achat domaine |
-| A3 | Filtres `club_id` stricts / NOT NULL | P0 | ❌ |
+| A3 | Filtres `club_id` stricts / NOT NULL | P0 | ✅ filtres stricts (prod NULL=0) |
 | A6 | Tests parcours finance / séances / upload | P1 | 🟡 23 verts |
 | A9 | `/admin/clubs` suspendre (si temps) | P1 | ❌ (C4 lecture d’abord) |
-| B6 | Décommissionner Render `wrbh-web.onrender.com` | P0 | ❌ |
+| B6 | Décommissionner Render `wrbh-web.onrender.com` | P0 | 🟡 CORS coupé ; **suspendre service Render manuellement** |
 | ANPDP | Déclaration + politique confidentialité | P0 hors-dev | ❌ utilisateur |
 | Domaine | Achat DNS | P0 hors-dev | ❌ **utilisateur** |
 
@@ -63,11 +63,11 @@ Le planning J1–J11 de l’ordre salon reste la **loi**. Ci-dessous : ce qui re
 |----|-------|----------|------|
 | C2 | Licences / certificats + alertes | P0 | ✅ prod `5f6e658` |
 | C3a | Finance contenu AR (mois, graphes, colonnes, toasts) | P0 | ✅ code |
-| C3b | Équipes `useI18n` | P0 | 🟡 titres |
-| C3c | Matériel `useI18n` | P0 | 🟡 titres |
+| C3b | Équipes `useI18n` | P0 | 🟡 libellés principaux |
+| C3c | Matériel `useI18n` | P0 | 🟡 libellés principaux |
 | C4 | Console super-admin lecture seule | P0 | ✅ code |
 | C5 | Essai réel (bandeau + écriture bloquée) | P0 | ✅ |
-| D17 | Slug démo configurable (`VITE_DEMO_CLUB_SLUG`) | P0 | ✅ |
+| D17 | Slug démo configurable (`VITE_DEMO_CLUB_SLUG`) | P0 | ✅ `web/src/config.ts` |
 | D4 | Guard routes parent `/finance` | P1 | ⏳ |
 
 ### 3.3 Android
@@ -76,7 +76,7 @@ Le planning J1–J11 de l’ordre salon reste la **loi**. Ci-dessous : ce qui re
 |----|-------|----------|------|
 | APK | Publier **1.9.0 / vc 12** | P0 | 🟡 version bumpée — rebuild APK à lancer |
 | C12 | Message 403 | P0 | 🟡 code ; besoin APK |
-| C9 | Bandeau club suspendu + masquer create | P0 | ⏳ |
+| C9 | Bandeau club suspendu + masquer create | P0 | ✅ bandeau + readOnly Athlètes/Inscriptions |
 | C7 | Licence + certificat médical fiche | P0 | ✅ code app |
 | C8 | APK démo hors ligne (IP portable) | P0 | ⏳ |
 | C11 | i18n Accueil + Agenda (+ RTL) | P0 | ⏳ |
@@ -118,6 +118,7 @@ Le planning J1–J11 de l’ordre salon reste la **loi**. Ci-dessous : ce qui re
 | 2026-10-01 | C2 site + C3 chrome Finance | `5f6e658` prod |
 | 2026-10-01 | Création de ce plan + lancement C3a / C4 / C7 / APK 1.9 | (cette passe) |
 | 2026-10-01 | **C3a** mois/graphes/colonnes/toasts Finance · **C3b/c** titres Équipes+Matériel · **C4** `GET /admin/clubs` + page `/platform` + compte `platform@nadi-connect.local` · **C7** champs licence app · bump **1.9.0/vc12** · D17 déjà `VITE_DEMO_CLUB_SLUG` | à déployer |
+| 2026-10-01 | **A3** filtres `club_id` stricts (53+ remplacements, prod NULL=0) · **B6** CORS sans Render · **D17** `web/src/config.ts` · **C3** Teams/Inventory libellés · **C9** bandeau lecture seule app | Suspendre manuellement services Render ; rebuild APK 1.9 |
 
 ---
 

@@ -5,6 +5,7 @@ import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
+import { ClubLockProvider } from "../src/context/ClubLockContext";
 import { ErrorBoundary } from "../src/components/ErrorBoundary";
 import { UpdateGate } from "../src/components/UpdateGate";
 
@@ -57,12 +58,14 @@ export default function RootLayout() {
       <AuthProvider>
         <UpdateGate />
         <Guard>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="login" />
-            <Stack.Screen name="onboard" />
-            <Stack.Screen name="change-password" />
-            <Stack.Screen name="(tabs)" />
-          </Stack>
+          <ClubLockProvider>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="login" />
+              <Stack.Screen name="onboard" />
+              <Stack.Screen name="change-password" />
+              <Stack.Screen name="(tabs)" />
+            </Stack>
+          </ClubLockProvider>
         </Guard>
       </AuthProvider>
     </ErrorBoundary>

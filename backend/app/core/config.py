@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     cors_origins: str = (
         "http://localhost:5173,"
         "http://127.0.0.1:5173,"
-        "https://wrbh-web.onrender.com"
+        "http://46.224.38.201:8080"
     )
     upload_dir: str = "./uploads"
     default_admin_email: str = "admin@nadi-connect.local"

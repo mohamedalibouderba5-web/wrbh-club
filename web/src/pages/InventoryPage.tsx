@@ -151,7 +151,7 @@ export function InventoryPage() {
     <div className="grid" style={{ gap: "1rem" }} dir={lang === "ar" ? "rtl" : "ltr"}>
       {alerts.length > 0 && (
         <div className="card" style={{ borderLeft: "4px solid var(--danger)" }}>
-          <strong>Alertes stock bas :</strong> {alerts.map((a) => a.name).join(", ")}
+          <strong>{t("inventoryAlerts")} :</strong> {alerts.map((a) => a.name).join(", ")}
         </div>
       )}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
@@ -194,7 +194,7 @@ export function InventoryPage() {
         </form>
 
         <form className="card" onSubmit={onAssign}>
-          <h3 style={{ marginTop: 0 }}>Attribuer au joueur</h3>
+          <h3 style={{ marginTop: 0 }}>{t("inventoryAssign")}</h3>
           <div className="field">
             <label>Article en stock</label>
             <select required value={assignItem} onChange={(e) => setAssignItem(e.target.value)}>
@@ -340,7 +340,7 @@ export function InventoryPage() {
           </table>
         </div>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Attributions récentes</h3>
+          <h3 style={{ marginTop: 0 }}>{t("inventoryRecent")}</h3>
           {editAsg && (
             <div style={{ marginBottom: "0.75rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: 8 }}>
               <strong>
