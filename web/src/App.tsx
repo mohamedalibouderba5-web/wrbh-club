@@ -21,6 +21,7 @@ import { AnnouncementsPage } from "./pages/AnnouncementsPage";
 import { DownloadPage } from "./pages/DownloadPage";
 import { GuidePage } from "./pages/GuidePage";
 import { UsersPage } from "./pages/UsersPage";
+import { RoleRoute } from "./components/RoleRoute";
 
 /** `/` invité → landing ; autres routes app → login ; connecté → shell. */
 function RootShell() {
@@ -49,16 +50,16 @@ export default function App() {
       <Route path="/guide" element={<GuidePage />} />
       <Route path="/" element={<RootShell />}>
         <Route index element={<DashboardPage />} />
-        <Route path="platform" element={<SuperAdminPage />} />
-        <Route path="athletes" element={<AthletesPage />} />
+        <Route path="platform" element={<RoleRoute allow={["superadmin"]}><SuperAdminPage /></RoleRoute>} />
+        <Route path="athletes" element={<RoleRoute allow={["admin", "direction", "staff", "coach"]}><AthletesPage /></RoleRoute>} />
         <Route path="registrations" element={<RegistrationsPage />} />
         <Route path="agenda" element={<AgendaPage />} />
-        <Route path="teams" element={<TeamsPage />} />
-        <Route path="users" element={<UsersPage />} />
-        <Route path="history" element={<HistoryPage />} />
-        <Route path="feedback-admin" element={<FeedbackAdminPage />} />
-        <Route path="finance" element={<FinancePage />} />
-        <Route path="inventory" element={<InventoryPage />} />
+        <Route path="teams" element={<RoleRoute allow={["admin", "direction", "staff", "coach"]}><TeamsPage /></RoleRoute>} />
+        <Route path="users" element={<RoleRoute allow={["admin", "direction"]}><UsersPage /></RoleRoute>} />
+        <Route path="history" element={<RoleRoute allow={["admin", "direction", "staff"]}><HistoryPage /></RoleRoute>} />
+        <Route path="feedback-admin" element={<RoleRoute allow={["admin", "direction"]}><FeedbackAdminPage /></RoleRoute>} />
+        <Route path="finance" element={<RoleRoute allow={["admin", "direction", "staff"]}><FinancePage /></RoleRoute>} />
+        <Route path="inventory" element={<RoleRoute allow={["admin", "direction", "staff"]}><InventoryPage /></RoleRoute>} />
         <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="guide" element={<GuidePage />} />
         <Route path="download" element={<DownloadPage />} />

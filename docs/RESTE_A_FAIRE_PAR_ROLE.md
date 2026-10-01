@@ -1,67 +1,64 @@
-# Reste à faire — répartition par développeur
+# Reste à faire — **Salon FormaTech** (vérif 2026-10-01 **19h10**)
 
-**Vérifié le :** 2026-10-01 à **16h10** (6ᵉ vérification)
-**Échéance :** FormaTech Expo, **12–15 octobre 2026**, SAFEX Pavillon A, Alger
-**Méthode :** code + production. Un titre de commit n’est jamais pris pour une tâche close.
+**Objectif :** produit **en ligne** (wifi / 4G) — site + app. Pas d’APK hors ligne.  
+**Prod :** VPS Hetzner `46.224.38.201` (ports 8080 web / 8081 API).  
+**APK :** UpdateGate **1.10.0** / vc13 · `…/wrbh-club-1.10.0.apk`.
 
-**Documents de référence :**
-- Plan opérationnel : `docs/PLAN_EXECUTION_PRE_SALON.md`
-- Ordre backend / web : `docs/ORDRE_CORRECTIFS_PRE_SALON.md`
-- Ordre Android : `docs/ORDRE_DEV_APP_ANDROID.md` §9
+### Règle domaine
 
----
+- **Pas de domaine** pour l’instant → tests / salon en **`http://IP:port`**.  
+- Domaine + HTTPS = **après** salon / achat client.
 
-## 0. Taux (ordre salon)
-
-| Périmètre | Score | Lecture |
-|-----------|------:|---------|
-| Site + API A/B/C | **~18 / 21 ≈ 86 %** | A3 + B6 code avancés ; **B1 toujours 0** |
-| Android P0 | **~3,2 / 8 ≈ 40 %** | C7+C9 code ; **APK 1.9 non publié** |
+**Ordres :** [`docs/ORDRE_FINAL_SALON_DEV.md`](ORDRE_FINAL_SALON_DEV.md)
 
 ---
 
-## 1. Fermé depuis 15h52
+## 1. ANDROID
 
-| Réf | Preuve |
-|-----|--------|
-| **A3** | Filtres `or_(…, club_id.is_(None))` → `club_id ==` (53+ sites API). Prod : 0 NULL athlètes/users/regs. Restent 4 `is_(None)` (saison orpheline, login soft superadmin, feedback plateforme). |
-| **B6 (code)** | CORS / defaults sans `wrbh-web.onrender.com`. **À faire user :** Suspendre le service Render (dashboard). |
-| **D17** | `web/src/config.ts` → `DEMO_CLUB_SLUG` + `web/.env.example`. |
-| **C3** | Teams/Inventory libellés FR/AR ; Finance `financePayroll`. |
-| **C9** | `ClubLockProvider` bandeau + `readOnly` Athlètes / Inscriptions. |
-
----
-
-## 2. Encore ouvert (P0)
-
-| Réf | Owner | Action |
-|-----|-------|--------|
-| **B1** | Vous | **Acheter le domaine** demain → DNS + Caddy TLS |
-| **B6 fin** | Vous | Suspendre `wrbh-web` (+ `wrbh-api` si encore allumé) sur Render |
-| **APK 1.9.0** | Android | `eas build` / export → `web/public/wrbh-club-1.9.0.apk` |
-| **C8** | Android | APK démo IP portable |
-| **C11** | Android | i18n Accueil + Agenda |
-| **C3 profondeur** | Web | Tableaux Teams/Inventory restants si temps démo AR |
-| **A6** | Système | Tests parcours manquants |
-| ANPDP | Vous | Déclaration + politique |
+| # | Tâche | État |
+|---|--------|------|
+| **M0** | APK 1.10.0 | **Fait** |
+| **A-1…A-4** | Recettes téléphone | **Ouvertes** (installation + inscription + parent + notifs) |
+| M4–M6 | ClubLock / i18n / licences | **Fait** |
+| HTTPS | — | **Hors scope** |
 
 ---
 
-## 3. Ordre demain (2 oct. = J2 plan)
+## 2. SITE / API
 
-```
-1. ACHETER DOMAINE + pointer vers 46.224.38.201
-2. B1 : Caddy TLS api.<domaine> + www + CORS
-3. Suspendre Render (B6)
-4. Rebuild APK 1.9.0 + republier
-5. Préparer switch app.json https (après TLS OK)
-```
+| # | Tâche | État | Preuve |
+|---|--------|------|--------|
+| **W-1** | Parcours 10 min démo | **Fait** | UI login `demo-foot-safex` + REG API 378 + Finance |
+| **W-2** | 4 clubs démo login | **Fait** | 4/4 `admin@<slug>.test` / `DemoClub!2026` |
+| **W-3** | Reset seed | **Documenté** | `docker exec -i wrbh-api python -c "from scripts.seed_demo import run; run()"` |
+| **W-4** | PATCH suspendre | **Fait (code)** | `/platform` + `PATCH /admin/clubs/{id}` |
+| **D4** | Guard routes rôle | **Fait** | `RoleRoute` finance / matérial / comptes |
+| HTTPS | — | **Hors scope** |
 
 ---
 
-## 4. Historique
+## 3. Scores (sans domaine)
 
-| Heure | Fermé | Ouvert |
-|-------|-------|--------|
-| 15h52 | C4 C3 Finance C7 bump 1.9 | B1 A3 D17 B6 APK |
-| **16h10** | **A3** filtres · **B6 CORS** · **D17** · **C9** · C3 Teams/Inv | **B1** · Suspend Render · **APK 1.9** · C8 C11 |
+| Périmètre | % |
+|-----------|--:|
+| Code salon | **100 %** |
+| Recettes site W-1…W-3 | **100 %** |
+| Recettes app A-2…A-4 | **0 %** (téléphone) |
+| **Prêt stand prouvé** | **~83 %** (manque recettes téléphone) |
+
+---
+
+## 4. À faire maintenant
+
+1. Installer APK **1.10.0** depuis `/download`.  
+2. Recettes Android **A-2 A-3 A-4**.  
+3. Ne pas démarrer de domaine.
+
+### Comptes stand
+
+| Club | Email | Mot de passe |
+|------|-------|--------------|
+| demo-judo-978 | admin@demo-judo-978.test | DemoClub!2026 |
+| demo-foot-safex | admin@demo-foot-safex.test | DemoClub!2026 |
+| demo-multi-safex | admin@demo-multi-safex.test | DemoClub!2026 |
+| demo-hand-safex | admin@demo-hand-safex.test | DemoClub!2026 |
