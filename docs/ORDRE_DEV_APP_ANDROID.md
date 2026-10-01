@@ -193,6 +193,7 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-01 | (sync site) | **Lot A backend déployé** : inscriptions OK en prod ; parents `club_id` ; notifs scopées ; club suspendu lecture seule ; `/guide` `/download` publics. **À faire app** : C1 retest, C3, C9, C10 (voir tableau) |
 | 2026-10-01 | (sync site) | **A10/B3/B4** : `/health.git_sha` ; login par code club (liste vitrine `is_platform` seulement). **App** : champ slug obligatoire, ne plus dépendre d’un annuaire clients ; afficher `429` compte vs réseau si `detail` change |
 | 2026-10-01 | (sync site) | **Marque Nadi Connect définitive** : login/splash/icône = logo Nadi Connect uniquement (plus de substitution par logo club). Nom club = sous-titre. Ne jamais réintroduire « WRBH Club » comme nom produit |
+| 2026-10-01 | (sync site) | **Lot C** : champs licence/certificat médical API ; messages **403** (suspendu / essai) dans `client.ts`. **À faire app** : formulaire licence+médical + bandeau lecture seule (C9) |
 
 ### Lot C — à ajouter dans l'app (suite audit 2026-10-01)
 

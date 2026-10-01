@@ -528,18 +528,19 @@ Justification de A7 et A8 dans cette liste : A8 envoie activement le contenu d'u
 - [ ] 30 connexions successives depuis la même IP ne déclenchent pas de `429`
 - [x] `GET /club/list` n'expose plus la liste des clients
 - [x] `/download` et `/guide` s'ouvrent sans être connecté
-- [ ] Les 3 clubs de démo sont remplis et le script de réinitialisation fonctionne
+- [x] Les 3 clubs de démo sont remplis et le script de réinitialisation fonctionne
+  - _(2026-10-01 : `seed_demo.py` → demo-foot-safex / demo-multi-safex / demo-hand-safex)_
 - [ ] La démonstration tourne **entièrement hors ligne** sur le portable + téléphone
 - [ ] La démo en arabe est présentable sur Accueil, Athlètes, Inscriptions, Agenda **et Finance**
-- [ ] Licence et certificat médical : saisie + alerte d'expiration visibles
+- [x] Licence et certificat médical : saisie + alerte d'expiration visibles
 - [ ] Récépissé ANPDP déposé ; politique de confidentialité en ligne
 - [ ] Suite de tests verte, couverture backend ≥ 20 %
 - [ ] Revue du développeur senior effectuée et remarques traitées
 - [ ] Code gelé, sauvegarde de la base prise, aucun déploiement prévu du 12 au 15
 - [x] `/health` expose le SHA du commit déployé, et ce SHA existe dans git (**A10**)
-  - _(prod : `version=1.18.0`, `git_sha=f27f16150e7f`)_
+  - _(prod : `version=1.18.0`, `git_sha=d4b8425`)_
 - [ ] `finance.py` et `club.py` au-dessus de 50 % de couverture
-- [ ] Le compte parent résiduel `VERIFYFIX…` (id 171) est supprimé du club de démo `demo-judo-978`
+- [x] Le compte parent résiduel `VERIFYFIX…` (id 171) est supprimé du club de démo `demo-judo-978`
 
 ---
 
