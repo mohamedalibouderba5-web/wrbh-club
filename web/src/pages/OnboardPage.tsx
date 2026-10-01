@@ -93,11 +93,15 @@ export function OnboardPage() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={onSubmit} style={{ maxWidth: 480 }}>
-        <h2 style={{ marginTop: 0 }}>{ar ? "إنشاء نادي" : "Créer un club"}</h2>
+        <img src="/logo.png" alt="Nadi Connect" style={{ width: 64, height: 64, borderRadius: 14, display: "block", margin: "0 auto 0.5rem" }} />
+        <h2 style={{ marginTop: 0, textAlign: "center" }}>{ar ? "نادي كونكت" : "Nadi Connect"}</h2>
+        <p className="muted" style={{ marginTop: 0, textAlign: "center" }}>
+          {ar ? "إنشاء نادي — تجربة 14 يوماً" : "Créer un club — essai 14 jours"}
+        </p>
         <p className="muted" style={{ marginTop: 0 }}>
           {ar
-            ? "تجربة 14 يوماً — كرة القدم، جودو، كاراتيه والمزيد."
-            : "Essai 14 jours — football, judo, karaté et sports populaires en Algérie."}
+            ? "كرة القدم، جودو، كاراتيه والمزيد — النادي المتصل."
+            : "Football, judo, karaté et plus — le club connecté."}
         </p>
 
         <div className="field">

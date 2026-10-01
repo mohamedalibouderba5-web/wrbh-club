@@ -160,7 +160,7 @@ export function FinancePage() {
   const [tab, setTab] = useState<FinanceTab>("cotisations");
   const [paySort, setPaySort] = useState({ key: "recent", dir: "desc" as SortDir });
   const [ledSort, setLedSort] = useState({ key: "datetime", dir: "desc" as SortDir });
-  const [instSort, setInstSort] = useState({ key: "due", dir: "desc" as SortDir });
+  const [instSort, setInstSort] = useState({ key: "number", dir: "asc" as SortDir });
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [finPeriod, setFinPeriod] = useState<3 | 6 | 12>(12);
   const [dashFullscreen, setDashFullscreen] = useState(false);
@@ -177,10 +177,10 @@ export function FinancePage() {
       () => apiGetFast<Payroll[]>("/api/v1/payroll", { ttlMs: 30_000 }).catch(() => []),
       () => apiGetFast<FeeSettings>("/api/v1/finance/settings", { ttlMs: 60_000 }),
       () => apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 120_000 }),
-      () => api<PaymentRow[]>("/api/v1/payments/recent?limit=30").catch(() => []),
+      () => api<PaymentRow[]>("/api/v1/payments/recent?limit=200").catch(() => []),
       () =>
         api<Installment[]>(
-          `/api/v1/installments?status=due&limit=40${
+          `/api/v1/installments?status=due,partial,overdue&limit=500${
             seasonFilter !== "all" ? `&season_id=${seasonFilter}` : ""
           }`,
         ).catch(() => []),
@@ -841,6 +841,10 @@ export function FinancePage() {
 
           <div className="card">
             <h2>Tableau — Échéances</h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              N° = numéro d&apos;opération (ECH). Les lignes payées sont masquées — filtres : dues / partielles / en retard.
+              Tri par défaut : N° croissant.
+            </p>
             <div className="table-wrap">
               <table>
                 <thead>

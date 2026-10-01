@@ -18,6 +18,9 @@ type Category = {
 type Athlete = {
   id: number;
   legacy_number?: number;
+  list_number?: number | null;
+  kit_number?: number | null;
+  registration_reference?: string | null;
   full_name: string;
   birth_date?: string;
   birth_place?: string;
@@ -551,20 +554,27 @@ export function AthletesPage() {
           <thead>
             <tr>
               <th>Photo</th>
+              <SortHeader label="N° joueur" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader label="Kit" sortKey="kit" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader
-                label={lang === "ar" ? "جديد ↕" : "Récent"}
-                sortKey="recent"
+                label={lang === "ar" ? "الاسم" : "Nom"}
+                sortKey="name"
                 activeKey={sortKey}
                 dir={sortDir}
                 onSort={onSort}
               />
-              <SortHeader label="#" sortKey="number" activeKey={sortKey} dir={sortDir} onSort={onSort} />
-              <SortHeader label="Nom / الاسم" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <th>Cat.</th>
               <th>{t("bloodType")}</th>
               <th>Parent ☎</th>
               <SortHeader label="Naissance" sortKey="birth" activeKey={sortKey} dir={sortDir} onSort={onSort} />
               <SortHeader label={t("status")} sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHeader
+                label={lang === "ar" ? "أحدث" : "Récent"}
+                sortKey="recent"
+                activeKey={sortKey}
+                dir={sortDir}
+                onSort={onSort}
+              />
               <th></th>
             </tr>
           </thead>
@@ -592,10 +602,10 @@ export function AthletesPage() {
                     <span className="avatar placeholder">?</span>
                   )}
                 </td>
-                <td className="muted" style={{ fontSize: "0.85em" }}>
-                  {r.id}
+                <td className="ltr" style={{ fontWeight: 700 }} title={r.registration_reference || undefined}>
+                  {r.list_number ?? r.legacy_number ?? "—"}
                 </td>
-                <td>{r.legacy_number ?? "—"}</td>
+                <td className="ltr">{r.kit_number ?? "—"}</td>
                 <td>{r.full_name}</td>
                 <td>{r.category_code || "—"}</td>
                 <td>{r.blood_type || "—"}</td>
@@ -606,6 +616,7 @@ export function AthletesPage() {
                 <td>
                   <span className="badge">{r.status}</span>
                 </td>
+                <td className="muted" style={{ fontSize: "0.75em" }} />
                 <td>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button type="button" className="secondary" onClick={() => openEdit(r)}>
@@ -702,7 +713,9 @@ export function AthletesPage() {
                 )}
                 <strong style={{ fontSize: "0.95rem", lineHeight: 1.2 }}>{r.full_name}</strong>
                 <span className="muted" style={{ fontSize: "0.85rem" }}>
-                  {r.category_code || "—"}
+                  N° {r.list_number ?? r.legacy_number ?? "—"}
+                  {r.kit_number != null ? ` · Kit ${r.kit_number}` : ""}
+                  {r.category_code ? ` · ${r.category_code}` : ""}
                 </span>
                 <span className="muted" style={{ fontSize: "0.8rem" }}>
                   Dernier paiement :{" "}

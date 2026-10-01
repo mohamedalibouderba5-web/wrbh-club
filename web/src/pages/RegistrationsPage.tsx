@@ -91,6 +91,8 @@ export function RegistrationsPage() {
   const [pending, setPending] = useState<PendingRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -201,34 +203,52 @@ export function RegistrationsPage() {
   }, [refreshPending]);
 
   const loadRegs = useCallback(
-    async (opts?: { quiet?: boolean }) => {
-      if (!opts?.quiet) setListLoading(true);
+    async (opts?: { quiet?: boolean; append?: boolean; offset?: number }) => {
+      const append = !!opts?.append;
+      const offset = opts?.offset ?? 0;
+      if (append) setLoadingMore(true);
+      else if (!opts?.quiet) setListLoading(true);
       setError("");
       try {
-        const params = new URLSearchParams({ limit: String(PAGE) });
+        const params = new URLSearchParams({
+          limit: String(PAGE),
+          skip: String(offset),
+        });
         if (listCategoryId) params.set("category_id", String(listCategoryId));
         if (form.season_id) params.set("season_id", String(form.season_id));
         if (listStatus === "archived") params.set("status", "archived");
         params.set("sort", sortKey);
         params.set("order", sortDir);
         const path = `/api/v1/registrations?${params}`;
-        const r = await apiGetFast<Reg[]>(path, {
-          ttlMs: 40_000,
-          onUpdate: (fresh) => {
-            setRegs(fresh);
-            setSelectedIds((prev) => prev.filter((id) => fresh.some((x) => x.id === id)));
-            setListLoading(false);
-            setLoading(false);
-          },
+        const r = append
+          ? await api<Reg[]>(path)
+          : await apiGetFast<Reg[]>(path, {
+              ttlMs: 40_000,
+              onUpdate: (fresh) => {
+                setRegs(fresh);
+                setHasMore(fresh.length >= PAGE);
+                setSelectedIds((prev) => prev.filter((id) => fresh.some((x) => x.id === id)));
+                setListLoading(false);
+                setLoading(false);
+              },
+            });
+        setRegs((prev) => {
+          const next = append ? [...prev, ...r] : r;
+          setSelectedIds((sel) => sel.filter((id) => next.some((x) => x.id === id)));
+          return next;
         });
-        setRegs(r);
-        setSelectedIds((prev) => prev.filter((id) => r.some((x) => x.id === id)));
+        setHasMore(r.length >= PAGE);
       } catch (err) {
         if (!isNetworkError(err)) {
           setError(err instanceof Error ? err.message : "Erreur");
         }
+        if (!append) {
+          setRegs([]);
+          setHasMore(false);
+        }
       } finally {
         setListLoading(false);
+        setLoadingMore(false);
         setLoading(false);
       }
     },
@@ -580,9 +600,6 @@ export function RegistrationsPage() {
       }
       setMsg(info);
       clearFormKeepSeason();
-      if (!listCategoryId || listCategoryId === res.category_id) {
-        setRegs((prev) => [res, ...prev.filter((x) => x.id !== res.id)].slice(0, PAGE));
-      }
       loadRegs({ quiet: true });
     } catch (err) {
       if (isNetworkError(err)) {
@@ -1272,6 +1289,18 @@ export function RegistrationsPage() {
             ))}
           </tbody>
         </table>
+        {hasMore && (
+          <div style={{ marginTop: 12, textAlign: "center" }}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={loadingMore}
+              onClick={() => void loadRegs({ append: true, offset: regs.length, quiet: true })}
+            >
+              {loadingMore ? t("loading") : t("loadMore")}
+            </button>
+          </div>
+        )}
       </div>
       </div>
     </div>

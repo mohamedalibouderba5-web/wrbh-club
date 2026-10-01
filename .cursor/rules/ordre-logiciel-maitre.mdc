@@ -1,0 +1,31 @@
+---
+description: Synchro obligatoire site → app + mise à jour des ordres à chaque livraison
+globs: web/src/**/*,backend/app/**/*,mobile/**/*,docs/ORDRE*.md
+alwaysApply: true
+---
+
+# Règle principale — Site puis App (Nadi Connect)
+
+## Travail parallèle OK
+
+Vous **pouvez** travailler en même temps :
+- discussion **site / produit** (cette conversation), et
+- discussion **développement application Android**.
+
+**Condition :** le site reste la **source de vérité**. L’app **ne invente pas** de parcours divergents. Le développeur app lit uniquement les documents d’ordre (pas le code web au hasard).
+
+## À chaque mise à jour site (obligatoire)
+
+Avant de considérer une livraison « terminée » :
+
+1. Mettre à jour `docs/ORDRE_LOGICIEL_MAITRE.md` (**section concernée** + **§15 Journal**).
+2. Mettre à jour `docs/ORDRE_DEV_APP_ANDROID.md` : **ce qu’il faut AJOUTER** dans l’app (pas seulement « on a corrigé »), avec API / schémas / écrans.
+3. Si droits → `docs/MATRICE_ROLES_ACCES.md`.
+4. Si agenda / parental → `docs/ORDRE_DEV_SUIVI_PARENTAL.md`.
+5. Mentionner clairement l’**impact Android** dans le message de livraison.
+
+Ne jamais livrer une feature site sans documenter le couture pour l’app.
+
+## Historique
+
+Le §15 du maître + le journal de `ORDRE_DEV_APP_ANDROID.md` sont **append-only** (ajouts + correctifs).

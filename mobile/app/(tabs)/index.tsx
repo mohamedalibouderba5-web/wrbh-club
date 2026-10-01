@@ -99,9 +99,9 @@ export default function HomeScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.blue} />}
     >
       <Text style={styles.h1}>Salam, {home?.full_name || fullName}</Text>
-      <Text style={styles.ar}>{home?.club_name_ar || "الوداد الرياضي لبلدية حمادي"}</Text>
+      <Text style={styles.ar}>{home?.club_name_ar || "نادي كونكت"}</Text>
       <Text style={styles.muted}>
-        {home?.club_name || "WRBH Club"} · {statusLabel(role || "") || role}
+        {home?.club_name || "Nadi Connect"} · {statusLabel(role || "") || role}
       </Text>
       {!!err && <Text style={styles.err}>{err}</Text>}
 

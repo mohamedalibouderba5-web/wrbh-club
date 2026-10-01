@@ -113,6 +113,7 @@ export function AppLayout() {
     { to: "/finance", label: t("finance"), short: lang === "ar" ? "مالية" : "Finance", roles: ["admin", "direction", "staff"] },
     { to: "/inventory", label: t("inventory"), short: lang === "ar" ? "عتاد" : "Matériel", roles: ["admin", "direction", "staff"] },
     { to: "/announcements", label: t("announcements"), short: lang === "ar" ? "إعلان" : "Annonces", roles: null },
+    { to: "/guide", label: t("guide"), short: lang === "ar" ? "دليل" : "Guide", roles: null },
     { to: "/download", label: t("download"), short: lang === "ar" ? "تطبيق" : "App", roles: null },
   ].filter((l) => !l.roles || (role && l.roles.includes(role)));
 
@@ -163,10 +164,10 @@ export function AppLayout() {
 
       <aside className="sidebar">
         <div className="brand">
-          <img src="/logo.png" alt="WRBH" />
+          <img src="/logo.png" alt="Nadi Connect" />
           <div>
             <h1>{t("brand")}</h1>
-            <small>الوداد الرياضي لبلدية حمادي</small>
+            <small>{t("manage")}</small>
           </div>
           <button type="button" className="drawer-close" onClick={() => setMenuOpen(false)} aria-label="Fermer">
             ✕

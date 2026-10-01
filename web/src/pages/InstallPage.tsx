@@ -13,7 +13,7 @@ export function InstallPage() {
     if (canInstall) {
       const ok = await install();
       setStepMsg(ok
-        ? (ar ? "تم! افتح أيقونة WRBH على الشاشة الرئيسية." : "C’est fait ! Ouvrez l’icône WRBH sur l’écran d’accueil.")
+        ? (ar ? "تم! افتح أيقونة نادي كونكت على الشاشة الرئيسية." : "C’est fait ! Ouvrez l’icône Nadi Connect sur l’écran d’accueil.")
         : (ar ? "تم الإلغاء." : "Installation annulée."));
       return;
     }
@@ -29,9 +29,9 @@ export function InstallPage() {
           <button type="button" className={lang === "fr" ? "active" : ""} onClick={() => setLang("fr")}>FR</button>
           <button type="button" className={lang === "ar" ? "active" : ""} onClick={() => setLang("ar")}>عربي</button>
         </div>
-        <img src="/logo.png" alt="WRBH" className="install-logo" />
-        <h1>{ar ? "تطبيق الوداد" : "App WRBH Club"}</h1>
-        <p className="ar">الوداد الرياضي لبلدية حمادي</p>
+        <img src="/logo.png" alt="Nadi Connect" className="install-logo" />
+        <h1>{ar ? "نادي كونكت" : "Nadi Connect"}</h1>
+        <p className="ar">{ar ? "النادي المتصل" : "Le club connecté"}</p>
         <p className="install-lead">
           {ar
             ? "بدون متجر، بدون إعدادات معقدة: زر واحد ويصير التطبيق على هاتفك."
@@ -53,7 +53,7 @@ export function InstallPage() {
         <ol className="install-steps">
           <li>{ar ? "اضغط « تثبيت الآن »" : "Appuyez sur « Installer maintenant »"}</li>
           <li>{ar ? "أكد التثبيت على هاتفك" : "Confirmez sur votre téléphone"}</li>
-          <li>{ar ? "افتح أيقونة WRBH مثل أي تطبيق" : "Ouvrez l’icône WRBH comme une app normale"}</li>
+          <li>{ar ? "افتح أيقونة نادي كونكت مثل أي تطبيق" : "Ouvrez l’icône Nadi Connect comme une app normale"}</li>
           <li>{ar ? "سجّل الدخول برقم هاتف الولي" : "Connectez-vous avec le n° de téléphone du parent"}</li>
         </ol>
 

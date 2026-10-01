@@ -105,7 +105,7 @@ function StaffDashboardPage() {
   const [eventTypeSel, setEventTypeSel] = useState<string[]>([]);
   const [attSel, setAttSel] = useState<string[]>([]);
   const [instSel, setInstSel] = useState<string[]>([]);
-  const [hideZero, setHideZero] = useState(true);
+  const [hideZero, setHideZero] = useState(false);
 
   const apply = useCallback((b: Bootstrap) => {
     setStats(b.stats);

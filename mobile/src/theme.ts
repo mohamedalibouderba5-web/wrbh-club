@@ -1,4 +1,4 @@
-/** Shared visual tokens for WRBH mobile — aligned with web brand. */
+/** Shared visual tokens for Nadi Connect mobile — aligned with web brand. */
 export const colors = {
   blue: "#1E3A8A",
   navy: "#0f1f4d",

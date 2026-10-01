@@ -1235,3 +1235,355 @@ th.sortable.sorted .sort-ind { opacity: 1; }
   .feedback-fab { bottom: 24px; }
 }
 
+/* —— Landing Nadi Connect —— */
+.landing {
+  min-height: 100vh;
+  color: #f8fafc;
+  background:
+    linear-gradient(120deg, rgba(15, 31, 77, 0.92), rgba(30, 58, 138, 0.88)),
+    radial-gradient(ellipse 90% 60% at 70% 20%, rgba(245, 197, 24, 0.22), transparent),
+    #0f1f4d;
+}
+.landing-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+.landing-login {
+  font-weight: 700;
+  color: #f5c518;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(245, 197, 24, 0.45);
+  border-radius: 10px;
+}
+.landing-hero {
+  min-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem 1.25rem 3rem;
+  gap: 0.65rem;
+}
+.landing-logo {
+  width: min(140px, 36vw);
+  height: min(140px, 36vw);
+  border-radius: 28px;
+  object-fit: cover;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  margin-bottom: 0.35rem;
+}
+.landing-brand {
+  margin: 0;
+  font-size: clamp(2.4rem, 8vw, 3.6rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.landing-tag {
+  margin: 0;
+  color: #f5c518;
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+.landing-one {
+  margin: 0.35rem 0 0.75rem;
+  max-width: 28rem;
+  opacity: 0.92;
+  line-height: 1.45;
+}
+.landing-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+.landing-cta .button {
+  display: inline-block;
+  padding: 0.85rem 1.35rem;
+  border-radius: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.landing-cta .button.accent {
+  background: #f5c518;
+  color: #0f1f4d;
+}
+.landing-cta-secondary {
+  background: transparent !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.landing-block {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem;
+}
+.landing-block h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+  color: #f5c518;
+}
+.landing-block p,
+.landing-list {
+  margin: 0;
+  line-height: 1.5;
+  opacity: 0.92;
+}
+.landing-list {
+  padding-inline-start: 1.2rem;
+}
+.landing-block--cta {
+  text-align: center;
+  padding-bottom: 2.5rem;
+}
+.landing-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  justify-content: center;
+  padding: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+.landing-foot a {
+  color: #f5c518;
+  font-weight: 600;
+}
+
+/* —— Guide formation —— */
+.guide-page { display: flex; flex-direction: column; gap: 1rem; }
+.guide-hero { padding: 0.25rem 0 0.5rem; }
+.guide-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+.guide-toc { position: sticky; top: 12px; padding: 1rem; }
+.guide-toc ol { margin: 0.75rem 0; padding-inline-start: 1.1rem; }
+.guide-toc li { margin: 0.35rem 0; }
+.guide-toc button {
+  background: transparent;
+  color: var(--ink);
+  padding: 0.2rem 0;
+  text-align: start;
+  font-weight: 500;
+}
+.guide-toc button.active { color: var(--blue); font-weight: 700; }
+.guide-toc-links { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.75rem; }
+.guide-toc-links a { color: var(--blue); font-weight: 700; }
+.guide-content { display: flex; flex-direction: column; gap: 0.75rem; }
+.guide-section-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  padding: 0;
+}
+.guide-search {
+  margin-top: 0.85rem;
+  width: min(420px, 100%);
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid #d7deee;
+}
+.guide-p { margin: 0.5rem 0; line-height: 1.5; }
+.guide-note {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  background: rgba(30, 58, 138, 0.08);
+  border-inline-start: 4px solid var(--blue);
+  line-height: 1.45;
+}
+.guide-block { margin: 1rem 0 0.35rem; }
+.guide-block h4 { margin: 0 0 0.4rem; font-size: 1.02rem; color: var(--blue-deep); }
+.guide-steps { margin: 0; padding-inline-start: 1.25rem; line-height: 1.55; }
+.guide-steps li { margin: 0.35rem 0; }
+.guide-do, .guide-dont {
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+}
+.guide-do {
+  background: rgba(31, 122, 77, 0.08);
+  border: 1px solid rgba(31, 122, 77, 0.25);
+}
+.guide-dont {
+  background: rgba(192, 57, 43, 0.07);
+  border: 1px solid rgba(192, 57, 43, 0.22);
+}
+.guide-do ul, .guide-dont ul {
+  margin: 0.35rem 0 0;
+  padding-inline-start: 1.2rem;
+  line-height: 1.5;
+}
+
+.guide-pre {
+  margin: 0;
+  padding: 1rem;
+  overflow: auto;
+  background: #0f1f4d;
+  color: #e8eefb;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+@media (max-width: 860px) {
+  .guide-layout { grid-template-columns: 1fr; }
+  .guide-toc { position: static; }
+}
+
+/* —— Pricing / offre Nadi Connect —— */
+.pricing-page {
+  min-height: 100vh;
+  padding: 1.5rem 1.25rem 3rem;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(245, 197, 24, 0.18), transparent),
+    linear-gradient(165deg, #0f1f4d 0%, #1e3a8a 45%, #152a66 100%);
+  color: #f8fafc;
+}
+.pricing-hero {
+  max-width: 720px;
+  margin: 0 auto 2rem;
+  text-align: center;
+}
+.pricing-logo {
+  width: 88px;
+  height: 88px;
+  border-radius: 20px;
+  object-fit: cover;
+  margin: 0.75rem auto 0.5rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.pricing-eyebrow {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #f5c518;
+  font-size: 1.05rem;
+}
+.pricing-hero h1 {
+  margin: 0.35rem 0;
+  font-size: clamp(1.75rem, 4vw, 2.4rem);
+  font-weight: 800;
+}
+.pricing-lead {
+  margin: 0.5rem auto 0;
+  max-width: 36rem;
+  opacity: 0.9;
+  line-height: 1.45;
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+.pricing-card {
+  background: rgba(255, 255, 255, 0.96);
+  color: #0f1f4d;
+  border-radius: 16px;
+  padding: 1.25rem 1.35rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+}
+.pricing-card--featured {
+  outline: 3px solid #f5c518;
+  transform: translateY(-4px);
+}
+.pricing-card h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.pricing-amount {
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: #1e3a8a;
+}
+.pricing-period {
+  font-size: 0.9rem;
+  color: #64748b;
+  margin-bottom: 0.35rem;
+}
+.pricing-card ul {
+  margin: 0 0 0.75rem;
+  padding-inline-start: 1.1rem;
+  flex: 1;
+  color: #334155;
+  line-height: 1.45;
+}
+.pricing-card .button {
+  text-align: center;
+  text-decoration: none;
+  display: block;
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  background: #1e3a8a;
+  color: #fff;
+  font-weight: 700;
+}
+.pricing-card .button.accent {
+  background: #f5c518;
+  color: #0f1f4d;
+}
+.pricing-setup {
+  max-width: 960px;
+  margin: 1.5rem auto 0;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+.pricing-pilot .button {
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pilot-page {
+  min-height: 100vh;
+  padding: 1.5rem 1.25rem 3rem;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(245, 197, 24, 0.18), transparent),
+    linear-gradient(165deg, #0f1f4d 0%, #1e3a8a 45%, #152a66 100%);
+  color: #f8fafc;
+}
+.pilot-hero {
+  max-width: 720px;
+  margin: 0 auto 1.5rem;
+  text-align: center;
+}
+.pilot-steps {
+  max-width: 720px;
+  margin: 0 auto 1rem;
+  color: #0f1f4d;
+}
+.pilot-steps h2 { margin-top: 0; color: #1e3a8a; }
+.pilot-steps ol, .pilot-steps ul { line-height: 1.55; }
+.pricing-footer {
+  max-width: 960px;
+  margin: 1.75rem auto 0;
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+}
+.pricing-footer a {
+  color: #f5c518;
+  font-weight: 700;
+}
+

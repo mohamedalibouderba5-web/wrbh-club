@@ -4,9 +4,9 @@ type Lang = "fr" | "ar";
 
 const dict = {
   fr: {
-    brand: "WRBH Club",
-    manage: "Gestion du club",
-    season: "Saison 2026/2027 · Football",
+    brand: "Nadi Connect",
+    manage: "Le club connecté",
+    season: "Saison 2026/2027",
     wake: "Actualiser / Réveiller le serveur",
     logout: "Déconnexion",
     dashboard: "Tableau de bord",
@@ -20,6 +20,7 @@ const dict = {
     inventory: "Matériel",
     announcements: "Annonces",
     download: "Télécharger l'app",
+    guide: "Guide / Formation",
     loginPhone: "Téléphone parent (ou email staff)",
     password: "Mot de passe",
     signIn: "Se connecter",
@@ -74,9 +75,9 @@ const dict = {
     loadMore: "Charger plus",
   },
   ar: {
-    brand: "نادي الوداد",
-    manage: "تسيير النادي",
-    season: "موسم 2026/2027 · كرة القدم",
+    brand: "نادي كونكت",
+    manage: "النادي المتصل",
+    season: "موسم 2026/2027",
     wake: "تحديث / إيقاظ الخادم",
     logout: "تسجيل الخروج",
     dashboard: "لوحة التحكم",
@@ -90,6 +91,7 @@ const dict = {
     inventory: "المعدات",
     announcements: "الإعلانات",
     download: "تحميل التطبيق",
+    guide: "دليل / تكوين",
     loginPhone: "هاتف الولي (أو بريد الطاقم)",
     password: "كلمة المرور",
     signIn: "دخول",

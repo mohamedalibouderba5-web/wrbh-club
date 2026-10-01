@@ -1,0 +1,13 @@
+---
+description: Always use Cursor's integrated browser for web/deploy tasks — never an external browser
+alwaysApply: true
+---
+
+# Cursor integrated browser only
+
+When opening websites, dashboards (Render, GitHub, app URLs), verifying deploys, or doing any browser automation:
+
+- Use **only** the Cursor integrated browser / IDE browser MCP (`cursor-ide-browser`).
+- **Never** launch or rely on an external browser (Chrome/Edge/Firefox outside Cursor, `start https://…`, Playwright against a user desktop browser, etc.).
+- Prefer `browser_navigate` → `browser_lock` → interactions → unlock when finished.
+- If the integrated browser MCP is unavailable, stop and tell the user — do not fall back to an external browser.

@@ -1,0 +1,12 @@
+---
+description: Hébergement WRBH = VPS Hetzner ali-server uniquement
+alwaysApply: true
+---
+
+# Hetzner VPS (mémoire projet)
+
+- **Prod WRBH** = VPS Hetzner existant **ali-server** / IP `46.224.38.201` / projet Ali-sass.
+- Dossier app : `/opt/wrbh-club` — compose project `wrbh` (ports **8080** web, **8081** API).
+- **Ne jamais** toucher `/opt/esta` ni créer un autre serveur Cloud.
+- Ne pas relancer le sujet « facture papier / paiement manuel » sauf demande explicite.
+- Browser : Cursor integrated browser / `open_resource` uniquement.
