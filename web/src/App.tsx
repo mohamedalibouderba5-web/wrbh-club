@@ -1,9 +1,12 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth";
 import { AppLayout } from "./layouts/AppLayout";
 import { LoginPage } from "./pages/LoginPage";
 import { OnboardPage } from "./pages/OnboardPage";
 import { InstallPage } from "./pages/InstallPage";
+import { PricingPage } from "./pages/PricingPage";
+import { LandingPage } from "./pages/LandingPage";
+import { PilotPage } from "./pages/PilotPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AthletesPage } from "./pages/AthletesPage";
 import { RegistrationsPage } from "./pages/RegistrationsPage";
@@ -15,12 +18,18 @@ import { FinancePage } from "./pages/FinancePage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { AnnouncementsPage } from "./pages/AnnouncementsPage";
 import { DownloadPage } from "./pages/DownloadPage";
+import { GuidePage } from "./pages/GuidePage";
 import { UsersPage } from "./pages/UsersPage";
 
-function Private({ children }: { children: React.ReactNode }) {
+/** `/` invité → landing ; autres routes app → login ; connecté → shell. */
+function RootShell() {
   const { token } = useAuth();
-  if (!token) return <Navigate to="/login" replace />;
-  return children;
+  const loc = useLocation();
+  if (!token) {
+    if (loc.pathname === "/" || loc.pathname === "") return <LandingPage />;
+    return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
+  }
+  return <AppLayout />;
 }
 
 export default function App() {
@@ -28,16 +37,16 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/onboard" element={<OnboardPage />} />
+      <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/offre" element={<PricingPage />} />
+      <Route path="/pilote" element={<PilotPage />} />
+      <Route path="/pilot" element={<PilotPage />} />
+      <Route path="/welcome" element={<LandingPage />} />
       <Route path="/install" element={<InstallPage />} />
       <Route path="/app" element={<InstallPage />} />
-      <Route
-        path="/"
-        element={
-          <Private>
-            <AppLayout />
-          </Private>
-        }
-      >
+      <Route path="/download" element={<DownloadPage />} />
+      <Route path="/guide" element={<GuidePage />} />
+      <Route path="/" element={<RootShell />}>
         <Route index element={<DashboardPage />} />
         <Route path="athletes" element={<AthletesPage />} />
         <Route path="registrations" element={<RegistrationsPage />} />
@@ -49,6 +58,7 @@ export default function App() {
         <Route path="finance" element={<FinancePage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="announcements" element={<AnnouncementsPage />} />
+        <Route path="guide" element={<GuidePage />} />
         <Route path="download" element={<DownloadPage />} />
       </Route>
     </Routes>

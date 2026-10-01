@@ -190,19 +190,38 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-09-26 | 1.6.0 | Suivi parental |
 | 2026-09-30 | **1.7.0** | A1–A6 (+A3) : multi-club login/branding, sports, rôles, onboard |
 | 2026-10-01 | **1.8.0** | Lot B+C : liens Offres/Guide/Pilote, N° joueur `list_number`, msgs 429/500/409 ; sync fix parents `club_id` |
+| 2026-10-01 | (sync site) | **Lot A backend déployé** : inscriptions OK en prod ; parents `club_id` ; notifs scopées ; club suspendu lecture seule ; `/guide` `/download` publics. **À faire app** : C1 retest, C3, C9, C10 (voir tableau) |
 
 ### Lot C — à ajouter dans l'app (suite audit 2026-10-01)
 
-**Rien à coder côté app pour C1 : le correctif est backend.** Mais à vérifier et à adapter :
+**C1 backend est déployé (2026-10-01).** Retester l’écran Inscription ; le reste du tableau reste à faire côté app.
 
-| # | À faire dans l'app | Détail technique |
-|---|--------------------|------------------|
-| C1 | **Ne pas débugger l'écran Inscription** tant que le backend n'est pas déployé | `POST /api/v1/registrations` renvoie **HTTP 500** pour tous les clubs (`TypeError: ensure_parent_account() got an unexpected keyword argument 'club_id'`). L'app n'est pas en cause. Afficher un message utilisateur lisible sur 500 au lieu de « Erreur serveur interne ». |
-| C2 | **Basculer en HTTPS** dès que le domaine est en place | `mobile/app.json` : `extra.apiUrl` → `https://<domaine>`, puis **retirer** `android.usesCleartextTraffic`. Prérequis Play Store. |
-| C3 | **Vérifier l'écran parent après cloisonnement** | Les comptes parents étaient créés avec `club_id=NULL` (visibles par tous les clubs). Après correctif, revalider `GET /api/v1/children` et `GET /api/v1/mobile/home` : un parent ne doit voir que les enfants de son club. |
-| C4 | **Message 409 à l'onboarding** | `POST /api/v1/club/onboard` renverra un `409` explicite (au lieu d'un 500) si l'email **ou le téléphone** admin est déjà pris. Adapter `mobile/app/onboard.tsx` pour afficher `detail` et proposer de corriger le champ. |
-| C5 | **Anticiper le rate-limit** | Le login est limité à **10 requêtes / 5 min par IP** (pas par compte). Derrière le NAT d'un opérateur mobile, plusieurs parents sont bloqués avec `429`. Afficher un message dédié sur 429 (« réessayez dans quelques minutes ») et ne pas réessayer automatiquement en boucle. |
-| C6 | **Parité manquante** (rappel) | `/guide` (formation) et l'administration des feedbacks n'existent pas dans l'app. |
+**État vérifié dans le code le 2026-10-01 à 13h30** (pas déclaratif — lecture de `mobile/src/api/client.ts` et `mobile/app.json`).
+
+| # | À faire dans l'app | État | Détail technique |
+|---|--------------------|------|------------------|
+| C1 | Retester Inscription | ✅ **fait** | `formatApiError` (`client.ts:25-45`) gère 500 avec un message lisible. Backend corrigé et déployé : `POST /registrations` renvoie 200 en prod. |
+| C4 | Message 409 onboarding | ✅ **fait** | Le `detail` est remonté par `formatApiError`. |
+| C5 | Rate-limit 429 | ✅ **fait** | `client.ts:26-28` : « Trop de tentatives — réessayez dans quelques minutes (réseau partagé). » Pas de réessai en boucle. |
+| **C11** | **Internationalisation FR / AR + RTL** | ❌ **le plus gros manque** | **Aucun système i18n dans l'app.** `useI18n`, `i18n`, `locale ===` : **0 occurrence** dans `mobile/`. `I18nManager` et tout traitement RTL : **absents**. L'arabe n'existe qu'en **44 lignes de chaînes codées en dur** réparties dans 10 fichiers (ex. `"Connexion / دخول"`). Le web a un dictionnaire FR/AR complet (`web/src/i18n.tsx`, ~70 clés) **avec bascule de langue et RTL**. Vous vendez un produit bilingue ; l'app est en pratique francophone. Pour des parents arabophones, c'est bloquant. **À faire :** porter `web/src/i18n.tsx` en contexte React Native, bascule de langue dans Profil, `I18nManager.forceRTL` pour l'arabe, puis migrer les écrans dans cet ordre : Accueil → Agenda → Inscriptions → Athlètes → Paiements. |
+| **C12** | **Gérer le code 403** | ❌ **à faire** | `client.ts` traite `401` (déconnexion) et `429`, mais **`403` n'est géré nulle part** dans `mobile/src`. Or le backend renvoie désormais `403` dans trois cas : club suspendu en écriture (A7), utilisateur non rattaché à un club, rôle insuffisant. Sans traitement, l'utilisateur voit une erreur brute. |
+| C9 | Écran « club suspendu » | ❌ **à faire** | Dépend de C12. Bandeau « abonnement suspendu — lecture seule » et masquage des boutons de création quand un `403` « Club suspendu » revient. Le backend autorise la lecture et l'export. |
+| C2 | Basculer en HTTPS | ⏳ **bloqué par B1** | `app.json:74` → `"apiUrl": "http://46.224.38.201:8081"` et `app.json:27` → `"usesCleartextTraffic": true` **toujours actifs**. Dès que le domaine est en place : `https://api.<domaine>`, retirer `usesCleartextTraffic`, rebuild, republier, mettre à jour `ANDROID_APK_URL`. **Prérequis Play Store.** |
+| C8 | Démo salon hors ligne | ❌ **à faire, prioritaire** | `src/config.ts` lit `extra.apiUrl` depuis `app.json` : vérifier si c'est surchargeable à l'exécution. Sinon, produire un **APK de démo** pointant vers l'IP du portable. Le wifi SAFEX n'est pas fiable — c'est le filet de sécurité du stand. |
+| C10 | Revalider les notifications | ❌ **à vérifier** | `notify_role` est corrigé côté backend et les `Notification` portent désormais un `club_id`. Vérifier que l'onglet notifications ne montre que le club courant. |
+| C3 | Revalider l'écran parent | ❌ **à vérifier** | Après cloisonnement : `GET /children` et `GET /mobile/home` ne doivent renvoyer que les enfants du club. |
+| C7 | Licence + certificat médical | ⏳ **bloqué par C2 site** | Attendre le déploiement du schéma backend (`license_valid_until`, `medical_cert_valid_until`), puis miroir sur la fiche athlète + pastille d'expiration. |
+| C6 | Parité manquante | 📋 **après salon** | Écran Guide / formation absent (le web a `/guide`, désormais **route publique** — une `WebView` suffirait). Administration des feedbacks absente. |
+
+**Ordre de priorité app avant le 12 octobre :**
+
+1. **C8** — démo hors ligne (sans ça, pas de filet au salon)
+2. **C12 + C9** — gérer `403` et l'état suspendu
+3. **C2** — HTTPS, dès que le domaine est prêt (dépend de B1)
+4. **C10 + C3** — revalidation du cloisonnement
+5. **C11** — i18n : commencer par Accueil et Agenda, les deux écrans montrés en démo
+
+**C11 en entier ne rentre pas avant le salon.** Visez les deux écrans de démonstration en arabe, et planifiez le reste après le 15 octobre.
 
 ---
 

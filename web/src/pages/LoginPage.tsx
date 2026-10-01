@@ -53,8 +53,8 @@ export function LoginPage() {
         const data = (await res.json()) as ClubPublic[];
         if (cancelled) return;
         setClubs(data);
+        // B4 : plus d'auto-sélection wrbh (portefeuille non exposé). Slug saisi à la main.
         if (!clubSlug && data.length === 1) setClubSlug(data[0].slug);
-        if (!clubSlug && data.some((c) => c.slug === "wrbh")) setClubSlug("wrbh");
       } catch {
         /* mono-club fallback */
       }
@@ -116,8 +116,9 @@ export function LoginPage() {
     }
   }
 
-  const title = brand?.app_name || brand?.name || "WRBH Club";
-  const subtitle = brand?.name_ar || "الوداد الرياضي لبلدية حمادي";
+  const productName = lang === "ar" ? "نادي كونكت" : "Nadi Connect";
+  const clubTitle = brand?.name || "";
+  const subtitle = brand?.name_ar || (lang === "ar" ? "النادي المتصل" : "Le club connecté");
 
   return (
     <div className="login-page">
@@ -130,13 +131,14 @@ export function LoginPage() {
             عربي
           </button>
         </div>
-        <img src="/logo.png" alt={title} />
-        <h2>{title}</h2>
+        <img src="/logo.png" alt={productName} />
+        <h2>{productName}</h2>
         <div className="ar">{subtitle}</div>
-        {brand?.sport && (
+        {clubTitle && (
           <p className="muted" style={{ textAlign: "center", marginTop: 0 }}>
-            {brand.sport}
-            {brand.acronym ? ` · ${brand.acronym}` : ""}
+            {clubTitle}
+            {brand?.acronym ? ` · ${brand.acronym}` : ""}
+            {brand?.sport ? ` · ${brand.sport}` : ""}
           </p>
         )}
         <p className="login-hint">
@@ -162,28 +164,32 @@ export function LoginPage() {
 
         <div className="field">
           <label>{lang === "ar" ? "النادي (رمز)" : "Club (code)"}</label>
-          {clubs.length > 0 ? (
+          {clubs.length > 0 && (
             <select
-              value={clubSlug}
-              onChange={(e) => setClubSlug(e.target.value)}
-              required={clubs.length > 1}
+              value=""
+              onChange={(e) => {
+                if (e.target.value) setClubSlug(e.target.value);
+              }}
+              style={{ marginBottom: 8 }}
             >
-              <option value="">{lang === "ar" ? "— اختر —" : "— Choisir —"}</option>
+              <option value="">
+                {lang === "ar" ? "— أندية العرض (اختياري) —" : "— Clubs vitrine (optionnel) —"}
+              </option>
               {clubs.map((c) => (
                 <option key={c.slug} value={c.slug}>
                   {c.name} ({c.slug}) · {c.sport}
                 </option>
               ))}
             </select>
-          ) : (
-            <input
-              className="ltr"
-              value={clubSlug}
-              onChange={(e) => setClubSlug(e.target.value.trim().toLowerCase())}
-              placeholder="wrbh"
-              autoComplete="organization"
-            />
           )}
+          <input
+            className="ltr"
+            value={clubSlug}
+            onChange={(e) => setClubSlug(e.target.value.trim().toLowerCase())}
+            placeholder="code-club"
+            autoComplete="organization"
+            required
+          />
         </div>
 
         <div className="field">
@@ -211,6 +217,9 @@ export function LoginPage() {
         </button>
         <Link to="/onboard" className="login-link">
           {lang === "ar" ? "إنشاء نادي جديد (تجربة 14 يوماً)" : "Créer un club (essai 14 jours)"}
+        </Link>
+        <Link to="/pricing" className="login-link">
+          {lang === "ar" ? "العروض والأسعار" : "Offres & tarifs"}
         </Link>
         <Link to="/install" className="login-link">
           {lang === "ar" ? "كيف أثبّت التطبيق ؟" : "Comment installer l'application ?"}
