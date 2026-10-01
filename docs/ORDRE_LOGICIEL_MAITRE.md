@@ -4,8 +4,8 @@
 **Règle n°1 :** à **chaque** mise à jour (bouton, API, écran, rôle), ce document **doit être mis à jour** dans la même livraison.  
 **Source de vérité :** le comportement du **site web** fait référence ; l’app doit **suivre le même couture métier**.
 
-**Dernière mise à jour :** 2026-09-26  
-**Stack visible utilisateur :** Site web + Application Android (SaaS multi-clubs, multi-sports)
+**Dernière mise à jour :** 2026-10-01  
+**Stack visible utilisateur :** Site web + Application Android (**Nadi Connect** — SaaS multi-clubs, multi-sports)
 
 ---
 
@@ -19,6 +19,14 @@
    - `ORDRE_DEV_APP_ANDROID.md` — **ordre synchro développeur application**  
    - `MATRICE_ROLES_ACCES.md` — tableau exhaustif droits  
    - `RAPPORT_PRODUIT_COMMERCIAL.md` — vision non technique  
+   - `DEMO_SCRIPTEE_NADI_CONNECT.md` — script démo commerciale  
+
+### Règle parallèle (site + discussion app)
+
+- Travailler **en parallèle** site et app est **autorisé**.  
+- Le site est la source de vérité ; l’app **miroite**.  
+- **Chaque** livraison site → lignes dans **§15** + tâches « À ajouter » dans `ORDRE_DEV_APP_ANDROID.md` (schémas / API / écrans).  
+- L’historique des correctifs va aussi dans §15 (append-only).
 
 ---
 
@@ -69,6 +77,7 @@ Visibles selon rôle (`AppLayout`) :
 | `/finance` | Finance | ✓ | ✓ | ✓ | — | —* |
 | `/inventory` | Matériel | ✓ | ✓ | ✓ | — | — |
 | `/announcements` | Annonces | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `/guide` | Guide / Formation | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `/download` | Télécharger app | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 \* Parent : pas le menu Finance complet ; peut voir cotisations liées via inscriptions / profil app.
@@ -254,6 +263,17 @@ Page `/history` :
 | 2026-09-30 | **ORDRE_DEV_APP_ANDROID.md** — ordre synchro développeur application | **À exécuter avant d’avancer produit** |
 | 2026-09-26 | **App 1.6.0** : miroir parental (start/complete/approve/attendance/prefs), badges, comptes, Accueil parent | Expo `1.6.0` / versionCode 9 |
 | 2026-09-30 | **App 1.7.0** : login multi-club + branding, Sports du club, menus rôles (pas Finance parent/coach), onboard essai | Expo `1.7.0` / versionCode 10 |
+| 2026-10-01 | **App 1.8.0** : Nadi Connect liens Offres/Guide/Pilote, N° joueur `list_number`, erreurs 429/500 lisibles ; **fix parents `club_id` déployé** (inscriptions) | Expo `1.8.0` / versionCode 11 |
+| 2026-09-30 | Marque produit **Nadi Connect** (نادي = club) + logo + page `/pricing` (Discovery / Club / Academy) | Afficher Nadi Connect (pas WRBH comme nom produit) |
+| 2026-10-01 | **Règle synchro** officialisée : parallèle site/app OK ; chaque livraison → §15 + `ORDRE_DEV_APP_ANDROID` (ajouts + schémas) | Lire §0 + ordre Android §10 |
+| 2026-10-01 | **Landing** publique `/` (invité) + script démo `DEMO_SCRIPTEE_NADI_CONNECT.md` | Lien « Site / Offres » optionnel ; splash = Nadi Connect |
+| 2026-10-01 | **Athlètes** : N° joueur = `list_number` (aligné Inscriptions), plus l’id DB (268…) ; Kit affiché | Afficher `list_number` / kit, pas `athlete.id` |
+| 2026-10-01 | **Dashboard** : saison courante **par club** + cache bootstrap club-scoped ; graphes ne restent plus vides à tort | Rafraîchir Accueil / home stats |
+| 2026-10-01 | **Fix bootstrap** : appels `list_categories` / `finance_dashboard` (Fail to fetch / graphes vides) | N/A API — recharger dashboard |
+| 2026-10-01 | **Guide formation** `/guide` + `GUIDE_FORMATION_NADI_CONNECT.md` (tous rôles) | Lien optionnel « Guide » / WebView |
+| 2026-10-01 | **Guide enrichi** : 16 chapitres, étapes, à faire / à ne pas faire, check-lists, dépannage, recherche | Miroir contenu formation (C3) |
+| 2026-10-01 | **Étape 7 pilotes** : `PILOTES_COMMERCIAUX.md` + page `/pilote` + CTA landing/pricing | Lien optionnel « Devenir pilote » |
+| 2026-10-01 | **AUDIT commercialisation** (`AUDIT_COMMERCIALISATION_2026-10-01.md`) : tests réels en prod. **P0-1 `POST /registrations` = HTTP 500 pour tous les clubs** (`ensure_parent_account()` reçoit `club_id` non déclaré dans `parents.py` de HEAD — correctif local non commité). P0-2 comptes parents créés `club_id=NULL` → visibles par tous les clubs (prouvé : 5 parents de test apparaissent chez WRBH). P0-3 prod en HTTP sans domaine → `isSecureContext=false`, PWA/service worker inopérants. P0-4 sauvegarde non automatisée. P0-5 onboard 500 si téléphone admin déjà pris (`users.phone` unique global) | **Inscription app Android également en panne** (même endpoint) ; après fix HTTPS → `app.json` en `https://` + retirer `usesCleartextTraffic` ; vérifier `GET /children` après cloisonnement parents |
 
 ---
 

@@ -26,6 +26,9 @@ type Athlete = {
   blood_type?: string;
   license_number?: string;
   legacy_number?: number;
+  list_number?: number | null;
+  kit_number?: string | number | null;
+  registration_reference?: string | null;
   notes?: string;
 };
 
@@ -262,10 +265,18 @@ export default function AthletesScreen() {
             </View>
             {!!a.full_name_ar && <Text style={styles.ar}>{a.full_name_ar}</Text>}
             <Text style={styles.line}>
-              {[a.category_code, a.legacy_number ? `#${a.legacy_number}` : null, a.birth_date]
+              {[
+                a.category_code,
+                a.list_number != null ? `N° ${a.list_number}` : null,
+                a.kit_number != null && String(a.kit_number) ? `Kit ${a.kit_number}` : null,
+                a.birth_date,
+              ]
                 .filter(Boolean)
                 .join(" · ") || "—"}
             </Text>
+            {!!a.registration_reference && (
+              <Text style={styles.hint}>Réf. {a.registration_reference}</Text>
+            )}
             {!!a.parent_phone && <Text style={styles.line}>Tél. {a.parent_phone}</Text>}
             {canEdit && <Text style={styles.hint}>Appuyer pour modifier</Text>}
           </Pressable>

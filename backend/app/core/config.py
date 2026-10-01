@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "WRBH Club"
+    app_name: str = "Nadi Connect"
     environment: str = "development"
     secret_key: str = "dev-secret-change-me"
     access_token_expire_minutes: int = 60 * 12  # 12 h
@@ -36,18 +36,18 @@ class Settings(BaseSettings):
     login_rate_limit: int = 10
     login_rate_window_seconds: int = 300
     # Mise à jour APK mobile (publié via env Render)
-    android_app_version: str = "1.7.0"
-    android_version_code: int = 10
+    android_app_version: str = "1.8.0"
+    android_version_code: int = 11
     android_apk_url: str = (
         "https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/"
-        "android-v1.7.0/wrbh-club-1.7.0.apk"
+        "android-v1.8.0/wrbh-club-1.8.0.apk"
     )
     android_force_update: bool = False
     android_release_notes: str = (
-        "Multi-club login, branding, sports du club, menus par rôle (pas de Finance parent)."
+        "Nadi Connect: offres/guide, N° joueur list_number, messages 429/500, fix parents club."
     )
     android_release_notes_ar: str = (
-        "دخول متعدد الأندية، الهوية البصرية، رياضات النادي، قوائم حسب الدور."
+        "نادي كونكت: العروض والدليل، رقم اللاعب، رسائل أوضح، إصلاح أولياء الأمور."
     )
 
     @property

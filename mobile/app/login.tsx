@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useAuth } from "../src/context/AuthContext";
-import { API_BASE, mediaUrl } from "../src/config";
+import { API_BASE, WEB_BASE, mediaUrl } from "../src/config";
 import { wakeServer } from "../src/api/client";
 import { colors, statusLabel } from "../src/theme";
 
@@ -116,8 +117,9 @@ export default function LoginScreen() {
 
   const primary = brand?.primary_color || colors.blue;
   const accent = brand?.accent_color || colors.gold;
-  const title = brand?.app_name || brand?.name || "WRBH Club";
-  const subtitle = brand?.name_ar || "الوداد الرياضي لبلدية حمادي";
+  const productName = "Nadi Connect";
+  const clubTitle = brand?.name || "";
+  const subtitle = brand?.name_ar || "النادي المتصل · Le club connecté";
   const logoUri = mediaUrl(brand?.logo_path || undefined);
 
   return (
@@ -127,14 +129,16 @@ export default function LoginScreen() {
       ) : (
         <Image source={require("../assets/logo.png")} style={[styles.logo, { borderColor: accent }]} />
       )}
-      <Text style={styles.title}>{title}</Text>
+      <Text style={styles.title}>{productName}</Text>
       <Text style={[styles.ar, { color: accent }]}>{subtitle}</Text>
-      {!!brand?.sport && (
+      {!!clubTitle && (
         <Text style={styles.sub}>
-          Sport : {statusLabel(brand.sport) || brand.sport} · slug {clubSlug || "—"}
+          {clubTitle}
+          {brand?.acronym ? ` · ${brand.acronym}` : ""}
+          {brand?.sport ? ` · ${statusLabel(brand.sport) || brand.sport}` : ""}
         </Text>
       )}
-      {!brand?.sport && <Text style={styles.sub}>Connexion multi-club · parent ☎ / staff email</Text>}
+      {!clubTitle && <Text style={styles.sub}>Connexion multi-club · parent ☎ / staff email</Text>}
 
       {clubs.length > 0 && (
         <View style={styles.clubBox}>
@@ -217,6 +221,15 @@ export default function LoginScreen() {
       {!!wakeMsg && <Text style={styles.sub}>{wakeMsg}</Text>}
       <Pressable style={styles.wake} onPress={() => router.push("/onboard")}>
         <Text style={[styles.wakeText, { color: accent }]}>Créer un club (essai 14 j)</Text>
+      </Pressable>
+      <Pressable style={styles.wake} onPress={() => void Linking.openURL(`${WEB_BASE}/pricing`)}>
+        <Text style={styles.wakeText}>Offres / Tarifs</Text>
+      </Pressable>
+      <Pressable style={styles.wake} onPress={() => void Linking.openURL(`${WEB_BASE}/guide`)}>
+        <Text style={styles.wakeText}>Guide / Formation</Text>
+      </Pressable>
+      <Pressable style={styles.wake} onPress={() => void Linking.openURL(`${WEB_BASE}/pilote`)}>
+        <Text style={styles.wakeText}>Devenir pilote</Text>
       </Pressable>
     </ScrollView>
   );

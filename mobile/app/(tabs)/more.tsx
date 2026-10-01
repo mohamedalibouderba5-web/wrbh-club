@@ -1,14 +1,16 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/context/AuthContext";
+import { WEB_BASE } from "../../src/config";
 import { colors } from "../../src/theme";
 
 type Item = {
   title: string;
   titleAr: string;
   subtitle: string;
-  route: string;
+  route?: string;
+  url?: string;
   icon: keyof typeof Ionicons.glyphMap;
   roles?: string[] | null;
 };
@@ -102,6 +104,22 @@ const ITEMS: Item[] = [
     icon: "person-circle",
     roles: null,
   },
+  {
+    title: "Offres / Tarifs",
+    titleAr: "العروض",
+    subtitle: "Discovery · Club · Academy",
+    url: `${WEB_BASE}/pricing`,
+    icon: "pricetag",
+    roles: null,
+  },
+  {
+    title: "Guide / Formation",
+    titleAr: "الدليل",
+    subtitle: "Mode d’emploi Nadi Connect",
+    url: `${WEB_BASE}/guide`,
+    icon: "book",
+    roles: null,
+  },
 ];
 
 export default function MoreScreen() {
@@ -124,9 +142,12 @@ export default function MoreScreen() {
 
       {visible.map((item) => (
         <Pressable
-          key={item.route + item.title}
+          key={(item.route || item.url || "") + item.title}
           style={styles.card}
-          onPress={() => router.push(item.route as never)}
+          onPress={() => {
+            if (item.url) void Linking.openURL(item.url);
+            else if (item.route) router.push(item.route as never);
+          }}
           accessibilityRole="button"
           accessibilityLabel={item.title}
         >

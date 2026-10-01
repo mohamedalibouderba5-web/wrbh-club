@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { api, wakeServer } from "../../src/api/client";
-import { APP_VERSION, mediaUrl } from "../../src/config";
+import { APP_VERSION, WEB_BASE, mediaUrl } from "../../src/config";
 import { useAuth } from "../../src/context/AuthContext";
 import { colors, fmtMoney, statusLabel } from "../../src/theme";
 
@@ -298,10 +298,20 @@ export default function ProfileScreen() {
       </Pressable>
       {!!msg && <Text style={styles.ok}>{msg}</Text>}
 
+      <Pressable style={styles.secondary} onPress={() => void Linking.openURL(`${WEB_BASE}/pricing`)}>
+        <Text style={styles.secondaryT}>Offres / Tarifs</Text>
+      </Pressable>
+      <Pressable style={styles.secondary} onPress={() => void Linking.openURL(`${WEB_BASE}/guide`)}>
+        <Text style={styles.secondaryT}>Guide / Formation</Text>
+      </Pressable>
+      <Pressable style={styles.secondary} onPress={() => void Linking.openURL(`${WEB_BASE}/pilote`)}>
+        <Text style={styles.secondaryT}>Devenir pilote</Text>
+      </Pressable>
+
       <Pressable style={styles.logout} onPress={() => logout()}>
         <Text style={styles.logoutT}>Déconnexion</Text>
       </Pressable>
-      <Text style={styles.version}>WRBH Club · version {APP_VERSION}</Text>
+      <Text style={styles.version}>Nadi Connect · version {APP_VERSION}</Text>
     </ScrollView>
   );
 }

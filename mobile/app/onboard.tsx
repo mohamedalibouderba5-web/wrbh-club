@@ -76,6 +76,15 @@ export default function OnboardScreen() {
             : Array.isArray(data.detail)
               ? data.detail.map((d: { msg?: string }) => d.msg || "").filter(Boolean).join(" · ")
               : "Création impossible";
+        if (res.status === 409) {
+          throw new Error(
+            detail ||
+              "Email ou téléphone déjà utilisé — corrigez le champ et réessayez.",
+          );
+        }
+        if (res.status === 429) {
+          throw new Error("Trop de tentatives — réessayez dans quelques minutes.");
+        }
         throw new Error(detail || "Création impossible");
       }
       setMsg(`Club créé : ${data.slug || slug}. Essai 14 jours. Connectez-vous.`);

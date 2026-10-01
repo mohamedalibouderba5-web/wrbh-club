@@ -8,14 +8,17 @@ from app.models import ParentChild, User
 from app.services.phone import generate_parent_password, normalize_phone, phone_lookup_variants
 
 
-def find_user_by_phone(db: Session, phone: str) -> User | None:
+def find_user_by_phone(db: Session, phone: str, club_id: int | None = None) -> User | None:
     variants = [v for v in phone_lookup_variants(phone) if v]
     n = normalize_phone(phone)
     if n and n not in variants:
         variants.append(n)
     if not variants:
         return None
-    return db.query(User).filter(User.phone.in_(variants)).first()
+    q = db.query(User).filter(User.phone.in_(variants))
+    if club_id is not None:
+        q = q.filter(User.club_id == club_id)
+    return q.first()
 
 
 def ensure_parent_account(
@@ -24,6 +27,7 @@ def ensure_parent_account(
     phone: str,
     full_name: str | None = None,
     athlete_id: int | None = None,
+    club_id: int | None = None,
 ) -> tuple[User, str | None, bool]:
     """
     Crée ou réutilise un compte parent lié au téléphone.
@@ -33,7 +37,7 @@ def ensure_parent_account(
     if not normalized:
         raise ValueError("Numéro de téléphone parent invalide")
 
-    existing = find_user_by_phone(db, normalized)
+    existing = find_user_by_phone(db, normalized, club_id=club_id)
     created = False
     temp_password: str | None = None
     if existing:
@@ -42,9 +46,12 @@ def ensure_parent_account(
             parent.role = Role.PARENT
         if not parent.phone:
             parent.phone = normalized
+        if club_id and not getattr(parent, "club_id", None):
+            parent.club_id = club_id
     else:
         temp_password = generate_parent_password()
         parent = User(
+            club_id=club_id,
             phone=normalized,
             email=None,
             full_name=full_name or f"Parent {normalized}",
@@ -64,6 +71,13 @@ def ensure_parent_account(
             .first()
         )
         if not link:
-            db.add(ParentChild(parent_id=parent.id, athlete_id=athlete_id, relationship_label="parent"))
+            db.add(
+                ParentChild(
+                    parent_id=parent.id,
+                    athlete_id=athlete_id,
+                    relationship_label="parent",
+                    club_id=club_id,
+                )
+            )
 
     return parent, temp_password, created

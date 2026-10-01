@@ -2,9 +2,9 @@ import { useI18n } from "../i18n";
 
 /** APK native — Hetzner (surcharge via VITE_ANDROID_APK_URL). */
 const DEFAULT_APK_URL =
-  "http://46.224.38.201:8080/wrbh-club-1.7.0.apk";
+  "http://46.224.38.201:8080/wrbh-club-1.8.0.apk";
 const APK_URL = (import.meta.env.VITE_ANDROID_APK_URL || DEFAULT_APK_URL).trim();
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 
 export function DownloadPage() {
   const { lang } = useI18n();
@@ -13,12 +13,12 @@ export function DownloadPage() {
   return (
     <div className="download-page">
       <div className="card download-hero">
-        <img src="/logo.png" alt="WRBH" />
+        <img src="/logo.png" alt="Nadi Connect" />
         <div>
           <h2 style={{ margin: "0 0 0.25rem" }}>
-            {ar ? "حمّل تطبيق WRBH للأندرويد" : "Télécharger l’app Android WRBH"}
+            {ar ? "حمّل تطبيق نادي كونكت للأندرويد" : "Télécharger l’app Android Nadi Connect"}
           </h2>
-          <div className="ar">تطبيق الوداد الرياضي لبلدية حمادي</div>
+          <div className="ar">{ar ? "النادي المتصل" : "Le club connecté"}</div>
           <p className="muted" style={{ margin: "0.35rem 0 0" }}>
             {ar ? `الإصدار ${APP_VERSION}` : `Version ${APP_VERSION}`}
           </p>
@@ -28,11 +28,11 @@ export function DownloadPage() {
       <div className="card">
         <p className="download-simple">
           {ar
-            ? "تطبيق أندرويد رسمي للنادي: أولياء، مدربون وإدارة — متصل بالخادم مباشرة."
-            : "Application Android officielle du club : parents, coachs et staff — connectée à l’API en ligne."}
+            ? "تطبيق أندرويد رسمي: أولياء، مدربون وإدارة — متصل بالخادم مباشرة."
+            : "Application Android officielle : parents, coachs et staff — connectée à l’API en ligne."}
         </p>
 
-        <a className="button accent install-cta" href={APK_URL} download={`wrbh-club-${APP_VERSION}.apk`}>
+        <a className="button accent install-cta" href={APK_URL} download={`nadi-connect-${APP_VERSION}.apk`}>
           {ar ? "تحميل APK أندرويد" : "Télécharger l’APK Android"}
         </a>
 
@@ -53,8 +53,8 @@ export function DownloadPage() {
         <ol className="install-steps">
           <li>
             {ar
-              ? "حمّل الملف WRBH (APK) من الزر أعلاه."
-              : "Téléchargez le fichier WRBH (APK) avec le bouton ci-dessus."}
+              ? "حمّل ملف APK من الزر أعلاه."
+              : "Téléchargez le fichier APK avec le bouton ci-dessus."}
           </li>
           <li>
             {ar
@@ -68,14 +68,14 @@ export function DownloadPage() {
           </li>
           <li>
             {ar
-              ? "ثبّت ثم افتح « WRBH Club » وسجّل الدخول (هاتف الولي أو بريد الطاقم)."
-              : "Installez, ouvrez « WRBH Club », connectez-vous (téléphone parent ou e-mail staff)."}
+              ? "ثبّت ثم افتح « نادي كونكت » وسجّل الدخول (هاتف الولي أو بريد الطاقم)."
+              : "Installez, ouvrez « Nadi Connect », connectez-vous (téléphone parent ou e-mail staff)."}
           </li>
         </ol>
         <p className="muted" style={{ marginBottom: 0, fontSize: "0.9rem" }}>
           {ar
-            ? "ملاحظة: التطبيق موقّع من النادي. Google Play اختياري لاحقاً."
-            : "Note : APK signée par le club. Publication Play Store optionnelle plus tard."}
+            ? "ملاحظة: التطبيق موقّع. Google Play اختياري لاحقاً."
+            : "Note : APK signée. Publication Play Store optionnelle plus tard."}
         </p>
       </div>
 

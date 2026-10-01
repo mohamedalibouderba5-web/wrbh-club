@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "WRBH Club",
+    "name": "Nadi Connect",
     "slug": "wrbh-club",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "scheme": "wrbh",
@@ -23,7 +23,7 @@
         "backgroundColor": "#1E3A8A"
       },
       "package": "dz.wrbh.club",
-      "versionCode": 10,
+      "versionCode": 11,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -53,8 +53,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "WRBH a besoin d'accéder aux photos pour les fiches joueurs.",
-          "cameraPermission": "WRBH a besoin de la caméra pour capturer la photo du joueur."
+          "photosPermission": "Nadi Connect a besoin d'accéder aux photos pour les fiches joueurs.",
+          "cameraPermission": "Nadi Connect a besoin de la caméra pour capturer la photo du joueur."
         }
       ],
       [
@@ -71,7 +71,8 @@
       "expo-font"
     ],
     "extra": {
-      "apiUrl": "http://46.224.38.201:8081"
+      "apiUrl": "http://46.224.38.201:8081",
+      "webUrl": "http://46.224.38.201:8080"
     }
   }
 }

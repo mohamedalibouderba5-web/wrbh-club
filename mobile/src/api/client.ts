@@ -22,6 +22,28 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
   }
 }
 
+function formatApiError(status: number, detail: unknown, fallback: string): string {
+  if (status === 429) {
+    return "Trop de tentatives — réessayez dans quelques minutes (réseau partagé).";
+  }
+  if (status >= 500) {
+    const raw =
+      typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d: { msg?: string }) => d.msg || "").filter(Boolean).join(" · ")
+          : "";
+    if (raw && !/internal server error|erreur serveur interne/i.test(raw)) return raw;
+    return "Service temporairement indisponible — réessayez dans un instant.";
+  }
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const joined = detail.map((d: { msg?: string }) => d.msg || "").filter(Boolean).join(" · ");
+    if (joined) return joined;
+  }
+  return fallback;
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = await getToken();
   let res: Response;
@@ -40,12 +62,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    const msg =
-      typeof err.detail === "string"
-        ? err.detail
-        : Array.isArray(err.detail)
-          ? err.detail.map((d: { msg?: string }) => d.msg || "").filter(Boolean).join(" · ") || "Erreur API"
-          : "Erreur API";
+    const msg = formatApiError(res.status, err.detail, "Erreur API");
     if (res.status === 401 && token) {
       await logout();
     }
@@ -76,13 +93,7 @@ export async function login(username: string, password: string, clubSlug?: strin
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Identifiants incorrects" }));
-    const msg =
-      typeof err.detail === "string"
-        ? err.detail
-        : Array.isArray(err.detail)
-          ? err.detail.map((d: { msg?: string }) => d.msg || "").filter(Boolean).join(" · ") || "Identifiants incorrects"
-          : "Identifiants incorrects";
-    throw new Error(msg);
+    throw new Error(formatApiError(res.status, err.detail, "Identifiants incorrects"));
   }
   const data = await res.json();
   await AsyncStorage.setItem("wrbh_token", data.access_token);
