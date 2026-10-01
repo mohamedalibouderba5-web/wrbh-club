@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     default_admin_email: str = "admin@nadi-connect.local"
     default_admin_password: str = "admin123"
+    platform_admin_email: str = "platform@nadi-connect.local"
+    platform_admin_password: str = "ChangeMePlatform2026!"
     default_locale: str = "fr"
     currency: str = "DZD"
     # Fallbacks tenant — PAS l'identité produit (produit = app_name = Nadi Connect)
@@ -43,18 +45,15 @@ class Settings(BaseSettings):
     app_version: str = "1.18.0"
     git_sha: str = ""  # injecté au déploiement (env GIT_SHA)
     # Mise à jour APK mobile (publié via env Render)
-    android_app_version: str = "1.8.0"
-    android_version_code: int = 11
-    android_apk_url: str = (
-        "https://github.com/mohamedalibouderba5-web/wrbh-club/releases/download/"
-        "android-v1.8.0/wrbh-club-1.8.0.apk"
-    )
+    android_app_version: str = "1.9.0"
+    android_version_code: int = 12
+    android_apk_url: str = "http://46.224.38.201:8080/wrbh-club-1.9.0.apk"
     android_force_update: bool = False
     android_release_notes: str = (
-        "Nadi Connect: offres/guide, N° joueur list_number, messages 429/500, fix parents club."
+        "Nadi Connect 1.9: licence/certificat médical, messages 403, pastilles expiration."
     )
     android_release_notes_ar: str = (
-        "نادي كونكت: العروض والدليل، رقم اللاعب، رسائل أوضح، إصلاح أولياء الأمور."
+        "نادي كونكت 1.9: الرخصة والشهادة الطبية، رسائل 403، تنبيهات التجديد."
     )
 
     @property

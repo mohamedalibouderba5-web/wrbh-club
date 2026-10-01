@@ -7,7 +7,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from app.api import agenda, auth, club, exports, feedback, finance, mobile, uploads
+from app.api import admin, agenda, auth, club, exports, feedback, finance, mobile, uploads
 from app.core.config import get_settings
 from app.core.database import Base, engine
 from app.services.feedback_store import append_event
@@ -267,10 +267,12 @@ def on_startup():
     _ensure_schema()
     try:
         from app.core.database import SessionLocal
+        from app.services.platform_admin import ensure_platform_superadmin
         from app.services.references import backfill_operation_identities, backfill_registration_identities
 
         db = SessionLocal()
         try:
+            ensure_platform_superadmin(db)
             backfill_registration_identities(db)
             backfill_operation_identities(db)
         finally:
@@ -287,6 +289,7 @@ def root_health():
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(auth.club_router, prefix="/api/v1")
 app.include_router(auth.system_router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
 app.include_router(club.router, prefix="/api/v1")
 app.include_router(club.athletes_router, prefix="/api/v1")
 app.include_router(club.reg_router, prefix="/api/v1")

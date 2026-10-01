@@ -2,7 +2,7 @@
   "expo": {
     "name": "Nadi Connect",
     "slug": "wrbh-club",
-    "version": "1.8.0",
+    "version": "1.9.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "scheme": "wrbh",
@@ -23,7 +23,7 @@
         "backgroundColor": "#1E3A8A"
       },
       "package": "dz.wrbh.club",
-      "versionCode": 11,
+      "versionCode": 12,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",

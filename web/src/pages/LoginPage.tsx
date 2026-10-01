@@ -143,8 +143,8 @@ export function LoginPage() {
         )}
         <p className="login-hint">
           {lang === "ar"
-            ? "اختر النادي ثم أدخل الهاتف أو البريد وكلمة المرور"
-            : "Choisissez le club, puis téléphone/email et mot de passe"}
+            ? "أدخل رمز النادي (اختياري للمنصة) ثم الهاتف أو البريد وكلمة المرور"
+            : "Code club (optionnel plateforme), puis téléphone/email et mot de passe"}
         </p>
         {sessionHint && (
           <div className="error" style={{ marginBottom: 8 }}>

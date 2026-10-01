@@ -82,20 +82,20 @@ type Installment = {
 
 type FinanceTab = "cotisations" | "paiements" | "achats" | "caisse";
 
-const MONTHS = [
-  { v: 1, l: "Janvier" },
-  { v: 2, l: "Février" },
-  { v: 3, l: "Mars" },
-  { v: 4, l: "Avril" },
-  { v: 5, l: "Mai" },
-  { v: 6, l: "Juin" },
-  { v: 7, l: "Juillet" },
-  { v: 8, l: "Août" },
-  { v: 9, l: "Septembre" },
-  { v: 10, l: "Octobre" },
-  { v: 11, l: "Novembre" },
-  { v: 12, l: "Décembre" },
-];
+const MONTH_KEYS = [
+  "month1",
+  "month2",
+  "month3",
+  "month4",
+  "month5",
+  "month6",
+  "month7",
+  "month8",
+  "month9",
+  "month10",
+  "month11",
+  "month12",
+] as const;
 
 function cmp(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0;
@@ -108,6 +108,10 @@ function cmp(a: unknown, b: unknown): number {
 export function FinancePage() {
   const { role } = useAuth();
   const { t, lang } = useI18n();
+  const MONTHS = useMemo(
+    () => MONTH_KEYS.map((k, i) => ({ v: i + 1, l: t(k) })),
+    [t],
+  );
   const canEditSettings = role === "admin" || role === "direction";
   const now = new Date();
   const [dash, setDash] = useState<Dash | null>(null);
@@ -253,13 +257,13 @@ export function FinancePage() {
   const financeBars = useMemo(() => {
     if (!dash) return [];
     return [
-      { name: "Encaissé", value: Math.round(dash.cotisations_paid) },
-      { name: "Impayés", value: Math.round(dash.cotisations_due) },
-      { name: "Recettes", value: Math.round(dash.ledger_income || 0) },
-      { name: "Dépenses", value: Math.round(dash.ledger_expense) },
+      { name: t("financeCollected"), value: Math.round(dash.cotisations_paid) },
+      { name: t("financeUnpaid"), value: Math.round(dash.cotisations_due) },
+      { name: t("financeIncome"), value: Math.round(dash.ledger_income || 0) },
+      { name: t("financeExpense"), value: Math.round(dash.ledger_expense) },
       { name: "Paie", value: Math.round(dash.coach_payroll_total) },
     ];
-  }, [dash]);
+  }, [dash, t]);
 
   const payTrend = useMemo(() => {
     if (!analytics?.months?.length) return [];
@@ -450,7 +454,7 @@ export function FinancePage() {
       // Recharge sans retomber sur un cache stale
       await load();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur", "error");
+      toast(err instanceof Error ? err.message : t("toastError"), "error");
     }
   }
 
@@ -458,7 +462,7 @@ export function FinancePage() {
     e.preventDefault();
     if (savingRef.current) return;
     if (!pay.athlete_id) {
-      toast("Sélectionnez un joueur", "error");
+      toast(t("toastSelectPlayer"), "error");
       return;
     }
     savingRef.current = true;
@@ -487,7 +491,7 @@ export function FinancePage() {
       setPay((p) => ({ ...p, athlete_id: "", equipment_label: "" }));
       load();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur", "error");
+      toast(err instanceof Error ? err.message : t("toastError"), "error");
     } finally {
       savingRef.current = false;
       setSavingPay(false);
@@ -506,11 +510,11 @@ export function FinancePage() {
           athlete_id: equip.athlete_id ? Number(equip.athlete_id) : null,
         }),
       });
-      toast("Équipement enregistré", "success");
+      toast(t("toastEquipSaved"), "success");
       setEquip({ name: "", quantity: "1", unit_cost: "", athlete_id: "", category_id: equip.category_id });
       load();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur", "error");
+      toast(err instanceof Error ? err.message : t("toastError"), "error");
     }
   }
 
@@ -531,10 +535,10 @@ export function FinancePage() {
         body: JSON.stringify(body),
       });
       setForm((f) => ({ ...f, label: "", amount: "", place: "", counterparty: "", coach_id: "" }));
-      toast("Écriture caisse enregistrée", "success");
+      toast(t("toastCashSaved"), "success");
       load();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur", "error");
+      toast(err instanceof Error ? err.message : t("toastError"), "error");
     }
   }
 
@@ -553,11 +557,11 @@ export function FinancePage() {
           counterparty: editLedger.counterparty || null,
         }),
       });
-      toast("Ligne caisse modifiée", "success");
+      toast(t("toastCashUpdated"), "success");
       setEditLedger(null);
       load();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur", "error");
+      toast(err instanceof Error ? err.message : t("toastError"), "error");
     }
   }
 
@@ -572,11 +576,11 @@ export function FinancePage() {
     if (!ok) return;
     try {
       await api(`/api/v1/ledger/${id}`, { method: "DELETE" });
-      toast("Ligne supprimée (récupérable dans Historique)", "success");
+      toast(t("toastCashDeleted"), "success");
       setEditLedger(null);
       load();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur", "error");
+      toast(err instanceof Error ? err.message : t("toastError"), "error");
     }
   }
 
@@ -592,11 +596,11 @@ export function FinancePage() {
           notes: editPay.notes || null,
         }),
       });
-      toast("Paiement modifié", "success");
+      toast(t("toastPayUpdated"), "success");
       setEditPay(null);
       load();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur", "error");
+      toast(err instanceof Error ? err.message : t("toastError"), "error");
     }
   }
 
@@ -613,11 +617,11 @@ export function FinancePage() {
           due_date: editInst.due_date || null,
         }),
       });
-      toast("Échéance modifiée", "success");
+      toast(t("toastInstUpdated"), "success");
       setEditInst(null);
       load();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur", "error");
+      toast(err instanceof Error ? err.message : t("toastError"), "error");
     }
   }
 
@@ -674,31 +678,31 @@ export function FinancePage() {
       </div>
       <div className="charts-grid charts-grid-wide" style={{ marginTop: "1rem" }}>
         <DualBarLineChart
-          title="Encaissements + courbe cumulative"
-          subtitle={`Histogramme + courbe + étiquettes · ${finPeriod} mois`}
+          title={t("financeCollected")}
+          subtitle={`${finPeriod} mois`}
           data={payTrend}
           barKey="mensuel"
-          barLabel="Mensuel"
+          barLabel={t("financeMonthly")}
           lineKey="cumule"
-          lineLabel="Cumulé"
+          lineLabel={t("financeCumulative")}
         />
         <GroupedBarChart
-          title="Recettes vs dépenses"
-          subtitle="Barres groupées + valeurs (DZD)"
+          title={t("financeVs")}
+          subtitle="DZD"
           data={cashTrend}
           series={[
-            { key: "recettes", label: "Recettes", color: "#16a34a" },
-            { key: "depenses", label: "Dépenses", color: "#dc2626" },
+            { key: "recettes", label: t("financeIncome"), color: "#16a34a" },
+            { key: "depenses", label: t("financeExpense"), color: "#dc2626" },
           ]}
         />
       </div>
       <div className="charts-grid" style={{ marginTop: "1rem" }}>
         <SoftAreaChart
-          title="Courbe cumulative des encaissements"
-          subtitle="DZD — étiquettes"
+          title={t("financeCashCurve")}
+          subtitle="DZD"
           data={payTrend}
           keyName="cumule"
-          label="Cumulé"
+          label={t("financeCumulative")}
           color="#2563eb"
         />
       </div>
@@ -745,7 +749,7 @@ export function FinancePage() {
           </div>
           <div className="card stat">
             <strong>{dash.cotisations_due.toLocaleString()} DZD</strong>
-            <span>Impayés</span>
+            <span>{t("financeUnpaid")}</span>
           </div>
           <div className="card stat">
             <strong>
@@ -792,7 +796,7 @@ export function FinancePage() {
           <div className="card">
             <h2>{t("financeFormulaCot")}</h2>
             <p className="muted" style={{ marginBottom: "0.75rem" }}>
-              Impayés restants = Σ (montant échéance − déjà payé). Constantes club ci-dessous.
+              {t("financeUnpaidHint")}
             </p>
             <div className="grid stats">
               <div className="card stat">
@@ -851,14 +855,14 @@ export function FinancePage() {
               <table>
                 <thead>
                   <tr>
-                    <SortHeader label="N°" sortKey="number" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
-                    <SortHeader label="Réf" sortKey="reference" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
-                    <SortHeader label="Joueur" sortKey="athlete" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
-                    <SortHeader label="Libellé" sortKey="label" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
-                    <SortHeader label="Montant" sortKey="amount" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
-                    <SortHeader label="Payé" sortKey="paid" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
-                    <SortHeader label="Échéance" sortKey="due" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
-                    <SortHeader label="Statut" sortKey="status" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label={t("colNumber")} sortKey="number" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label={t("colRef")} sortKey="reference" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label={t("colPlayer")} sortKey="athlete" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label={t("colLabel")} sortKey="label" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label={t("colAmount")} sortKey="amount" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label={t("colPaid")} sortKey="paid" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label={t("colDue")} sortKey="due" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
+                    <SortHeader label={t("colStatus")} sortKey="status" activeKey={instSort.key} dir={instSort.dir} onSort={onInstSort} />
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -894,12 +898,12 @@ export function FinancePage() {
                                   if (!ok) return;
                                   try {
                                     await api(`/api/v1/installments/${row.id}`, { method: "DELETE" });
-                                    toast("Échéance supprimée", "success");
+                                    toast(t("toastInstDeleted"), "success");
                                     load();
                                   } catch (err) {
                                     const m = err instanceof Error ? err.message : "Erreur";
                                     if (/introuvable|404/i.test(m)) {
-                                      toast("Déjà supprimée — liste actualisée", "success");
+                                      toast(t("toastAlreadyGone"), "success");
                                       load();
                                     } else {
                                       toast(m, "error");
@@ -1040,12 +1044,12 @@ export function FinancePage() {
               <table>
                 <thead>
                   <tr>
-                    <SortHeader label="N°" sortKey="number" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
-                    <SortHeader label="Réf" sortKey="reference" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
-                    <SortHeader label="Joueur" sortKey="athlete" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
-                    <SortHeader label="Montant" sortKey="amount" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
-                    <SortHeader label="Date" sortKey="recent" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
-                    <SortHeader label="Mode" sortKey="method" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label={t("colNumber")} sortKey="number" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label={t("colRef")} sortKey="reference" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label={t("colPlayer")} sortKey="athlete" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label={t("colAmount")} sortKey="amount" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label={t("colDate")} sortKey="recent" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
+                    <SortHeader label={t("colMethod")} sortKey="method" activeKey={paySort.key} dir={paySort.dir} onSort={onPaySort} />
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -1078,12 +1082,12 @@ export function FinancePage() {
                                 if (!ok) return;
                                 try {
                                   await api(`/api/v1/payments/${row.id}`, { method: "DELETE" });
-                                  toast("Paiement supprimé", "success");
+                                  toast(t("toastPayDeleted"), "success");
                                   load();
                                 } catch (err) {
                                   const m = err instanceof Error ? err.message : "Erreur";
                                   if (/introuvable|404/i.test(m)) {
-                                    toast("Déjà supprimé — liste actualisée", "success");
+                                    toast(t("toastAlreadyGone"), "success");
                                     load();
                                   } else {
                                     toast(m, "error");
@@ -1167,11 +1171,11 @@ export function FinancePage() {
               <table>
                 <thead>
                   <tr>
-                    <SortHeader label="N°" sortKey="number" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Réf" sortKey="reference" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Libellé" sortKey="label" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Montant" sortKey="amount" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Date & heure" sortKey="datetime" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colNumber")} sortKey="number" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colRef")} sortKey="reference" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colLabel")} sortKey="label" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colAmount")} sortKey="amount" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colDateTime")} sortKey="datetime" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -1221,7 +1225,7 @@ export function FinancePage() {
             <div className="grid stats">
               <div className="card stat">
                 <strong>{caisseIncome.toLocaleString()} DZD</strong>
-                <span>Recettes</span>
+                <span>{t("financeIncome")}</span>
               </div>
               <div className="card stat">
                 <strong>{caisseExpense.toLocaleString()} DZD</strong>
@@ -1329,13 +1333,13 @@ export function FinancePage() {
               <table>
                 <thead>
                   <tr>
-                    <SortHeader label="N°" sortKey="number" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Réf" sortKey="reference" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Type" sortKey="type" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Catégorie" sortKey="category" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Libellé" sortKey="label" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Montant" sortKey="amount" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
-                    <SortHeader label="Date & heure" sortKey="datetime" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colNumber")} sortKey="number" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colRef")} sortKey="reference" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colType")} sortKey="type" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colCategory")} sortKey="category" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colLabel")} sortKey="label" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colAmount")} sortKey="amount" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
+                    <SortHeader label={t("colDateTime")} sortKey="datetime" activeKey={ledSort.key} dir={ledSort.dir} onSort={onLedSort} />
                     <th>Actions</th>
                   </tr>
                 </thead>

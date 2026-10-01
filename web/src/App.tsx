@@ -8,6 +8,7 @@ import { PricingPage } from "./pages/PricingPage";
 import { LandingPage } from "./pages/LandingPage";
 import { PilotPage } from "./pages/PilotPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { SuperAdminPage } from "./pages/SuperAdminPage";
 import { AthletesPage } from "./pages/AthletesPage";
 import { RegistrationsPage } from "./pages/RegistrationsPage";
 import { AgendaPage } from "./pages/AgendaPage";
@@ -48,6 +49,7 @@ export default function App() {
       <Route path="/guide" element={<GuidePage />} />
       <Route path="/" element={<RootShell />}>
         <Route index element={<DashboardPage />} />
+        <Route path="platform" element={<SuperAdminPage />} />
         <Route path="athletes" element={<AthletesPage />} />
         <Route path="registrations" element={<RegistrationsPage />} />
         <Route path="agenda" element={<AgendaPage />} />

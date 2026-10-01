@@ -126,6 +126,7 @@ export function AppLayout() {
 
   const links = [
     { to: "/", label: t("dashboard"), short: lang === "ar" ? "رئيسية" : "Accueil", roles: null as string[] | null },
+    { to: "/platform", label: t("platformAdmin"), short: lang === "ar" ? "منصة" : "Platform", roles: ["superadmin"] },
     { to: "/athletes", label: t("athletes"), short: lang === "ar" ? "لاعبون" : "Joueurs", roles: ["admin", "direction", "staff", "coach"] },
     { to: "/registrations", label: t("registrations"), short: lang === "ar" ? "تسجيل" : "Inscript.", roles: ["admin", "direction", "staff", "parent"] },
     { to: "/agenda", label: t("agenda"), short: lang === "ar" ? "جدول" : "Agenda", roles: null },

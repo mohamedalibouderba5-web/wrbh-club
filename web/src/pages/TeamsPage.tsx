@@ -3,6 +3,7 @@ import { api, loadAllSettled } from "../api/client";
 import { confirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
 import { useAuth } from "../auth";
+import { useI18n } from "../i18n";
 
 type Coach = {
   id: number;
@@ -58,6 +59,7 @@ const emptyCoachForm = {
 
 export function TeamsPage() {
   const { role } = useAuth();
+  const { t, lang } = useI18n();
   const canEdit = role === "admin" || role === "direction" || role === "staff";
   const canManageCoaches = role === "admin" || role === "direction";
   const [teams, setTeams] = useState<TeamRow[]>([]);
@@ -422,7 +424,7 @@ export function TeamsPage() {
   }
 
   return (
-    <div className="grid" style={{ gap: "1rem" }}>
+    <div className="grid" style={{ gap: "1rem" }} dir={lang === "ar" ? "rtl" : "ltr"}>
       {canManageCoaches && (
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Sports du club (multisport)</h3>
@@ -699,7 +701,7 @@ export function TeamsPage() {
 
       <div className="split-layout">
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Équipes / الفرق</h3>
+          <h3 style={{ marginTop: 0 }}>{t("teamsTitle")}</h3>
           <p className="muted" style={{ marginTop: 0 }}>
             Chaque catégorie a son coach. Un coach peut entraîner plusieurs équipes (ex. U11G1 + U14G2).
           </p>

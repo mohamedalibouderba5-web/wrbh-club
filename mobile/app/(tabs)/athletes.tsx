@@ -25,6 +25,11 @@ type Athlete = {
   parent_phone?: string;
   blood_type?: string;
   license_number?: string;
+  license_valid_until?: string | null;
+  medical_cert_date?: string | null;
+  medical_cert_valid_until?: string | null;
+  license_expiring_soon?: boolean;
+  medical_expiring_soon?: boolean;
   legacy_number?: number;
   list_number?: number | null;
   kit_number?: string | number | null;
@@ -40,6 +45,9 @@ const emptyForm = {
   blood_type: "",
   status: "Active",
   license_number: "",
+  license_valid_until: "",
+  medical_cert_date: "",
+  medical_cert_valid_until: "",
   notes: "",
 };
 
@@ -102,6 +110,9 @@ export default function AthletesScreen() {
       blood_type: a.blood_type || "",
       status: a.status || "Active",
       license_number: a.license_number || "",
+      license_valid_until: a.license_valid_until || "",
+      medical_cert_date: a.medical_cert_date || "",
+      medical_cert_valid_until: a.medical_cert_valid_until || "",
       notes: a.notes || "",
     });
     setShowForm(true);
@@ -121,6 +132,9 @@ export default function AthletesScreen() {
         parent_phone: form.parent_phone.trim() || null,
         blood_type: form.blood_type.trim() || null,
         license_number: form.license_number.trim() || null,
+        license_valid_until: form.license_valid_until.trim() || null,
+        medical_cert_date: form.medical_cert_date.trim() || null,
+        medical_cert_valid_until: form.medical_cert_valid_until.trim() || null,
         status: form.status || "Active",
         notes: form.notes.trim() || null,
       };
@@ -231,6 +245,9 @@ export default function AthletesScreen() {
               ["parent_phone", "Tél. parent"],
               ["blood_type", "Groupe sanguin"],
               ["license_number", "N° licence"],
+              ["license_valid_until", "Licence valable jusqu'au"],
+              ["medical_cert_date", "Date certificat médical"],
+              ["medical_cert_valid_until", "Certificat valable jusqu'au"],
               ["status", "Statut (Active / Abandonne…)"],
               ["notes", "Notes"],
             ] as const
@@ -278,6 +295,11 @@ export default function AthletesScreen() {
               <Text style={styles.hint}>Réf. {a.registration_reference}</Text>
             )}
             {!!a.parent_phone && <Text style={styles.line}>Tél. {a.parent_phone}</Text>}
+            {(a.license_expiring_soon || a.medical_expiring_soon) && (
+              <Text style={[styles.hint, { color: "#b45309", fontWeight: "800" }]}>
+                {a.license_expiring_soon ? "Licence < 30 j" : "Certificat < 30 j"}
+              </Text>
+            )}
             {canEdit && <Text style={styles.hint}>Appuyer pour modifier</Text>}
           </Pressable>
           {canEdit && (

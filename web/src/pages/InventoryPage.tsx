@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, apiGetFast } from "../api/client";
 import { confirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
+import { useI18n } from "../i18n";
 
 type Item = {
   id: number;
@@ -34,6 +35,7 @@ const ITEM_KINDS = [
 ];
 
 export function InventoryPage() {
+  const { t, lang } = useI18n();
   const [items, setItems] = useState<Item[]>([]);
   const [alerts, setAlerts] = useState<Item[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -146,7 +148,7 @@ export function InventoryPage() {
   }
 
   return (
-    <div className="grid" style={{ gap: "1rem" }}>
+    <div className="grid" style={{ gap: "1rem" }} dir={lang === "ar" ? "rtl" : "ltr"}>
       {alerts.length > 0 && (
         <div className="card" style={{ borderLeft: "4px solid var(--danger)" }}>
           <strong>Alertes stock bas :</strong> {alerts.map((a) => a.name).join(", ")}
@@ -154,7 +156,7 @@ export function InventoryPage() {
       )}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
         <form className="card" onSubmit={onPurchase}>
-          <h3 style={{ marginTop: 0 }}>Achat équipement / شراء التجهيز</h3>
+          <h3 style={{ marginTop: 0 }}>{t("inventoryTitle")}</h3>
           <div className="field">
             <label>Nom (maillot, brassards, ballons…)</label>
             <input required value={name} onChange={(e) => setName(e.target.value)} />
@@ -225,7 +227,7 @@ export function InventoryPage() {
 
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Inventaire</h3>
+          <h3 style={{ marginTop: 0 }}>{t("inventoryTitle")}</h3>
           {editItem && (
             <div style={{ marginBottom: "0.75rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: 8 }}>
               <strong>Modifier l’article</strong>
