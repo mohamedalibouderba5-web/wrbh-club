@@ -14,7 +14,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("WRBH ErrorBoundary", error, info?.componentStack);
+    console.error("Nadi Connect ErrorBoundary", error, info?.componentStack);
   }
 
   render() {

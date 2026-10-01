@@ -471,7 +471,7 @@ def _seed_discipline_categories(
 @club_router.get("/branding", response_model=ClubOut)
 def branding(slug: str | None = None, db: Session = Depends(get_db)):
     """Branding public. Phase 1 multi-club : sélection par slug à la connexion.
-    Sans slug → premier club (compat mono-club WRBH)."""
+    Sans slug → premier club (compat mono-club)."""
     club = None
     if slug:
         club = db.query(Club).filter(Club.slug == slug.strip().lower()).first()

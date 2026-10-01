@@ -1,0 +1,29 @@
+---
+description: Marque produit Nadi Connect — jamais WRBH comme nom logiciel
+alwaysApply: true
+---
+
+# Marque produit — Nadi Connect (définitif)
+
+## Règle absolue
+
+- Le **logiciel / SaaS** s’appelle **Nadi Connect** (نادي كونكت). **Ne jamais** renommer, ni remettre « WRBH Club », « WRBH », « Widad… » comme nom du produit.
+- Orthographe produit : **Nadi Connect** (pas Nedi, pas Nadi Connected).
+- Logo produit : `web/public/logo.png` et `mobile/assets/logo.png` = logo **Nadi Connect** uniquement.
+- Chrome produit (login, sidebar, PWA, splash, titres, `/health.app`) = toujours **Nadi Connect** + logo Nadi.
+
+## Multi-tenant (clubs)
+
+- Un **club** (ex. WRBH) est un **client / tenant**, pas la marque du logiciel.
+- Afficher le **nom du club** comme contexte (sous-titre, badge), jamais comme titre produit.
+- Logo **par club** : uniquement quand le club a uploadé `logo_path` **et** que l’UI est clairement « branding club » — pas pour remplacer le logo Nadi Connect dans le chrome produit.
+- Defaults backend (`club_name`, `club_acronym`) ne doivent **pas** présenter WRBH comme identité produit.
+
+## Technique autorisé
+
+- Préfixes techniques historiques (`wrbh_*` localStorage, compose project `wrbh`, ports, chemins VPS `/opt/wrbh-club`) peuvent rester — ce n’est **pas** du branding utilisateur.
+- Ne pas « rebrander » en WRBH « pour compatibilité » dans l’UI.
+
+## Livraison
+
+Toute page / écran visible utilisateur : test mental « si on enlève le nom du club, lit-on encore Nadi Connect ? » → oui.

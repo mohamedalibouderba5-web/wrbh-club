@@ -165,7 +165,7 @@ def _ensure_schema() -> None:
             )
         except Exception:
             pass
-        # --- Tenant backfill : rattacher tout l'existant au club le plus ancien (WRBH=1) ---
+        # --- Tenant backfill : rattacher l'existant au club le plus ancien ---
         try:
             conn.execute(
                 text(

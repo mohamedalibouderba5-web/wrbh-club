@@ -13,7 +13,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useAuth } from "../src/context/AuthContext";
-import { API_BASE, WEB_BASE, mediaUrl } from "../src/config";
+import { API_BASE, WEB_BASE } from "../src/config";
 import { wakeServer } from "../src/api/client";
 import { colors, statusLabel } from "../src/theme";
 
@@ -120,15 +120,11 @@ export default function LoginScreen() {
   const productName = "Nadi Connect";
   const clubTitle = brand?.name || "";
   const subtitle = brand?.name_ar || "النادي المتصل · Le club connecté";
-  const logoUri = mediaUrl(brand?.logo_path || undefined);
+  // Produit = toujours logo Nadi Connect (logo club = plus tard, hors chrome produit)
 
   return (
     <ScrollView contentContainerStyle={[styles.page, { backgroundColor: primary }]} keyboardShouldPersistTaps="handled">
-      {logoUri ? (
-        <Image source={{ uri: logoUri }} style={[styles.logo, { borderColor: accent }]} />
-      ) : (
-        <Image source={require("../assets/logo.png")} style={[styles.logo, { borderColor: accent }]} />
-      )}
+      <Image source={require("../assets/logo.png")} style={[styles.logo, { borderColor: accent }]} />
       <Text style={styles.title}>{productName}</Text>
       <Text style={[styles.ar, { color: accent }]}>{subtitle}</Text>
       {!!clubTitle && (

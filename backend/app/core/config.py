@@ -17,14 +17,15 @@ class Settings(BaseSettings):
         "https://wrbh-web.onrender.com"
     )
     upload_dir: str = "./uploads"
-    default_admin_email: str = "admin@wrbh.local"
+    default_admin_email: str = "admin@nadi-connect.local"
     default_admin_password: str = "admin123"
     default_locale: str = "fr"
     currency: str = "DZD"
-    club_name: str = "Widad Riadi Baladiat Hammadi"
-    club_name_ar: str = "الوداد الرياضي لبلدية حمادي"
-    club_acronym: str = "WRBH"
-    club_phone: str = "0540344884"
+    # Fallbacks tenant — PAS l'identité produit (produit = app_name = Nadi Connect)
+    club_name: str = "Club"
+    club_name_ar: str = "نادي"
+    club_acronym: str = "CLUB"
+    club_phone: str = ""
     # Bornes d'âge club (années révolues)
     min_athlete_age: int = 5
     max_athlete_age: int = 17

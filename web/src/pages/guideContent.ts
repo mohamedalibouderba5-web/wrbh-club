@@ -53,7 +53,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           "Ne pas partager le mot de passe admin",
           "Ne pas supprimer une inscription pour « corriger » un numéro — utilisez la modification",
           "Ne pas confondre N° joueur (1, 2, 57…) avec l’id technique caché de la base",
-          "Ne pas travailler sur le mauvais club (ex. démo au lieu de WRBH)",
+          "Ne pas travailler sur le mauvais club (ex. démo au lieu du club réel)",
         ],
         itemsAr: [
           "عدم مشاركة كلمة مرور المدير",
@@ -75,13 +75,13 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         titleAr: "دخول الطاقم / المدرب",
         itemsFr: [
           "Ouvrir le site → Connexion (ou /login)",
-          "Choisir le club dans la liste (ou saisir le code, ex. wrbh)",
+          "Choisir le club dans la liste (ou saisir le code club)",
           "Saisir l’e-mail du compte + mot de passe",
           "Valider → vous arrivez sur le Tableau de bord (ou Accueil parent)",
         ],
         itemsAr: [
           "افتح الموقع → دخول",
-          "اختر النادي (أو اكتب الرمز مثل wrbh)",
+          "اختر النادي (أو اكتب رمز النادي)",
           "أدخل البريد وكلمة المرور",
           "أكد → لوحة التحكم",
         ],
@@ -795,7 +795,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       {
         type: "do",
         itemsFr: [
-          "Slug / code club : identifiant court (wrbh, demo-judo-978)",
+          "Slug / code club : identifiant court (ex. mon-club, demo-judo-978)",
           "N° joueur (list_number) : rang saison visible",
           "Référence : identité historique figée du dossier",
           "Kit : n° équipement maillot/sac",

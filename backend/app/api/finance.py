@@ -109,7 +109,7 @@ def _make_receipt(db: Session, payment_id: int, club_id: int | None = None) -> R
         if club_id
         else db.query(func.count(Receipt.id)).scalar()
     ) or 0
-    prefix = f"C{club_id}" if club_id else "WRBH"
+    prefix = f"C{club_id}" if club_id else "NADI"
     receipt = Receipt(
         club_id=club_id,
         payment_id=payment_id,

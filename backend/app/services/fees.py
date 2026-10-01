@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import Club, ClubSetting, FeeInstallment, Registration
 from app.services.references import assign_installment_identity
 
-# Constantes par défaut WRBH (modifiables via /finance/settings)
+# Constantes par défaut cotisation (modifiables via /finance/settings)
 DEFAULT_SETTINGS: dict[str, tuple[str, str, str]] = {
     # key: (value, label_fr, label_ar)
     "monthly_subscription_dzd": ("800", "Abonnement mensuel (DZD)", "الاشتراك الشهري"),

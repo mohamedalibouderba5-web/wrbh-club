@@ -80,7 +80,7 @@ export function FeedbackAdminPage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `wrbh-feedback-${new Date().toISOString().slice(0, 10)}.jsonl`;
+      link.download = `nadi-connect-feedback-${new Date().toISOString().slice(0, 10)}.jsonl`;
       document.body.appendChild(link);
       link.click();
       link.remove();
