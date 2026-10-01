@@ -1,5 +1,5 @@
 from calendar import month_abbr
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -1068,6 +1068,28 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
         parents_q = parents_q.filter(or_(User.club_id == club_id, User.club_id.is_(None)))
     regs_pending = regs_q.scalar() or 0
     parents = parents_q.scalar() or 0
+    today = date.today()
+    soon = today + timedelta(days=30)
+    lic_exp = (
+        _cf(
+            db.query(func.count(Athlete.id)).filter(
+                Athlete.status == "Active",
+                Athlete.license_valid_until.isnot(None),
+                Athlete.license_valid_until <= soon,
+            )
+        ).scalar()
+        or 0
+    )
+    med_exp = (
+        _cf(
+            db.query(func.count(Athlete.id)).filter(
+                Athlete.status == "Active",
+                Athlete.medical_cert_valid_until.isnot(None),
+                Athlete.medical_cert_valid_until <= soon,
+            )
+        ).scalar()
+        or 0
+    )
     payload = {
         "season": season.name if season else None,
         "athletes_total": int(athletes_total),
@@ -1079,6 +1101,8 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
         "missing_birth_date": int(missing_birth),
         "registrations_pending": int(regs_pending),
         "parents_count": int(parents),
+        "license_expiring_count": int(lic_exp),
+        "medical_expiring_count": int(med_exp),
     }
     _STATS_CACHE[club_id] = {"ts": now, "payload": payload}
     return payload

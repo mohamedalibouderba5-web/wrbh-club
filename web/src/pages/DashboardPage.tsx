@@ -35,6 +35,8 @@ type ClubStats = {
   registrations_pending: number;
   unclassified_active?: number;
   missing_birth_date?: number;
+  license_expiring_count?: number;
+  medical_expiring_count?: number;
   categories: { code: string; name: string; name_ar?: string; birth_years: string; members: number }[];
   by_status: Record<string, number>;
 };
@@ -424,7 +426,23 @@ function StaffDashboardPage() {
           <strong>{finance?.overdue_count ?? "—"}</strong>
           <span>{t("overdueFees")}</span>
         </div>
+        <div className="card stat" style={{ borderColor: (stats?.license_expiring_count || stats?.medical_expiring_count) ? "#b45309" : undefined }}>
+          <strong>
+            {(stats?.license_expiring_count ?? 0) + (stats?.medical_expiring_count ?? 0) || "—"}
+          </strong>
+          <span>{t("docsExpiring")}</span>
+        </div>
       </div>
+
+      {(stats?.license_expiring_count || stats?.medical_expiring_count) ? (
+        <div className="card" style={{ borderColor: "#b45309" }}>
+          <strong>{t("renewFilter")}</strong>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            {t("licenseExpiring")}: {stats?.license_expiring_count ?? 0} · {t("medicalExpiring")}:{" "}
+            {stats?.medical_expiring_count ?? 0} — {t("renewFilterHint")}
+          </p>
+        </div>
+      ) : null}
 
       {stats?.unclassified_active || stats?.missing_birth_date ? (
         <div className="card" style={{ borderColor: "#F5C518" }}>

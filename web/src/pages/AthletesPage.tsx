@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiGetFast, formatDateFr, isDzMobile, mediaUrl, stableMediaPath } from "../api/client";
 import { CallButton, PhoneCell } from "../components/CallButton";
 import { PhotoCapture } from "../components/PhotoCapture";
@@ -65,6 +65,7 @@ export function AthletesPage() {
   const [q, setQ] = useState("");
   const [qDebounced, setQDebounced] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [renewFilter, setRenewFilter] = useState(false);
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
@@ -129,6 +130,11 @@ export function AthletesPage() {
       setSortDir("desc");
     }
   }, [lang]);
+
+  const displayedRows = useMemo(() => {
+    if (!renewFilter) return rows;
+    return rows.filter((r) => r.license_expiring_soon || r.medical_expiring_soon);
+  }, [rows, renewFilter]);
 
   useEffect(() => {
     const id = window.setTimeout(() => setQDebounced(q.trim()), 280);
@@ -562,12 +568,25 @@ export function AthletesPage() {
               Icônes
             </button>
           </div>
+          <button
+            type="button"
+            className={`chip ${renewFilter ? "active" : ""}`}
+            style={{ flexDirection: "row", whiteSpace: "nowrap", background: renewFilter ? "#b45309" : undefined, color: renewFilter ? "#fff" : undefined }}
+            onClick={() => setRenewFilter((v) => !v)}
+          >
+            {t("renewFilter")}
+          </button>
           <button type="button" className="secondary" onClick={() => load({ offset: 0 })}>
             {t("retry")}
           </button>
         </div>
         {loading && <p className="muted">{t("loading")}</p>}
-        {!loading && !rows.length && <p className="muted">{error || t("empty")}</p>}
+        {!loading && !displayedRows.length && <p className="muted">{error || t("empty")}</p>}
+        {renewFilter && !loading && (
+          <p className="muted" style={{ marginTop: 0 }}>
+            {t("renewFilterHint")} — {displayedRows.length}
+          </p>
+        )}
         {viewMode === "table" ? (
         <table>
           <thead>
@@ -598,7 +617,7 @@ export function AthletesPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {displayedRows.map((r) => (
               <tr key={r.id}>
                 <td>
                   {r.photo_path ? (
@@ -713,7 +732,7 @@ export function AthletesPage() {
         </table>
         ) : (
           <div className="roster-grid">
-            {rows.map((r) => (
+            {displayedRows.map((r) => (
               <button
                 key={r.id}
                 type="button"
@@ -752,6 +771,11 @@ export function AthletesPage() {
                     : "—"}
                 </span>
                 <span className="badge">{r.status}</span>
+                {(r.license_expiring_soon || r.medical_expiring_soon) && (
+                  <span className="badge" style={{ background: "#b45309", color: "#fff" }}>
+                    {r.license_expiring_soon ? t("licenseExpiring") : t("medicalExpiring")}
+                  </span>
+                )}
               </button>
             ))}
           </div>

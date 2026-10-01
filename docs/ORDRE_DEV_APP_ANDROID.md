@@ -194,6 +194,7 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-01 | (sync site) | **A10/B3/B4** : `/health.git_sha` ; login par code club (liste vitrine `is_platform` seulement). **App** : champ slug obligatoire, ne plus dépendre d’un annuaire clients ; afficher `429` compte vs réseau si `detail` change |
 | 2026-10-01 | (sync site) | **Marque Nadi Connect définitive** : login/splash/icône = logo Nadi Connect uniquement (plus de substitution par logo club). Nom club = sous-titre. Ne jamais réintroduire « WRBH Club » comme nom produit |
 | 2026-10-01 | (sync site) | **Lot C** : champs licence/certificat médical API ; messages **403** (suspendu / essai) dans `client.ts`. **À faire app** : formulaire licence+médical + bandeau lecture seule (C9) |
+| 2026-10-01 | (sync site) | **C2 site complet** : API `license_expiring_soon` / `medical_expiring_soon` + stats club `license_expiring_count` / `medical_expiring_count` ; filtre renouvellement web. **C3 web Finance** FR/AR. **À ajouter app (C7)** : champs dates licence/médical sur fiche athlète ; pastille <30 j ; filtre « à renouveler » ; optionnel compteurs Accueil depuis `/club/stats` |
 
 ### Lot C — à ajouter dans l'app (suite audit 2026-10-01)
 
@@ -213,7 +214,7 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | C8 | Démo salon hors ligne | ❌ **à faire, prioritaire** | `src/config.ts` lit `extra.apiUrl` depuis `app.json` : vérifier si c'est surchargeable à l'exécution. Sinon, produire un **APK de démo** pointant vers l'IP du portable. Le wifi SAFEX n'est pas fiable — c'est le filet de sécurité du stand. |
 | C10 | Revalider les notifications | ❌ **à vérifier** | `notify_role` est corrigé côté backend et les `Notification` portent désormais un `club_id`. Vérifier que l'onglet notifications ne montre que le club courant. |
 | C3 | Revalider l'écran parent | ❌ **à vérifier** | Après cloisonnement : `GET /children` et `GET /mobile/home` ne doivent renvoyer que les enfants du club. |
-| C7 | Licence + certificat médical | ⏳ **bloqué par C2 site** | Attendre le déploiement du schéma backend (`license_valid_until`, `medical_cert_valid_until`), puis miroir sur la fiche athlète + pastille d'expiration. |
+| C7 | Licence + certificat médical | ⏳ **schéma site prêt — à coder app** | API : `license_valid_until`, `medical_cert_valid_until`, flags `license_expiring_soon` / `medical_expiring_soon` ; stats `license_expiring_count` / `medical_expiring_count`. Miroir fiche athlète + pastille + filtre « à renouveler ». |
 | C6 | Parité manquante | 📋 **après salon** | Écran Guide / formation absent (le web a `/guide`, désormais **route publique** — une `WebView` suffirait). Administration des feedbacks absente. |
 
 **Ordre de priorité app avant le 12 octobre :**

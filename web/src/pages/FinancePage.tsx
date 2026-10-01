@@ -634,28 +634,28 @@ export function FinancePage() {
   const tabs: { id: FinanceTab; label: string }[] = [
     { id: "cotisations", label: t("financeCotisations") },
     { id: "paiements", label: t("financePayments") },
-    { id: "achats", label: "Achats" },
-    { id: "caisse", label: "Recettes / Dépenses" },
+    { id: "achats", label: t("financePurchases") },
+    { id: "caisse", label: t("financeCash") },
   ];
 
   const financeDashboardBlock = (dash || analytics) && (
-    <div className="finance-charts">
+    <div className="finance-charts" dir={lang === "ar" ? "rtl" : "ltr"}>
       <div className="finance-dash-head">
         <div>
           <h2 style={{ margin: 0, fontSize: "1.15rem" }}>{t("financeDashboard")}</h2>
           <p className="muted" style={{ margin: "0.25rem 0 0" }}>
-            Analyse visuelle en bas de page — priorité aux opérations ci-dessus
+            {t("financeOpsHint")}
           </p>
         </div>
         <button type="button" className="accent" onClick={() => setDashFullscreen(true)}>
-          Afficher en plein écran
+          {t("financeShowFullscreen")}
         </button>
       </div>
       <div className="card slicer-panel" style={{ marginBottom: "1rem" }}>
         <div className="slicer-panel-head">
-          <strong>Segments finance</strong>
+          <strong>{t("financeSegments")}</strong>
           <span className="muted" style={{ fontSize: "0.82rem" }}>
-            Étiquettes de données activées
+            Étiquettes / تسميات
           </span>
         </div>
         <div className="slicer-grid">
@@ -706,7 +706,7 @@ export function FinancePage() {
   );
 
   return (
-    <div className="grid" style={{ gap: "1rem" }}>
+    <div className="grid" style={{ gap: "1rem" }} dir={lang === "ar" ? "rtl" : "ltr"}>
       {loading && <p className="muted">Chargement…</p>}
       {error && (
         <p style={{ color: "#dc2626" }}>
@@ -741,7 +741,7 @@ export function FinancePage() {
         <div className="grid stats">
           <div className="card stat">
             <strong>{dash.cotisations_paid.toLocaleString()} DZD</strong>
-            <span>Cotisations reçues</span>
+            <span>{t("financeReceived")}</span>
           </div>
           <div className="card stat">
             <strong>{dash.cotisations_due.toLocaleString()} DZD</strong>
@@ -790,7 +790,7 @@ export function FinancePage() {
       {tab === "cotisations" && (
         <>
           <div className="card">
-            <h2>Formule — Cotisations</h2>
+            <h2>{t("financeFormulaCot")}</h2>
             <p className="muted" style={{ marginBottom: "0.75rem" }}>
               Impayés restants = Σ (montant échéance − déjà payé). Constantes club ci-dessous.
             </p>
@@ -810,7 +810,7 @@ export function FinancePage() {
             </div>
             {canEditSettings && (
               <form onSubmit={onSaveSettings} className="grid" style={{ gap: "0.75rem", marginTop: "1rem" }}>
-                <h3>Constantes (tarifs)</h3>
+                <h3>{t("financeConstants")}</h3>
                 <div className="grid two">
                   <label>
                     Mensuelle (DZD)
@@ -842,7 +842,7 @@ export function FinancePage() {
           </div>
 
           <div className="card">
-            <h2>Tableau — Échéances</h2>
+            <h2>{t("financeTableInst")}</h2>
             <p className="muted" style={{ marginTop: 0 }}>
               N° = numéro d&apos;opération (ECH). Les lignes payées sont masquées — filtres : dues / partielles / en retard.
               Tri par défaut : N° croissant.
@@ -932,7 +932,7 @@ export function FinancePage() {
       {tab === "paiements" && (
         <>
           <div className="card">
-            <h2>Formule — Paiements joueurs</h2>
+            <h2>{t("financeFormulaPay")}</h2>
             <p className="muted">Total encaissements récents = Σ montants paiements listés.</p>
             <div className="grid stats">
               <div className="card stat">
@@ -1035,7 +1035,7 @@ export function FinancePage() {
           </div>
 
           <div className="card">
-            <h2>Tableau — Paiements</h2>
+            <h2>{t("financeTablePay")}</h2>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -1115,7 +1115,7 @@ export function FinancePage() {
       {tab === "achats" && (
         <>
           <div className="card">
-            <h2>Formule — Achats</h2>
+            <h2>{t("financeFormulaBuy")}</h2>
             <p className="muted">Total achats = Σ montants écritures achat / équipement.</p>
             <div className="grid stats">
               <div className="card stat">
@@ -1130,7 +1130,7 @@ export function FinancePage() {
           </div>
 
           <div className="card">
-            <h2>Nouvel achat / équipement</h2>
+            <h2>{t("financeNewBuy")}</h2>
             <form onSubmit={onEquipPurchase} className="grid two">
               <label>
                 Désignation
@@ -1162,7 +1162,7 @@ export function FinancePage() {
           </div>
 
           <div className="card">
-            <h2>Tableau — Achats</h2>
+            <h2>{t("financeTableBuy")}</h2>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -1216,7 +1216,7 @@ export function FinancePage() {
       {tab === "caisse" && (
         <>
           <div className="card">
-            <h2>Formule — Recettes / Dépenses</h2>
+            <h2>{t("financeFormulaCash")}</h2>
             <p className="muted">Solde = recettes − dépenses (hors achats équipement).</p>
             <div className="grid stats">
               <div className="card stat">
@@ -1241,7 +1241,7 @@ export function FinancePage() {
           </div>
 
           <div className="card">
-            <h2>Nouvelle écriture</h2>
+            <h2>{t("financeNewEntry")}</h2>
             <form onSubmit={onSubmit} className="grid two">
               <label>
                 Type
@@ -1324,7 +1324,7 @@ export function FinancePage() {
           </div>
 
           <div className="card">
-            <h2>Tableau — Caisse</h2>
+            <h2>{t("financeTableCash")}</h2>
             <div className="table-wrap">
               <table>
                 <thead>
