@@ -12,6 +12,7 @@ import {
 import { SortHeader, type SortDir } from "../components/SortHeader";
 import { toast } from "../components/Toast";
 import { useAuth } from "../auth";
+import { useI18n } from "../i18n";
 
 type Dash = {
   cotisations_due: number;
@@ -106,6 +107,7 @@ function cmp(a: unknown, b: unknown): number {
 
 export function FinancePage() {
   const { role } = useAuth();
+  const { t, lang } = useI18n();
   const canEditSettings = role === "admin" || role === "direction";
   const now = new Date();
   const [dash, setDash] = useState<Dash | null>(null);
@@ -630,8 +632,8 @@ export function FinancePage() {
   }
 
   const tabs: { id: FinanceTab; label: string }[] = [
-    { id: "cotisations", label: "Cotisations / Échéances" },
-    { id: "paiements", label: "Paiements joueurs" },
+    { id: "cotisations", label: t("financeCotisations") },
+    { id: "paiements", label: t("financePayments") },
     { id: "achats", label: "Achats" },
     { id: "caisse", label: "Recettes / Dépenses" },
   ];
@@ -640,7 +642,7 @@ export function FinancePage() {
     <div className="finance-charts">
       <div className="finance-dash-head">
         <div>
-          <h2 style={{ margin: 0, fontSize: "1.15rem" }}>Tableau de bord finance</h2>
+          <h2 style={{ margin: 0, fontSize: "1.15rem" }}>{t("financeDashboard")}</h2>
           <p className="muted" style={{ margin: "0.25rem 0 0" }}>
             Analyse visuelle en bas de page — priorité aux opérations ci-dessus
           </p>
@@ -776,7 +778,7 @@ export function FinancePage() {
             onClick={() => setDashFullscreen(true)}
             title="Ouvrir le tableau de bord en grand format"
           >
-            Tableau de bord plein écran
+            {t("financeFullscreen")}
           </button>
         </div>
         <p className="muted" style={{ margin: "0.55rem 0 0", fontSize: "0.82rem" }}>
@@ -945,7 +947,7 @@ export function FinancePage() {
           </div>
 
           <div className="card">
-            <h2>Encaisser un paiement</h2>
+            <h2>{t("financeCollect")}</h2>
             <form onSubmit={onQuickPay} className="grid" style={{ gap: "0.75rem" }}>
               <div className="grid two">
                 <label>

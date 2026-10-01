@@ -65,6 +65,10 @@ def _ensure_schema() -> None:
     au déploiement). Alembic reste la source de vérité pour une base neuve."""
     stmts = [
         "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS blood_type VARCHAR(8)",
+        "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS license_valid_until DATE",
+        "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS license_status VARCHAR(30)",
+        "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS medical_cert_date DATE",
+        "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS medical_cert_valid_until DATE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false",
         "ALTER TABLE fee_plans ADD COLUMN IF NOT EXISTS insurance_amount NUMERIC(12, 2) DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS ix_athletes_full_name ON athletes (full_name)",

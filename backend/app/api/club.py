@@ -452,6 +452,13 @@ def bootstrap(db: Session = Depends(get_db), user: User = Depends(get_current_us
         "finance": finance,
         "analytics": analytics,
     }
+    if club_id:
+        from app.core.tenant import club_trial_meta
+        from app.models import Club as ClubModel
+
+        club_row = db.get(ClubModel, int(club_id))
+        if club_row:
+            payload["club"] = club_trial_meta(club_row)
     cache_set(key, payload, 25)
     return payload
 
@@ -1397,6 +1404,11 @@ def _to_athlete_out(
     phone = (
         _athlete_parent_phone(db, athlete.id) if parent_phone is _MISSING else parent_phone  # type: ignore[arg-type]
     )
+    today = date.today()
+    lic_until = getattr(athlete, "license_valid_until", None)
+    med_until = getattr(athlete, "medical_cert_valid_until", None)
+    lic_soon = bool(lic_until and 0 <= (lic_until - today).days <= 30)
+    med_soon = bool(med_until and 0 <= (med_until - today).days <= 30)
     return AthleteOut(
         id=athlete.id,
         legacy_number=athlete.legacy_number,
@@ -1409,6 +1421,12 @@ def _to_athlete_out(
         birth_place=athlete.birth_place,
         status=athlete.status,
         license_number=athlete.license_number,
+        license_valid_until=lic_until,
+        license_status=getattr(athlete, "license_status", None),
+        medical_cert_date=getattr(athlete, "medical_cert_date", None),
+        medical_cert_valid_until=med_until,
+        license_expiring_soon=lic_soon,
+        medical_expiring_soon=med_soon,
         notes=athlete.notes,
         photo_path=enrich_media_path(athlete.photo_path),
         blood_type=getattr(athlete, "blood_type", None),
@@ -1494,6 +1512,10 @@ def list_athletes(
                 Athlete.birth_place,
                 Athlete.status,
                 Athlete.license_number,
+                Athlete.license_valid_until,
+                Athlete.license_status,
+                Athlete.medical_cert_date,
+                Athlete.medical_cert_valid_until,
                 Athlete.photo_path,
                 Athlete.blood_type,
             )
@@ -1584,10 +1606,13 @@ def list_athletes(
         list_numbers = _registration_list_numbers(db, club_id=club_id, season_ids={int(season)})
 
     out: list[AthleteOut] = []
+    today = date.today()
     for athlete, phone in rows:
         cid, ccode = _cat_for_birth(cats, athlete.birth_date)
         lp = last_pay.get(athlete.id)
         reg = reg_by_athlete.get(athlete.id)
+        lic_until = getattr(athlete, "license_valid_until", None)
+        med_until = getattr(athlete, "medical_cert_valid_until", None)
         out.append(
             AthleteOut(
                 id=athlete.id,
@@ -1601,6 +1626,12 @@ def list_athletes(
                 birth_place=athlete.birth_place,
                 status=athlete.status,
                 license_number=athlete.license_number,
+                license_valid_until=lic_until,
+                license_status=getattr(athlete, "license_status", None),
+                medical_cert_date=getattr(athlete, "medical_cert_date", None),
+                medical_cert_valid_until=med_until,
+                license_expiring_soon=bool(lic_until and 0 <= (lic_until - today).days <= 30),
+                medical_expiring_soon=bool(med_until and 0 <= (med_until - today).days <= 30),
                 notes=None,
                 photo_path=enrich_media_path(athlete.photo_path),
                 blood_type=getattr(athlete, "blood_type", None),

@@ -29,6 +29,13 @@ type Athlete = {
   photo_path?: string;
   parent_phone?: string;
   blood_type?: string;
+  license_number?: string | null;
+  license_valid_until?: string | null;
+  license_status?: string | null;
+  medical_cert_date?: string | null;
+  medical_cert_valid_until?: string | null;
+  license_expiring_soon?: boolean;
+  medical_expiring_soon?: boolean;
   category_id?: number;
   category_code?: string;
   last_payment_on?: string | null;
@@ -88,6 +95,10 @@ export function AthletesPage() {
     parent_phone: "",
     parent_name: "",
     photo_path: "",
+    license_number: "",
+    license_valid_until: "",
+    medical_cert_date: "",
+    medical_cert_valid_until: "",
   });
   const [editSaving, setEditSaving] = useState(false);
   const [editInstallments, setEditInstallments] = useState<
@@ -252,6 +263,10 @@ export function AthletesPage() {
       parent_phone: r.parent_phone || "",
       parent_name: "",
       photo_path: stableMediaPath(r.photo_path) || "",
+      license_number: r.license_number || "",
+      license_valid_until: r.license_valid_until || "",
+      medical_cert_date: r.medical_cert_date || "",
+      medical_cert_valid_until: r.medical_cert_valid_until || "",
     });
     setPayType("monthly");
     setEditPayments([]);
@@ -347,6 +362,10 @@ export function AthletesPage() {
         notes: editNote,
         blood_type: editBlood || null,
         photo_path: stableMediaPath(editForm.photo_path) || null,
+        license_number: editForm.license_number || null,
+        license_valid_until: editForm.license_valid_until || null,
+        medical_cert_date: editForm.medical_cert_date || null,
+        medical_cert_valid_until: editForm.medical_cert_valid_until || null,
         confirm_status: true,
       };
       if (editForm.parent_phone) body.parent_phone = editForm.parent_phone;
@@ -615,6 +634,11 @@ export function AthletesPage() {
                 <td>{formatDateFr(r.birth_date)}</td>
                 <td>
                   <span className="badge">{r.status}</span>
+                  {(r.license_expiring_soon || r.medical_expiring_soon) && (
+                    <span className="badge" style={{ marginLeft: 4, background: "#b45309", color: "#fff" }}>
+                      {r.license_expiring_soon ? t("licenseExpiring") : t("medicalExpiring")}
+                    </span>
+                  )}
                 </td>
                 <td className="muted" style={{ fontSize: "0.75em" }} />
                 <td>
@@ -792,6 +816,41 @@ export function AthletesPage() {
           <div className="field">
             <label>Nom parent / اسم الولي</label>
             <input value={editForm.parent_name} onChange={(e) => setEditForm({ ...editForm, parent_name: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>{t("licenseNumber")}</label>
+            <input
+              className="ltr"
+              value={editForm.license_number}
+              onChange={(e) => setEditForm({ ...editForm, license_number: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label>{t("licenseValidUntil")}</label>
+            <input
+              type="date"
+              className="ltr"
+              value={editForm.license_valid_until}
+              onChange={(e) => setEditForm({ ...editForm, license_valid_until: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label>{t("medicalCertDate")}</label>
+            <input
+              type="date"
+              className="ltr"
+              value={editForm.medical_cert_date}
+              onChange={(e) => setEditForm({ ...editForm, medical_cert_date: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label>{t("medicalCertValidUntil")}</label>
+            <input
+              type="date"
+              className="ltr"
+              value={editForm.medical_cert_valid_until}
+              onChange={(e) => setEditForm({ ...editForm, medical_cert_valid_until: e.target.value })}
+            />
           </div>
             </div>
           </div>

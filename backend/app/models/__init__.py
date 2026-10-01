@@ -152,6 +152,10 @@ class Athlete(Base, TimestampMixin):
     birth_place: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="Active")  # Active / Abandonne
     license_number: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    license_valid_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    license_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # valid / expired / pending
+    medical_cert_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    medical_cert_valid_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     photo_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     blood_type: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)  # A+ A- B+ B- AB+ AB- O+ O-
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -26,6 +26,21 @@ function formatApiError(status: number, detail: unknown, fallback: string): stri
   if (status === 429) {
     return "Trop de tentatives — réessayez dans quelques minutes (réseau partagé).";
   }
+  if (status === 403) {
+    const raw =
+      typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d: { msg?: string }) => d.msg || "").filter(Boolean).join(" · ")
+          : "";
+    if (/suspendu/i.test(raw)) {
+      return "Club suspendu — lecture seule. Contactez le support Nadi Connect.";
+    }
+    if (/essai/i.test(raw)) {
+      return "Essai terminé — lecture seule. Passez à un abonnement pour continuer.";
+    }
+    return raw || "Accès refusé (403).";
+  }
   if (status >= 500) {
     const raw =
       typeof detail === "string"

@@ -99,6 +99,9 @@ class ClubOut(ORMModel):
     sport: Optional[str] = None
     status: Optional[str] = None
     plan: Optional[str] = None
+    trial_ends_on: Optional[date] = None
+    trial_days_left: Optional[int] = None
+    trial_expired: bool = False
 
 
 class ClubPublicOut(BaseModel):
@@ -260,6 +263,10 @@ class AthleteCreate(BaseModel):
     birth_place: Optional[str] = None
     status: str = "Active"
     license_number: Optional[str] = None
+    license_valid_until: Optional[date] = None
+    license_status: Optional[str] = None
+    medical_cert_date: Optional[date] = None
+    medical_cert_valid_until: Optional[date] = None
     notes: Optional[str] = None
     legacy_number: Optional[int] = None
     photo_path: Optional[str] = None
@@ -275,6 +282,10 @@ class AthleteUpdate(BaseModel):
     birth_place: Optional[str] = None
     status: Optional[str] = None
     license_number: Optional[str] = None
+    license_valid_until: Optional[date] = None
+    license_status: Optional[str] = None
+    medical_cert_date: Optional[date] = None
+    medical_cert_valid_until: Optional[date] = None
     notes: Optional[str] = None
     photo_path: Optional[str] = None
     blood_type: Optional[str] = None
@@ -295,6 +306,12 @@ class AthleteOut(ORMModel):
     birth_place: Optional[str]
     status: str
     license_number: Optional[str]
+    license_valid_until: Optional[date] = None
+    license_status: Optional[str] = None
+    medical_cert_date: Optional[date] = None
+    medical_cert_valid_until: Optional[date] = None
+    license_expiring_soon: bool = False
+    medical_expiring_soon: bool = False
     notes: Optional[str]
     photo_path: Optional[str] = None
     blood_type: Optional[str] = None

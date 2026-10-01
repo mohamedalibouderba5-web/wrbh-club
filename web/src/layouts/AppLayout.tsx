@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../auth";
-import { health, prefetchHotPaths, wakeServer } from "../api/client";
+import { api, health, prefetchHotPaths, wakeServer } from "../api/client";
 import { useI18n } from "../i18n";
 import { useAppUpdate } from "../pwa";
 import { countPendingRegistrations } from "../offline/registrationQueue";
@@ -10,6 +10,16 @@ import { ChangePasswordGate } from "../components/ChangePasswordGate";
 import { FeedbackWidget } from "../components/FeedbackWidget";
 import { ConfirmHost } from "../components/ConfirmDialog";
 import { Toaster } from "../components/Toast";
+
+type ClubMeta = {
+  trial_ends_on?: string | null;
+  trial_days_left?: number | null;
+  trial_expired?: boolean;
+  status?: string;
+  plan?: string;
+  name?: string;
+  slug?: string;
+};
 
 export function AppLayout() {
   const { fullName, role, logout } = useAuth();
@@ -21,6 +31,7 @@ export function AppLayout() {
   const [syncBusy, setSyncBusy] = useState(false);
   const [coldStart, setColdStart] = useState(false);
   const [waking, setWaking] = useState(false);
+  const [clubMeta, setClubMeta] = useState<ClubMeta | null>(null);
   const location = useLocation();
   const { updateReady, checking, checkForUpdate, applyUpdate } = useAppUpdate();
 
@@ -30,6 +41,18 @@ export function AppLayout() {
     } catch {
       setPendingCount(0);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<{ club?: ClubMeta }>("/api/v1/bootstrap")
+      .then((b) => {
+        if (!cancelled && b.club) setClubMeta(b.club);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -219,6 +242,26 @@ export function AppLayout() {
           </div>
         </div>
         <div className="page-content">
+          {clubMeta?.status === "suspended" && (
+            <div className="offline-banner offline">
+              <span>{t("clubSuspended")}</span>
+            </div>
+          )}
+          {clubMeta?.plan === "discovery" && clubMeta.trial_expired && (
+            <div className="offline-banner offline">
+              <span>{t("trialExpired")}</span>
+            </div>
+          )}
+          {clubMeta?.plan === "discovery" && !clubMeta.trial_expired && clubMeta.trial_days_left != null && (
+            <div className="offline-banner pending">
+              <span>
+                {t("trialBanner")}
+                {lang === "ar"
+                  ? ` — متبقي ${clubMeta.trial_days_left} يوماً`
+                  : ` — J-${clubMeta.trial_days_left}`}
+              </span>
+            </div>
+          )}
           {updateReady && (
             <div className="update-banner">
               <span>{t("updateAvailable")}</span>

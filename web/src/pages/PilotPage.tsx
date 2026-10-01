@@ -70,7 +70,10 @@ export function PilotPage() {
         <Link className="button landing-cta-secondary" to="/pricing">
           {ar ? "رؤية الأسعار" : "Voir les tarifs"}
         </Link>
-        <Link className="button landing-cta-secondary" to="/login?club=demo-judo-978">
+        <Link
+          className="button landing-cta-secondary"
+          to={`/login?club=${encodeURIComponent(import.meta.env.VITE_DEMO_CLUB_SLUG || "demo-judo-978")}`}
+        >
           {ar ? "تجربة النادي التجريبي" : "Voir la démo live"}
         </Link>
       </div>
