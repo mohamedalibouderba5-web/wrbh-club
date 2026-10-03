@@ -90,10 +90,14 @@ def _installment_out(row: FeeInstallment, names: dict[int, str]) -> InstallmentO
 
 
 def _current_season_id(db: Session, club_id: int | None = None) -> int | None:
-    q = db.query(Season).filter(Season.is_current.is_(True))
-    if club_id is not None:
-        q = q.filter(Season.club_id == club_id)
-    s = q.first()
+    """Saison courante du club uniquement — jamais une saison d'un autre tenant."""
+    if club_id is None:
+        return None
+    s = (
+        db.query(Season)
+        .filter(Season.is_current.is_(True), Season.club_id == club_id)
+        .first()
+    )
     return s.id if s else None
 
 
@@ -1034,7 +1038,7 @@ inv_router = APIRouter(prefix="/inventory", tags=["inventory"])
 @inv_router.get("/items", response_model=list[InventoryItemOut])
 def list_items(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
     club_id: int = Depends(get_current_club_id),
 ):
     cached = cache_get(f"inventory:items:{club_id}")

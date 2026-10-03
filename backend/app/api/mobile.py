@@ -29,15 +29,26 @@ router = APIRouter(prefix="/mobile", tags=["mobile"])
 settings = get_settings()
 
 
-def _parent_children(db: Session, parent_id: int) -> list[MobileChildOut]:
-    links = db.query(ParentChild).filter(ParentChild.parent_id == parent_id).all()
+def _parent_children(db: Session, parent_id: int, club_id: int | None = None) -> list[MobileChildOut]:
+    """Enfants du parent — strictement du même club (pas de fuite NULL / autre tenant)."""
+    if not club_id:
+        return []
+    links = (
+        db.query(ParentChild)
+        .filter(ParentChild.parent_id == parent_id, ParentChild.club_id == club_id)
+        .all()
+    )
     if not links:
         return []
-    current = db.query(Season).filter(Season.is_current.is_(True)).first()
+    current = (
+        db.query(Season)
+        .filter(Season.is_current.is_(True), Season.club_id == club_id)
+        .first()
+    )
     out: list[MobileChildOut] = []
     for link in links:
         a = db.get(Athlete, link.athlete_id)
-        if not a:
+        if not a or getattr(a, "club_id", None) != club_id:
             continue
         cat_code = None
         if current:
@@ -46,6 +57,7 @@ def _parent_children(db: Session, parent_id: int) -> list[MobileChildOut]:
                 .filter(
                     Registration.athlete_id == a.id,
                     Registration.season_id == current.id,
+                    Registration.club_id == club_id,
                     Registration.status.in_(["approved", "pending"]),
                 )
                 .order_by(Registration.id.desc())
@@ -86,7 +98,7 @@ def mobile_home(db: Session = Depends(get_db), user: User = Depends(get_current_
     events: list[Event] = []
 
     if user.role == Role.PARENT:
-        children = _parent_children(db, user.id)
+        children = _parent_children(db, user.id, club_id=club_id)
         athlete_ids = [c.id for c in children]
         children_count = len(athlete_ids)
         pending = (
@@ -94,14 +106,13 @@ def mobile_home(db: Session = Depends(get_db), user: User = Depends(get_current_
             .filter(Convocation.athlete_id.in_(athlete_ids or {-1}), Convocation.status == "pending")
             .count()
         )
-        unpaid = (
-            db.query(FeeInstallment)
-            .filter(
-                FeeInstallment.athlete_id.in_(athlete_ids or {-1}),
-                FeeInstallment.status.in_(["due", "partial", "overdue"]),
-            )
-            .count()
+        unpaid_q = db.query(FeeInstallment).filter(
+            FeeInstallment.athlete_id.in_(athlete_ids or {-1}),
+            FeeInstallment.status.in_(["due", "partial", "overdue"]),
         )
+        if club_id:
+            unpaid_q = unpaid_q.filter(FeeInstallment.club_id == club_id)
+        unpaid = unpaid_q.count()
         team_ids = [
             r[0]
             for r in db.query(TeamMembership.team_id).filter(
@@ -191,4 +202,4 @@ def mobile_app_update():
 def mobile_children(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != Role.PARENT:
         return []
-    return _parent_children(db, user.id)
+    return _parent_children(db, user.id, club_id=getattr(user, "club_id", None))

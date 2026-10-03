@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
+import { api, apiGetFast } from "../api/client";
 import { toast } from "../components/Toast";
 import { useI18n } from "../i18n";
 
@@ -45,10 +45,12 @@ export function FeedbackAdminPage() {
     try {
       const query = new URLSearchParams({ limit: "500" });
       if (filterKind) query.set("kind", filterKind);
-      const data = await api<FeedbackRow[]>(`/api/v1/feedback/events?${query}`);
+      const data = await apiGetFast<FeedbackRow[]>(`/api/v1/feedback/events?${query}`, {
+        ttlMs: 30_000,
+        onUpdate: setRows,
+      });
       setRows(data);
     } catch (err) {
-      setRows([]);
       setError(err instanceof Error ? err.message : "Erreur de chargement");
     } finally {
       setLoading(false);

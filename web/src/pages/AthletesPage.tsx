@@ -181,9 +181,8 @@ export function AthletesPage() {
         setRows((prev) => (append ? [...prev, ...data] : data));
         setHasMore(data.length >= PAGE);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur");
-        if (!append) setRows([]);
-        setHasMore(false);
+        // Ne pas vider la liste (cache SWR) derrière un faux « Réessayer »
+        if (!append) setError(err instanceof Error ? err.message : "Erreur");
       } finally {
         setLoading(false);
         setLoadingMore(false);

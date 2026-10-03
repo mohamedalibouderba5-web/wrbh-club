@@ -32,6 +32,17 @@ function authHeader(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Attend brièvement le JWT (évite listes « Réessayer » au cold load avant hydrate). */
+async function waitForToken(maxMs = 800): Promise<string | null> {
+  const start = Date.now();
+  let token = localStorage.getItem("wrbh_token");
+  while (!token && Date.now() - start < maxMs) {
+    await new Promise((r) => setTimeout(r, 50));
+    token = localStorage.getItem("wrbh_token");
+  }
+  return token;
+}
+
 export function stableMediaPath(path?: string | null): string | null {
   if (!path) return null;
   let p = path.trim();
@@ -129,6 +140,10 @@ export function invalidateApiCache(prefix = "") {
 
 async function rawFetch<T>(path: string, options: RequestInit = {}, retries = 0): Promise<T> {
   const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const method = (options.method || "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD") {
+    await waitForToken();
+  }
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -147,6 +162,11 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, retries = 0)
       if (timer) window.clearTimeout(timer);
       if (!res.ok) {
         const msg = await parseError(res);
+        // Race login : 401 sans token encore hydraté → 1 retry court
+        if (res.status === 401 && !localStorage.getItem("wrbh_token") && attempt < retries) {
+          await waitForToken(1200);
+          continue;
+        }
         if (res.status === 401 && localStorage.getItem("wrbh_token")) {
           // JWT expiré / secret changé / token corrompu → reconnecter au lieu d'afficher l'erreur
           clearSessionAndRedirect(msg.toLowerCase().includes("expir") ? "expired" : "session");

@@ -116,8 +116,7 @@ def _resolve_club_id(db: Session, club_slug: str | None) -> int | None:
     club = db.query(Club).filter(Club.slug == club_slug.strip().lower()).first()
     if not club:
         raise HTTPException(status_code=404, detail="Club introuvable (code club incorrect)")
-    if club.status == "suspended":
-        raise HTTPException(status_code=403, detail="Club suspendu — contactez le support")
+    # Club suspendu : login autorisé (lecture seule) — écritures bloquées via get_current_club_id
     return int(club.id)
 
 
@@ -136,7 +135,7 @@ def login(
     if email and "@" in email:
         q = db.query(User).filter(User.email == email)
         if club_id is not None:
-            q = q.filter(or_(User.club_id == club_id, User.club_id.is_(None)))
+            q = q.filter(User.club_id == club_id)
         user = q.first()
     if not user:
         user = find_user_by_phone(db, form.username, club_id=club_id)
@@ -287,6 +286,7 @@ def update_user(
     data = payload.model_dump(exclude_unset=True)
     new_password = data.pop("password", None)
     new_role = data.pop("role", None)
+    explicit_mcp = data.pop("must_change_password", None)
     if new_role is not None:
         try:
             role = Role(new_role)
@@ -311,7 +311,10 @@ def update_user(
         setattr(target, key, value)
     if new_password:
         target.password_hash = hash_password(new_password)
-        target.must_change_password = True
+        # Par défaut force le changement ; l'admin peut forcer False (comptes démo / stand)
+        target.must_change_password = True if explicit_mcp is None else bool(explicit_mcp)
+    elif explicit_mcp is not None:
+        target.must_change_password = bool(explicit_mcp)
     from app.services.audit import write_audit
 
     write_audit(

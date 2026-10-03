@@ -259,6 +259,9 @@ Chaque FAIL restant → `POST /feedback/report` + ligne dans le rapport.
 |------|------|
 | 2026-10-03 | Création ordre complet Lots A→E depuis rapport consolidé + batteries. |
 | 2026-10-03 16h10 | **A2+A3+B1+B2 code** + pytest teams/payments/trial (27 verts). A1 : `api.nadi-connect.com/health` OK via fetch Cursor (timeout intermittent depuis Windows). Deploy A4 suivant. |
+| 2026-10-03 16h15 | **A4 déployé prod** `git_sha=6f1efcb1a150` (API+web rebuild). Code `_current_season` + `_installment_remaining` présents sur VPS. |
+| 2026-10-03 16h45 | **Lot B+C code** : suspend login lecture ; inventory rôles ; children IDOR ; UI hydrate JWT ; pytest 31. Deploy suivant. A1 domaine : Caddy `api`→`:8081` OK depuis VPS (timeouts Windows intermittents). |
+| 2026-10-03 16h30 | **Reste à régler** documenté : `docs/RAPPORT_RESTE_FIABILITE_100.md`. Clos : A2/A3/A4 code. Ouvert bloquant : **A1**. Puis B recettes + B4–B6, C2–C5, D M0, E. DoD ~30–35 %. |
 
 ---
 

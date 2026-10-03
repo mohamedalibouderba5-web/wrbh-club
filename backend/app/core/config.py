@@ -45,15 +45,15 @@ class Settings(BaseSettings):
     app_version: str = "1.18.0"
     git_sha: str = ""  # injecté au déploiement (env GIT_SHA)
     # Mise à jour APK mobile (publié via env Render)
-    android_app_version: str = "1.9.0"
-    android_version_code: int = 12
-    android_apk_url: str = "http://46.224.38.201:8080/wrbh-club-1.9.0.apk"
+    android_app_version: str = "1.13.0"
+    android_version_code: int = 16
+    android_apk_url: str = "https://nadi-connect.com/wrbh-club-1.13.0.apk"
     android_force_update: bool = False
     android_release_notes: str = (
-        "Nadi Connect 1.9: licence/certificat médical, messages 403, pastilles expiration."
+        "Nadi Connect 1.13: HTTPS nadi-connect.com / api.nadi-connect.com, cleartext désactivé, lien Découvrir le site."
     )
     android_release_notes_ar: str = (
-        "نادي كونكت 1.9: الرخصة والشهادة الطبية، رسائل 403، تنبيهات التجديد."
+        "Nadi Connect 1.13: اتصال آمن عبر nadi-connect.com، بدون HTTP، رابط اكتشاف الموقع."
     )
 
     @property

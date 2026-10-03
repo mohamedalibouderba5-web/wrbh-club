@@ -863,8 +863,11 @@ export function RegistrationsPage() {
               </button>
             ))}
           </div>
-          {!seasonCats.length && (
-            <p className="muted">Catégories indisponibles — connectez-vous une fois en ligne.</p>
+          {!seasonCats.length && cats.length === 0 && (
+            <p className="muted">Catégories indisponibles — reconnectez-vous ou actualisez la page.</p>
+          )}
+          {!seasonCats.length && cats.length > 0 && (
+            <p className="muted">Aucune catégorie pour cette saison — vérifiez la structure du club.</p>
           )}
           <img
             src="/affiche.jpg"

@@ -294,6 +294,8 @@ Pour **chaque** case de `MATRICE_ROLES_ACCES.md` :
 | 2026-10-03 | Catalogue H+A publié | — | Ce document |
 | 2026-10-03 15h10 | Exécution H+A | **ST-06**, **FI-03/04**, **API domaine timeout** ; pytest 23/23 ; IP:8081 OK | `RAPPORT_CATALOGUE_FIABILITE_2026-10-03.md` |
 | 2026-10-03 16h10 | Correctifs Lot A2/A3 + B1/B2 | ST-06/FI-04/A06/B18 **code+tests** ; deploy en cours ; rejeu H requis | `ORDRE_REPARATION_FIABILITE_100.md` |
+| 2026-10-03 16h15 | Deploy A4 | Prod `git_sha=6f1efcb1a150` ; rejouer ST-06 / FI-04 / W0 listes+chrome | — |
+| 2026-10-03 16h45 | Lot B3–B6 + C1/C2 | Suspend+trial+IDOR+rôles inventory ; UI A06 harden ; pytest 31 | Deploy + rejeu W0 |
 
 ---
 

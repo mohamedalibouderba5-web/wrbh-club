@@ -223,7 +223,8 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-03 | (sync QA) | **Catalogue fiabilité** `docs/CATALOGUE_SCENARIOS_FIABILITE_100.md` : packs Android AP-* (HTTPS, ClubLock, onboard, i18n, marque). Vague V5 téléphone ; pas de suite jest/detox → recettes H |
 | 2026-10-03 15h10 | (sync QA) | **Exécution catalogue** : `api.nadi-connect.com` **timeout** alors que API IP:8081 OK — **AP-01 HTTPS bloqué** tant que DNS/proxy non réparé. ST-06 teams + FI-04 paiements toujours FAIL côté API |
 | 2026-10-03 15h40 | (sync QA) | **Ordre réparation** `ORDRE_REPARATION_FIABILITE_100.md` Lot D : après fix API (domaine + teams + payments) → checklist M0 téléphone (HTTPS, équipes, agenda, paiements, ClubLock, i18n, Feedback). **Ne pas** rebuild APK vers IP HTTP |
-| 2026-10-03 16h10 | (sync site) | **A2/A3 déployés (code)** : `GET /teams` saison club ; `payments/quick` impute échéance due + clamp (409 si soldée). **À retester app** : Équipes non vides ; Agenda select équipes ; Paiements impute même `installment_id` ; pas de rebuild APK requis (contrat API). Chrome web = nom club (miroir sous-titre app déjà OK) |
+| 2026-10-03 16h10 | (sync site) | **A2/A3 déployés (code)** : `GET /teams` saison club ; `payments/quick` impute échéance due + clamp (409 si soldée). **À retester app** : Équipes non vides ; Agenda select équipes ; Paiements impute même `installment_id` ; pas de rebuild APK obligatoire (contrat API). Chrome web = nom club (miroir sous-titre app déjà OK) |
+| 2026-10-03 16h45 | (sync site) | **B3/B4/C1** : club suspendu login lecture seule ; `/mobile/children` strict club ; inventory API staff-only. **À retester app** : parent multi-club (pas d’enfant autre club) ; ClubLock suspendu après login ; Feedback/listes après cold start |
 
 ## 9bis. À AJOUTER — Onboard sports (2026-10-02)
 

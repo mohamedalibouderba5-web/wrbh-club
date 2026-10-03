@@ -51,20 +51,24 @@ export function InventoryPage() {
   const [editAsg, setEditAsg] = useState<Assignment | null>(null);
 
   async function load() {
-    const [i, a, ath, asg] = await Promise.all([
-      apiGetFast<Item[]>("/api/v1/inventory/items", { ttlMs: 45_000, onUpdate: setItems }),
-      apiGetFast<Item[]>("/api/v1/inventory/alerts", { ttlMs: 45_000, onUpdate: setAlerts }).catch(() => []),
-      apiGetFast<Athlete[]>("/api/v1/athletes?limit=200&sort=name&order=asc", { ttlMs: 60_000 }).catch(() => []),
-      api<Assignment[]>("/api/v1/inventory/assignments?limit=40").catch(() => []),
-    ]);
-    setItems(i);
-    setAlerts(a);
-    setAthletes(ath);
-    setAssignments(asg);
+    try {
+      const [i, a, ath, asg] = await Promise.all([
+        apiGetFast<Item[]>("/api/v1/inventory/items", { ttlMs: 45_000, onUpdate: setItems }).catch(() => null),
+        apiGetFast<Item[]>("/api/v1/inventory/alerts", { ttlMs: 45_000, onUpdate: setAlerts }).catch(() => []),
+        apiGetFast<Athlete[]>("/api/v1/athletes?limit=200&sort=name&order=asc", { ttlMs: 60_000 }).catch(() => []),
+        api<Assignment[]>("/api/v1/inventory/assignments?limit=40").catch(() => []),
+      ]);
+      if (i) setItems(i);
+      setAlerts(a || []);
+      setAthletes(ath || []);
+      setAssignments(asg || []);
+    } catch {
+      /* partial OK — selects déjà peuplés si cache */
+    }
   }
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
 
   async function onPurchase(e: FormEvent) {
@@ -158,11 +162,11 @@ export function InventoryPage() {
         <form className="card" onSubmit={onPurchase}>
           <h3 style={{ marginTop: 0 }}>{t("inventoryTitle")}</h3>
           <div className="field">
-            <label>Nom (maillot, brassards, ballons…)</label>
+            <label>{t("inventoryName")}</label>
             <input required value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="field">
-            <label>Type d’article</label>
+            <label>{t("inventoryKind")}</label>
             <select value={itemKind} onChange={(e) => setItemKind(e.target.value)}>
               {ITEM_KINDS.map((k) => (
                 <option key={k.value} value={k.value}>
@@ -172,17 +176,17 @@ export function InventoryPage() {
             </select>
           </div>
           <div className="field">
-            <label>Quantité</label>
+            <label>{t("inventoryQty")}</label>
             <input value={qty} onChange={(e) => setQty(e.target.value)} />
           </div>
           <div className="field">
-            <label>Coût unitaire DZD</label>
+            <label>{t("inventoryUnitCost")}</label>
             <input className="ltr" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0" />
           </div>
           <div className="field">
-            <label>Attribuer directement à un joueur (optionnel)</label>
+            <label>{t("inventoryAssignDirect")}</label>
             <select value={assignAthlete} onChange={(e) => setAssignAthlete(e.target.value)}>
-              <option value="">— Stock club —</option>
+              <option value="">{t("inventoryStockClub")}</option>
               {athletes.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.full_name}
@@ -190,13 +194,13 @@ export function InventoryPage() {
               ))}
             </select>
           </div>
-          <button type="submit">Enregistrer l’achat</button>
+          <button type="submit">{t("inventorySavePurchase")}</button>
         </form>
 
         <form className="card" onSubmit={onAssign}>
           <h3 style={{ marginTop: 0 }}>{t("inventoryAssign")}</h3>
           <div className="field">
-            <label>Article en stock</label>
+            <label>{t("inventoryItemInStock")}</label>
             <select required value={assignItem} onChange={(e) => setAssignItem(e.target.value)}>
               <option value="">—</option>
               {items.map((i) => (
@@ -207,7 +211,7 @@ export function InventoryPage() {
             </select>
           </div>
           <div className="field">
-            <label>Joueur</label>
+            <label>{t("inventoryPlayer")}</label>
             <select required value={assignAthlete} onChange={(e) => setAssignAthlete(e.target.value)}>
               <option value="">—</option>
               {athletes.map((a) => (
@@ -218,10 +222,10 @@ export function InventoryPage() {
             </select>
           </div>
           <div className="field">
-            <label>Quantité</label>
+            <label>{t("inventoryQty")}</label>
             <input value={assignQty} onChange={(e) => setAssignQty(e.target.value)} />
           </div>
-          <button type="submit">Attribuer</button>
+          <button type="submit">{t("inventoryAssignBtn")}</button>
         </form>
       </div>
 
