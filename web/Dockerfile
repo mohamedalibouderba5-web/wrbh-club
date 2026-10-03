@@ -3,7 +3,8 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
-ARG VITE_API_URL=http://46.224.38.201:8081
+# Vide = same-origin (/api proxifié par nginx → wrbh-api). Plus fiable que api.* via Cloudflare.
+ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 

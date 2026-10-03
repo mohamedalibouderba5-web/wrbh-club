@@ -45,11 +45,38 @@ export function AppLayout() {
 
   useEffect(() => {
     let cancelled = false;
-    api<{ club?: ClubMeta }>("/api/v1/bootstrap")
-      .then((b) => {
-        if (!cancelled && b.club) setClubMeta(b.club);
-      })
-      .catch(() => undefined);
+    const loadMeta = async () => {
+      try {
+        const b = await api<{ club?: ClubMeta }>("/api/v1/bootstrap");
+        if (!cancelled && b.club) {
+          setClubMeta(b.club);
+          return;
+        }
+      } catch {
+        /* retry branding */
+      }
+      try {
+        const slug = (localStorage.getItem("wrbh_club_slug") || "").trim();
+        if (!slug) return;
+        const br = await api<{ name?: string; slug?: string }>(
+          `/api/v1/club/branding?slug=${encodeURIComponent(slug)}`,
+        );
+        if (!cancelled && br?.name) {
+          setClubMeta({
+            name: br.name,
+            slug: br.slug || slug,
+            status: "active",
+            plan: "club",
+            trial_expired: false,
+            trial_days_left: null,
+            trial_ends_on: null,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void loadMeta();
     return () => {
       cancelled = true;
     };

@@ -197,8 +197,8 @@ const dict = {
     accessDenied: "Accès refusé pour ce rôle",
   },
   ar: {
-    brand: "نادي كونكت",
-    manage: "النادي المتصل",
+    brand: "Nadi Connect",
+    manage: "النادي",
     season: "موسم 2026/2027",
     wake: "تحديث / إيقاظ الخادم",
     logout: "تسجيل الخروج",

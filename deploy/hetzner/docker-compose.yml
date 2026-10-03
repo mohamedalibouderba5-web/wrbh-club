@@ -58,7 +58,8 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${PUBLIC_API_URL}
+        # Same-origin par défaut (nginx /api → api:8000). Override PUBLIC_API_URL seulement si besoin.
+        VITE_API_URL: ${PUBLIC_API_URL:-}
     container_name: wrbh-web
     restart: unless-stopped
     depends_on:
