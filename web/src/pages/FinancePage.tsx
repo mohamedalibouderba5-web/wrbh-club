@@ -227,7 +227,8 @@ export function FinancePage() {
     } catch {
       setCoaches([]);
     }
-    if (errors.length) setError(errors.join(" · "));
+    if (errors.length && !d && !l) setError(errors.join(" · "));
+    else if (errors.length) setError(""); // données partielles OK — pas de faux « Réessayer »
     setLoading(false);
   }, [seasonFilter]);
 

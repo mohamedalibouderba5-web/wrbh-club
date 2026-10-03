@@ -191,7 +191,7 @@ export function AppLayout() {
           <img src="/logo.png" alt="Nadi Connect" />
           <div>
             <h1>{t("brand")}</h1>
-            <small>{t("manage")}</small>
+            <small>{clubMeta?.name || t("manage")}</small>
           </div>
           <button type="button" className="drawer-close" onClick={() => setMenuOpen(false)} aria-label="Fermer">
             ✕
@@ -232,8 +232,11 @@ export function AppLayout() {
             ☰
           </button>
           <div className="topbar-titles">
-            <h2 style={{ margin: 0 }}>{t("manage")}</h2>
-            <div className="topbar-sub">{t("season")}</div>
+            <h2 style={{ margin: 0 }}>{clubMeta?.name || t("manage")}</h2>
+            <div className="topbar-sub">
+              {t("brand")}
+              {clubMeta?.slug ? ` · ${clubMeta.slug}` : ""} · {t("season")}
+            </div>
           </div>
           <div className="wake-bar">
             <button className="accent wake-btn" disabled={waking} onClick={() => void onWake()}>

@@ -89,18 +89,34 @@ def _installment_out(row: FeeInstallment, names: dict[int, str]) -> InstallmentO
     )
 
 
-def _current_season_id(db: Session) -> int | None:
-    s = db.query(Season).filter(Season.is_current.is_(True)).first()
+def _current_season_id(db: Session, club_id: int | None = None) -> int | None:
+    q = db.query(Season).filter(Season.is_current.is_(True))
+    if club_id is not None:
+        q = q.filter(Season.club_id == club_id)
+    s = q.first()
     return s.id if s else None
 
 
-def _apply_payment_to_installment(inst: FeeInstallment, amount: Decimal) -> None:
-    inst.amount_paid = (inst.amount_paid or Decimal("0")) + amount
+def _installment_remaining(inst: FeeInstallment) -> Decimal:
+    paid = inst.amount_paid or Decimal("0")
+    due = Decimal(str(inst.amount or 0))
+    rem = due - paid
+    return rem if rem > 0 else Decimal("0")
+
+
+def _apply_payment_to_installment(inst: FeeInstallment, amount: Decimal) -> Decimal:
+    """Crédite l'échéance ; clamp au reste dû. Retourne le montant réellement imputé."""
+    remaining = _installment_remaining(inst)
+    applied = amount if amount <= remaining else remaining
+    if applied <= 0:
+        return Decimal("0")
+    inst.amount_paid = (inst.amount_paid or Decimal("0")) + applied
     if inst.amount_paid >= inst.amount:
         inst.status = "paid"
         inst.amount_paid = inst.amount
     elif inst.amount_paid > 0:
         inst.status = "partial"
+    return applied
 
 
 def _make_receipt(db: Session, payment_id: int, club_id: int | None = None) -> Receipt:
@@ -363,16 +379,23 @@ def create_payment(
         if not inst:
             raise HTTPException(404, "Échéance introuvable")
         assert_same_club(inst, club_id)
-        _apply_payment_to_installment(inst, payload.amount)
+        remaining = _installment_remaining(inst)
+        if remaining <= 0:
+            raise HTTPException(409, "Échéance déjà soldée")
+        applied = _apply_payment_to_installment(inst, payload.amount)
+        if applied < payload.amount:
+            payment.amount = applied
+            db.flush()
 
     receipt = _make_receipt(db, payment.id, club_id)
     athlete = db.get(Athlete, payload.athlete_id)
+    paid_amount = payment.amount
     _ledger_income_for_payment(
         db,
         club_id=club_id,
         season_id=None,
         label=f"Paiement — {athlete.full_name if athlete else payload.athlete_id}",
-        amount=payload.amount,
+        amount=paid_amount,
         paid_on=payload.paid_on,
         user_id=user.id,
     )
@@ -382,7 +405,7 @@ def create_payment(
         entity="payment",
         entity_id=payment.id,
         user_id=user.id,
-        detail=f"athlete={payload.athlete_id} amount={payload.amount}",
+        detail=f"athlete={payload.athlete_id} amount={paid_amount}",
     )
     db.commit()
     db.refresh(payment)
@@ -402,13 +425,13 @@ def create_quick_payment(
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
     club_id: int = Depends(get_current_club_id),
 ):
-    """UX : type de paiement → joueur (catégorie côté client) → enregistrement."""
+    """UX : type de paiement → joueur. Impute d’abord une échéance due existante."""
     athlete = db.get(Athlete, payload.athlete_id)
     if not athlete:
         raise HTTPException(404, "Joueur introuvable")
     assert_same_club(athlete, club_id)
 
-    season_id = payload.season_id or _current_season_id(db)
+    season_id = payload.season_id or _current_season_id(db, club_id)
     if not season_id:
         raise HTTPException(400, "Aucune saison courante")
 
@@ -427,6 +450,31 @@ def create_quick_payment(
         .first()
     )
 
+    def _open_installments(*, labels: list[str] | None = None):
+        q = db.query(FeeInstallment).filter(
+            FeeInstallment.athlete_id == athlete.id,
+            FeeInstallment.season_id == season_id,
+            FeeInstallment.status.in_(("due", "partial", "overdue")),
+        )
+        if club_id:
+            q = q.filter(
+                (FeeInstallment.club_id == club_id) | (FeeInstallment.club_id.is_(None))
+            )
+        if labels:
+            q = q.filter(FeeInstallment.label.in_(labels))
+        return q.order_by(FeeInstallment.due_date.asc(), FeeInstallment.id.asc())
+
+    # Priorité absolue : échéance explicitement choisie
+    if payload.installment_id:
+        installment = db.get(FeeInstallment, payload.installment_id)
+        if not installment:
+            raise HTTPException(404, "Échéance introuvable")
+        assert_same_club(installment, club_id)
+        if installment.athlete_id != athlete.id:
+            raise HTTPException(400, "Échéance non liée à ce joueur")
+        if installment.status == "paid" or _installment_remaining(installment) <= 0:
+            raise HTTPException(409, "Échéance déjà soldée")
+
     if ptype == "monthly":
         today = paid_on
         year = payload.year or today.year
@@ -434,38 +482,68 @@ def create_quick_payment(
         if month < 1 or month > 12:
             raise HTTPException(400, "Mois invalide (1–12)")
         amount = amount if amount is not None else fees["monthly_subscription_dzd"]
-        installment = ensure_monthly_installment(
-            db,
-            athlete_id=athlete.id,
-            season_id=season_id,
-            year=year,
-            month=month,
-            amount=amount,
-            registration_id=reg.id if reg else None,
-        )
+        if installment is None:
+            # Imputer d'abord toute échéance due (évite fantômes ECH/…)
+            installment = _open_installments().first()
+            if installment is None:
+                installment = ensure_monthly_installment(
+                    db,
+                    athlete_id=athlete.id,
+                    season_id=season_id,
+                    year=year,
+                    month=month,
+                    amount=amount,
+                    registration_id=reg.id if reg else None,
+                    club_id=club_id,
+                )
         fr, _ = monthly_label_display(year, month)
         label = f"Abonnement {fr} — {display}"
     elif ptype == "insurance":
         amount = amount if amount is not None else fees["annual_insurance_dzd"]
-        if reg:
-            installment = ensure_insurance_installment(db, reg, amount)
-        else:
-            installment = (
-                db.query(FeeInstallment)
-                .filter(
-                    FeeInstallment.athlete_id == athlete.id,
-                    FeeInstallment.season_id == season_id,
-                    FeeInstallment.label == "assurance",
-                )
-                .first()
-            )
-            if not installment:
+        if installment is None:
+            installment = _open_installments(labels=["assurance"]).first()
+            if installment is None:
+                installment = _open_installments().first()
+            if installment is None:
+                if reg:
+                    installment = ensure_insurance_installment(db, reg, amount)
+                else:
+                    installment = FeeInstallment(
+                        club_id=club_id,
+                        athlete_id=athlete.id,
+                        season_id=season_id,
+                        label="assurance",
+                        label_ar="التأمين السنوي",
+                        due_date=paid_on,
+                        amount=amount,
+                        amount_paid=Decimal("0"),
+                        status="due",
+                    )
+                    db.add(installment)
+                    db.flush()
+        label = f"Assurance annuelle — {display}"
+        ledger_category = "insurance"
+    elif ptype == "inscription":
+        amount = amount if amount is not None else fees["inscription_fee_dzd"]
+        if installment is None:
+            # 1) échéance inscription existante (due/partial)
+            installment = _open_installments(labels=["inscription"]).first()
+            # 2) toute échéance due du joueur (ex. ECH/… seedée avec autre label)
+            if installment is None:
+                installment = _open_installments().first()
+            # 3) ensure / create inscription — uniquement si aucune due
+            if installment is None and reg:
+                if reg.subscription_fee is None or Decimal(str(reg.subscription_fee)) <= 0:
+                    reg.subscription_fee = amount
+                installment = ensure_subscription_installment(db, reg)
+            if installment is None:
                 installment = FeeInstallment(
                     club_id=club_id,
                     athlete_id=athlete.id,
                     season_id=season_id,
-                    label="assurance",
-                    label_ar="التأمين السنوي",
+                    registration_id=reg.id if reg else None,
+                    label="inscription",
+                    label_ar="حقوق الاشتراك",
                     due_date=paid_on,
                     amount=amount,
                     amount_paid=Decimal("0"),
@@ -473,29 +551,6 @@ def create_quick_payment(
                 )
                 db.add(installment)
                 db.flush()
-        label = f"Assurance annuelle — {display}"
-        ledger_category = "insurance"
-    elif ptype == "inscription":
-        amount = amount if amount is not None else fees["inscription_fee_dzd"]
-        if reg:
-            if reg.subscription_fee is None or Decimal(str(reg.subscription_fee)) <= 0:
-                reg.subscription_fee = amount
-            installment = ensure_subscription_installment(db, reg)
-        if not installment:
-            installment = FeeInstallment(
-                club_id=club_id,
-                athlete_id=athlete.id,
-                season_id=season_id,
-                registration_id=reg.id if reg else None,
-                label="inscription",
-                label_ar="حقوق الاشتراك",
-                due_date=paid_on,
-                amount=amount,
-                amount_paid=Decimal("0"),
-                status="due",
-            )
-            db.add(installment)
-            db.flush()
         label = f"Inscription — {display}"
     elif ptype == "equipment":
         eq = (payload.equipment_label or "équipement").strip()
@@ -504,20 +559,21 @@ def create_quick_payment(
             raise HTTPException(400, "Montant équipement requis")
         label = f"Équipement ({eq}) — {display}"
         ledger_category = "equipment"
-        installment = FeeInstallment(
-            club_id=club_id,
-            athlete_id=athlete.id,
-            season_id=season_id,
-            registration_id=reg.id if reg else None,
-            label=f"equipement-{eq[:40]}",
-            label_ar="تجهيز",
-            due_date=paid_on,
-            amount=amount,
-            amount_paid=Decimal("0"),
-            status="due",
-        )
-        db.add(installment)
-        db.flush()
+        if installment is None:
+            installment = FeeInstallment(
+                club_id=club_id,
+                athlete_id=athlete.id,
+                season_id=season_id,
+                registration_id=reg.id if reg else None,
+                label=f"equipement-{eq[:40]}",
+                label_ar="تجهيز",
+                due_date=paid_on,
+                amount=amount,
+                amount_paid=Decimal("0"),
+                status="due",
+            )
+            db.add(installment)
+            db.flush()
     else:
         raise HTTPException(
             400,
@@ -531,6 +587,14 @@ def create_quick_payment(
         installment.club_id = club_id
     if installment is not None:
         assign_installment_identity(db, installment, club_id=club_id)
+
+    # Clamp au reste dû (FI-04 : pas de surpaiement silencieux)
+    if installment is not None:
+        remaining = _installment_remaining(installment)
+        if remaining <= 0:
+            raise HTTPException(409, "Échéance déjà soldée")
+        if amount > remaining:
+            amount = remaining
 
     payment = Payment(
         installment_id=installment.id if installment else None,
@@ -566,7 +630,7 @@ def create_quick_payment(
         entity="payment",
         entity_id=payment.id,
         user_id=user.id,
-        detail=f"type={ptype} athlete={athlete.id} amount={amount}",
+        detail=f"type={ptype} athlete={athlete.id} amount={amount} installment={installment.id if installment else None}",
     )
     db.commit()
     cache_delete_prefix("finance:")

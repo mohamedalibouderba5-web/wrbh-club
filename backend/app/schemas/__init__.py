@@ -53,6 +53,7 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     locale: Optional[str] = None
     password: Optional[str] = Field(None, min_length=8)
+    must_change_password: Optional[bool] = None
 
 
 class UserOut(ORMModel):
@@ -532,7 +533,7 @@ class PaymentUpdate(BaseModel):
 
 
 class QuickPaymentCreate(BaseModel):
-    """Paiement guidé : type → catégorie → joueur."""
+    """Paiement guidé : type → catégorie → joueur (ou échéance existante)."""
 
     payment_type: str  # monthly | insurance | inscription | equipment
     athlete_id: int
@@ -545,6 +546,7 @@ class QuickPaymentCreate(BaseModel):
     paid_on: Optional[date] = None
     equipment_label: Optional[str] = None  # ex. maillot, brassards
     notes: Optional[str] = None
+    installment_id: Optional[int] = None  # si fourni : imputer cette échéance due
 
 
 class InstallmentOut(ORMModel):

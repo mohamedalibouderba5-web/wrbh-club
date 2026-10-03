@@ -110,7 +110,9 @@ export function TeamsPage() {
       if (data[1]) setCoaches(data[1]);
       if (data[2]) setCategories(data[2]);
       if (data[3]) setDisciplines(data[3]);
-      if (errors.length) setMsg(errors.join(" · "));
+      // Données partielles OK — ne pas masquer une liste OK derrière « Réessayer »
+      if (errors.length && !data[0] && !data[1]) setMsg(errors.join(" · "));
+      else if (errors.length) setMsg("");
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Erreur chargement");
     }
@@ -429,7 +431,7 @@ export function TeamsPage() {
         <div className="card">
           <h3 style={{ marginTop: 0 }}>{t("teamsSports")}</h3>
           <p className="muted" style={{ marginTop: 0 }}>
-            Un même club peut organiser plusieurs activités : football, judo, karaté, natation…
+            {t("teamsSportsHint")}
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
             {disciplines.map((d) => (
@@ -437,11 +439,11 @@ export function TeamsPage() {
                 {d.name} · {d.code} · {d.categories_count} cat.
               </span>
             ))}
-            {!disciplines.length && <span className="muted">Aucun sport configuré</span>}
+            {!disciplines.length && <span className="muted">{t("teamsNoSport")}</span>}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
             <label className="field" style={{ margin: 0, minWidth: 180 }}>
-              Ajouter un sport
+              {t("teamsAddSport")}
               <select value={addSport} onChange={(e) => setAddSport(e.target.value)}>
                 {(sportCatalog.length
                   ? sportCatalog
@@ -460,7 +462,7 @@ export function TeamsPage() {
               </select>
             </label>
             <button type="button" disabled={sportBusy} onClick={() => void onAddSport()}>
-              {sportBusy ? "…" : "Ajouter + catégories d’âge"}
+              {sportBusy ? "…" : t("teamsAddSportBtn")}
             </button>
           </div>
         </div>
@@ -489,7 +491,7 @@ export function TeamsPage() {
           </div>
 
           <form className="grid" style={{ gap: "0.75rem", marginTop: "1rem" }} onSubmit={onCreateTeam}>
-            <h4 style={{ margin: 0 }}>Créer une équipe (personnalisé)</h4>
+            <h4 style={{ margin: 0 }}>{t("teamsCreateCustom")}</h4>
             <p className="muted" style={{ margin: 0 }}>
               Choisissez une catégorie existante ou créez-en une (années de naissance). Le n° d’équipe (G1, G2…) est
               détecté automatiquement.
@@ -558,7 +560,7 @@ export function TeamsPage() {
                 />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>Coach titulaire</label>
+                <label>{t("teamsCoachPrimary")}</label>
                 <select
                   value={teamForm.coach_id}
                   onChange={(e) => setTeamForm({ ...teamForm, coach_id: e.target.value })}
@@ -574,7 +576,7 @@ export function TeamsPage() {
               </div>
             </div>
             <button type="submit" disabled={teamBusy}>
-              {teamBusy ? "…" : "Créer l’équipe"}
+              {teamBusy ? "…" : t("teamsCreateBtn")}
             </button>
           </form>
 
@@ -645,8 +647,8 @@ export function TeamsPage() {
           <table style={{ marginTop: "1rem" }}>
             <thead>
               <tr>
-                <th>Coach</th>
-                <th>Catégories / équipes</th>
+                <th>{t("teamsColCoach")}</th>
+                <th>{t("teamsColCategories")}</th>
                 <th>Tél.</th>
                 <th>Statut</th>
                 <th></th>
@@ -703,7 +705,7 @@ export function TeamsPage() {
         <div className="card">
           <h3 style={{ marginTop: 0 }}>{t("teamsTitle")}</h3>
           <p className="muted" style={{ marginTop: 0 }}>
-            Chaque catégorie a son coach. Un coach peut entraîner plusieurs équipes (ex. U11G1 + U14G2).
+            {t("teamsHint")}
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {teams.map((t) => {
@@ -737,7 +739,7 @@ export function TeamsPage() {
                 </button>
               );
             })}
-            {!teams.length && <p className="muted">Aucune équipe — utilisez « Créer l’équipe » ci-dessus.</p>}
+            {!teams.length && <p className="muted">{t("teamsEmpty")}</p>}
           </div>
         </div>
 

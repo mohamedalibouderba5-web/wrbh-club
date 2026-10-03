@@ -78,14 +78,22 @@ class HttpError extends Error {
   }
 }
 
-function readCache<T>(key: string): CacheEntry | null {
-  const m = mem.get(key);
+/** Clé cache scopée au club (évite listes « Réessayer » / données croisées après changement de club). */
+function cacheScopeKey(path: string): string {
+  const slug = (typeof localStorage !== "undefined" && localStorage.getItem("wrbh_club_slug")) || "";
+  const s = slug.trim().toLowerCase();
+  return s ? `${s}::${path}` : path;
+}
+
+function readCache(key: string): CacheEntry | null {
+  const scoped = cacheScopeKey(key);
+  const m = mem.get(scoped);
   if (m) return m;
   try {
-    const raw = sessionStorage.getItem(SS_PREFIX + key);
+    const raw = sessionStorage.getItem(SS_PREFIX + scoped);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CacheEntry;
-    mem.set(key, parsed);
+    mem.set(scoped, parsed);
     return parsed;
   } catch {
     return null;
@@ -93,10 +101,11 @@ function readCache<T>(key: string): CacheEntry | null {
 }
 
 function writeCache(key: string, data: unknown) {
+  const scoped = cacheScopeKey(key);
   const entry: CacheEntry = { at: Date.now(), data };
-  mem.set(key, entry);
+  mem.set(scoped, entry);
   try {
-    sessionStorage.setItem(SS_PREFIX + key, JSON.stringify(entry));
+    sessionStorage.setItem(SS_PREFIX + scoped, JSON.stringify(entry));
   } catch {
     /* quota */
   }

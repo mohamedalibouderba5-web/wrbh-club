@@ -78,6 +78,7 @@ settings = get_settings()
 
 router = APIRouter(tags=["structure"])
 
+
 # Cache stats par club : {club_id: {"ts": float, "payload": dict}}
 _STATS_CACHE: dict = {}
 _STATS_TTL_SEC = 45.0
@@ -97,22 +98,12 @@ def _bust_club_caches() -> None:
 def _current_season(db: Session, club_id: int | None) -> Season | None:
     """Saison courante du club (jamais celle d'un autre tenant)."""
     if club_id:
-        s = (
+        return (
             db.query(Season)
             .filter(Season.is_current.is_(True), Season.club_id == club_id)
             .first()
         )
-        if s:
-            return s
-        s = (
-            db.query(Season)
-            .filter(Season.is_current.is_(True), Season.club_id.is_(None))
-            .first()
-        )
-        if s:
-            return s
-    return db.query(Season).filter(Season.is_current.is_(True)).first()
-
+    return None
 
 @router.get("/seasons", response_model=list[SeasonOut])
 def list_seasons(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -162,7 +153,7 @@ def archive_season_roster(
         release_registration_identity(reg)  # conserve référence, libère seulement le kit
         archived_regs += 1
 
-    current = db.query(Season).filter(Season.is_current.is_(True)).first()
+    current = _current_season(db, club_id)
     archived_athletes = 0
     for aid in athlete_ids:
         athlete = db.get(Athlete, aid)
@@ -478,12 +469,15 @@ def list_teams(
     else:
         sid = season_id
         if not sid:
-            cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+            cur = _current_season(db, club_id)
             sid = cur.id if cur else None
         if sid:
             cat_ids = [c.id for c in db.query(Category.id).filter(Category.season_id == sid)]
             if cat_ids:
                 q = q.filter(Team.category_id.in_(cat_ids))
+            else:
+                # Saison sans catégories → aucune équipe (évite de renvoyer d’autres saisons)
+                return []
     return q.order_by(Team.name).all()
 
 
@@ -515,8 +509,8 @@ def list_teams_with_coaches(
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
     club_id: int = Depends(get_current_club_id),
 ):
-    """Vue équipes + coachs (saison courante)."""
-    cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+    """Vue équipes + coachs (saison courante du club)."""
+    cur = _current_season(db, club_id)
     q = db.query(Team).filter(Team.club_id == club_id)
     cats: dict[int, Category] = {}
     if cur:
@@ -686,7 +680,7 @@ def list_coaches(
     if not include_inactive:
         q = q.filter(User.is_active.is_(True))
     rows = q.order_by(User.full_name).all()
-    cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+    cur = _current_season(db, club_id)
     cat_ids = set()
     if cur:
         cat_ids = {c.id for c in db.query(Category.id).filter(Category.season_id == cur.id)}
@@ -739,7 +733,7 @@ def create_category(
 ):
     season_id = payload.season_id
     if not season_id:
-        cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+        cur = _current_season(db, club_id)
         if not cur:
             raise HTTPException(400, "Aucune saison courante")
         season_id = cur.id
@@ -788,7 +782,7 @@ def create_team(
     """Création personnalisée : catégorie existante ou nouvelle + équipe G1/G2/G3 auto."""
     season_id = payload.season_id
     if not season_id:
-        cur = db.query(Season).filter(Season.is_current.is_(True)).first()
+        cur = _current_season(db, club_id)
         if not cur:
             raise HTTPException(400, "Aucune saison courante")
         season_id = cur.id
@@ -887,10 +881,15 @@ def sync_season_team_structure(
     club_id: int = Depends(get_current_club_id),
 ):
     """Crée / complète catégories + équipes G1/G2 (U14…U5) pour la saison courante."""
-    season = db.query(Season).filter(Season.is_current.is_(True)).first()
+    season = _current_season(db, club_id)
     if not season:
         raise HTTPException(400, "Aucune saison courante")
-    disc = db.query(Discipline).order_by(Discipline.id).first()
+    disc = (
+        db.query(Discipline)
+        .filter(Discipline.club_id == club_id)
+        .order_by(Discipline.id)
+        .first()
+    )
     if not disc:
         raise HTTPException(400, "Aucune discipline configurée")
 
@@ -1106,6 +1105,12 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
     }
     _STATS_CACHE[club_id] = {"ts": now, "payload": payload}
     return payload
+
+
+@router.get("/club/stats")
+def club_stats_alias(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Alias compat : /api/v1/club/stats → même payload que /api/v1/stats/club."""
+    return club_stats(db=db, user=user)
 
 
 def _month_keys(months: int = 12) -> list[tuple[int, int, str]]:
@@ -1856,7 +1861,7 @@ def update_athlete(
         note = payload.notes or athlete.notes or ""
         title = f"Joueur — {athlete.full_name}"
         body = f"Statut mis à jour : {new_status}. {note}".strip()
-        notify_parents_of_athlete(db, athlete.id, title, body, kind="status")
+        notify_parents_of_athlete(db, athlete.id, title, body, kind="status", club_id=club_id)
         notify_role(db, Role.ADMIN, title, body, kind="status", club_id=club_id)
 
     write_audit(
@@ -2035,17 +2040,18 @@ def prune_old_teams(
     confirm: bool = Query(False),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN)),
+    club_id: int = Depends(get_current_club_id),
 ):
     """Supprime les équipes liées à des catégories hors saison courante, sans memberships actives."""
     if not confirm:
         raise HTTPException(400, "Ajoutez ?confirm=true")
-    season = db.query(Season).filter(Season.is_current.is_(True)).first()
+    season = _current_season(db, club_id)
     if not season:
         raise HTTPException(400, "Aucune saison courante")
     keep_cat_ids = {c.id for c in db.query(Category).filter(Category.season_id == season.id)}
     deleted = []
     kept = []
-    for team in db.query(Team).all():
+    for team in db.query(Team).filter(Team.club_id == club_id).all():
         if team.category_id in keep_cat_ids:
             kept.append(team.id)
             continue
