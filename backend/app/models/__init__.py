@@ -76,6 +76,8 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     locale: Mapped[str] = mapped_column(String(10), default="fr")
+    # Présence plateforme : mis à jour au login + activité API (throttle)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     birth_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     birth_place: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -418,6 +420,25 @@ class LedgerEntry(Base, TimestampMixin):
     seq_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     reference: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Lien traçable paiement / régularisation (Codex Lot 2)
+    source_type: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    source_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    reversed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reversed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reversal_of_id: Mapped[Optional[int]] = mapped_column(ForeignKey("ledger_entries.id"), nullable=True)
+
+
+class ClubSeqCounter(Base):
+    """Compteurs tenant verrouillés (Codex Lot 2 — remplace MAX+1 concurrent)."""
+
+    __tablename__ = "club_seq_counters"
+    __table_args__ = (UniqueConstraint("club_id", "kind", "scope_id", name="uq_club_seq_kind_scope"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[int] = mapped_column(ForeignKey("clubs.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(40))  # payment / ledger / installment / registration
+    scope_id: Mapped[int] = mapped_column(Integer, default=0)  # season_id ou 0
+    last_value: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class CoachPayroll(Base, TimestampMixin):

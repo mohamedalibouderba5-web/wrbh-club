@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.roles import Role
 from app.core.security import create_access_token, hash_password, verify_password
+from app.core.tenant import get_current_club_id
 from app.models import Athlete, Category, Club, Discipline, ParentChild, Registration, Season, User
 from app.schemas import (
     ClubOnboardIn,
@@ -162,7 +163,8 @@ def login(
         # Rattache les anciens comptes NULL au club choisi (migration douce)
         if getattr(user, "club_id", None) is None and user.role != Role.SUPERADMIN:
             user.club_id = club_id
-            db.commit()
+    user.last_seen_at = datetime.now(timezone.utc)
+    db.commit()
     token_club = getattr(user, "club_id", None) or club_id
     token = create_access_token(
         user.id, {"role": user.role, "club_id": token_club}
@@ -647,9 +649,10 @@ def wake():
 def cleanup_audit(
     confirm: bool = False,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.ADMIN)),
+    _: User = Depends(require_roles(Role.ADMIN, Role.SUPERADMIN)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    """Purge données marquées [AUDIT] / [TEST] créées par les audits."""
+    """Purge données marquées [AUDIT] / [TEST] — **uniquement le club courant**."""
     if not confirm:
         raise HTTPException(400, "Ajoutez ?confirm=true")
     if settings.is_production and not settings.allow_test_cleanup:
@@ -659,11 +662,12 @@ def cleanup_audit(
     athletes = (
         db.query(Athlete)
         .filter(
+            Athlete.club_id == club_id,
             or_(
                 Athlete.full_name.ilike("%[AUDIT]%"),
                 Athlete.full_name.ilike("%[TEST]%"),
                 Athlete.notes.ilike("%[AUDIT]%"),
-            )
+            ),
         )
         .all()
     )
@@ -671,14 +675,17 @@ def cleanup_audit(
     deleted = {"athletes": 0, "regs": 0}
     for aid in ids:
         deleted["regs"] += (
-            db.query(Registration).filter(Registration.athlete_id == aid).delete(synchronize_session=False)
+            db.query(Registration)
+            .filter(Registration.athlete_id == aid, Registration.club_id == club_id)
+            .delete(synchronize_session=False)
         )
-        db.query(ParentChild).filter(ParentChild.athlete_id == aid).delete(synchronize_session=False)
+        db.query(ParentChild).filter(
+            ParentChild.athlete_id == aid, ParentChild.club_id == club_id
+        ).delete(synchronize_session=False)
         ath = db.get(Athlete, aid)
-        if ath:
+        if ath and ath.club_id == club_id:
             db.delete(ath)
             deleted["athletes"] += 1
-    # Annonces / libellés audit
     from app.models import Announcement, Event, InventoryItem, LedgerEntry
 
     for model, field in (
@@ -690,7 +697,11 @@ def cleanup_audit(
         col = getattr(model, field)
         n = 0
         for m in markers:
-            n += db.query(model).filter(col.ilike(f"%{m}%")).delete(synchronize_session=False)
+            n += (
+                db.query(model)
+                .filter(model.club_id == club_id, col.ilike(f"%{m}%"))
+                .delete(synchronize_session=False)
+            )
         deleted[model.__tablename__] = n
     db.commit()
-    return {"ok": True, "deleted": deleted, "markers": list(markers)}
+    return {"ok": True, "deleted": deleted, "markers": list(markers), "club_id": club_id}

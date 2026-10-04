@@ -67,6 +67,7 @@ class UserOut(ORMModel):
     is_active: bool
     locale: str
     must_change_password: bool = False
+    last_seen_at: Optional[datetime] = None
 
 
 class LoginForm(BaseModel):
@@ -153,6 +154,16 @@ class SeasonOut(ORMModel):
     ends_on: date
     is_current: bool
     registration_open: bool
+
+
+class SeasonCreate(BaseModel):
+    """Création manuelle d'une saison (ex. 2024/2025 historique)."""
+
+    name: str = Field(min_length=2, max_length=40)
+    starts_on: date
+    ends_on: date
+    is_current: bool = False
+    registration_open: bool = False
 
 
 class CategoryOut(ORMModel):
@@ -517,7 +528,7 @@ class AttendanceIn(BaseModel):
 class PaymentCreate(BaseModel):
     installment_id: Optional[int] = None
     athlete_id: int
-    amount: Decimal
+    amount: Decimal = Field(gt=0)
     method: str = "cash"
     paid_on: date
     reference: Optional[str] = None

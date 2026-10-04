@@ -224,7 +224,44 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-03 15h10 | (sync QA) | **Exécution catalogue** : `api.nadi-connect.com` **timeout** alors que API IP:8081 OK — **AP-01 HTTPS bloqué** tant que DNS/proxy non réparé. ST-06 teams + FI-04 paiements toujours FAIL côté API |
 | 2026-10-03 15h40 | (sync QA) | **Ordre réparation** `ORDRE_REPARATION_FIABILITE_100.md` Lot D : après fix API (domaine + teams + payments) → checklist M0 téléphone (HTTPS, équipes, agenda, paiements, ClubLock, i18n, Feedback). **Ne pas** rebuild APK vers IP HTTP |
 | 2026-10-03 16h10 | (sync site) | **A2/A3 déployés (code)** : `GET /teams` saison club ; `payments/quick` impute échéance due + clamp (409 si soldée). **À retester app** : Équipes non vides ; Agenda select équipes ; Paiements impute même `installment_id` ; pas de rebuild APK obligatoire (contrat API). Chrome web = nom club (miroir sous-titre app déjà OK) |
+| 2026-10-03 16h45 | **1.14.0** | **Lot D code** : paiements `installment_id` + bouton encaisser échéance + anti double-tap ; ClubLock Messages ; fallback équipes/agenda si coaches vide ; pastilles licence **et** certificat ; login slug obligatoire ; parent filtre échéances. vc17 HTTPS |
 | 2026-10-03 16h45 | (sync site) | **B3/B4/C1** : club suspendu login lecture seule ; `/mobile/children` strict club ; inventory API staff-only. **À retester app** : parent multi-club (pas d’enfant autre club) ; ClubLock suspendu après login ; Feedback/listes après cold start |
+| 2026-10-03 18h45 | (sync site) | **A1 CLOS** : `https://api.nadi-connect.com` = DNS only → VPS, health **200** client. **À AJOUTER / retester en M0 :** login slug `horizon-blida-882` / `demo-foot-safex` sur **API HTTPS** (plus de Failed to fetch CF) ; Équipes + Agenda + Paiements quick ; ClubLock. APK actuel 1.14.0 OK si `EXPO_PUBLIC_API_URL` = `https://api.nadi-connect.com` — **pas de rebuild obligatoire** pour A1 |
+| 2026-10-03 22h50 | (sync audit) | **Lot A IDOR + B partiel** déployer API : roster/présences/convocations/photos/`POST /payments` cross-club → 404. **À retester app après deploy :** Agenda roster + présences ; photo joueur ; encaissement `/payments` et `/payments/quick`. Pas de rebuild IP HTTP |
+| 2026-10-03 22h25 | (sync audit) | Audit expert ≈ **64 %** : IDOR agenda roster/présences, médias, `POST /payments` (pas `/quick`). **App :** après fix API, retester Agenda + photos + encaissement classique. Pas de rebuild IP HTTP |
+| 2026-10-03 22h35 | (sync site) | **Ordre** `ORDRE_CORRECTIFS_AUDIT_EXPERT.md` Lot D4 : après deploy Lots A+B API — retester M0 Agenda (roster/présences), photos joueur, `/payments` + `/payments/quick`. Pas de rebuild IP HTTP. Barème (C3) = feature plus tard, pas bloquant app |
+| 2026-10-04 12h35 | (sync site) | **Club test Sisi** `sisi-blida-13865` / `admin@sisi-blida-13865.test` / `SisiEssai2026!` — ~309 joueurs. **App :** login slug + checklist M0 (équipes, agenda, paiements) sur ce tenant. Voir `CLUB_SISI_ACCES_FR_AR.md` |
+| 2026-10-04 14h00 | (sync site) | **Ordre dév club** `CS_Sisi_Blida_conseils_amelioration_FR_AR.md` : P0 app = M0 + listes >200 + menus Plus Finance/Comptes/Équipes sur Sisi |
+| 2026-10-03 22h35 | (sync audit) | **Ordre correctifs** `ORDRE_CORRECTIFS_AUDIT_INGENIERIE_FR_AR.md` Lot A Android : après deploy Lots S+F → recettes M0 présences, RSVP, photos, paiements. Rebuild seulement si payload client change |
+| 2026-10-04 12h35 | (sync QA) | **Club Sisi** `sisi-blida-13315` / `admin@sisi-blida-13315.test` / `SisiEssai2026!` — ~300 joueurs pour stress listes. **À tester app :** login slug, Athlètes pagination, Finance, Équipes, Agenda |
+| 2026-10-03 23h30 | (sync Codex) | **Lots 1+2+4 API/web déployés.** **À AJOUTER app :** (1) token JWT uniquement via `expo-secure-store` (déjà branché `client.ts` / `AuthContext` — rebuild APK obligatoire pour effet device) ; (2) médias : ne jamais mettre le JWT dans l’URL image — utiliser `/media/{id}/signed-url` ou chemin déjà signé `exp`+`sig` ; (3) recettes M0 après deploy : Agenda roster/présences, photo joueur, `/payments` + `/payments/quick`, stock attribution. Pas de rebuild vers IP HTTP |
+| 2026-10-04 01h20 | (sync reste) | **P1 web/API clos** (P1-6…9, R0-10/14). **Priorité app = P2/M0** téléphone/Nox : M0-01…16 + SecureStore rebuild. Pas de rebuild IP HTTP |
+| 2026-10-04 01h50 | **1.14.0** Nox | **M0 partiel OK** sur Nox : session, équipes (U11+sports), agenda, paiements, feedback, DNS HTTPS. **À AJOUTER / corriger :** chrome Accueil affiche « Administrateur WRBH » sans **Nadi Connect** produit ; finir M0-06/07/08/09/14 comptes jetables ; rebuild SecureStore |
+| 2026-10-04 14h00 | (sync site) | **Console plateforme V1** livrée site+API. **À AJOUTER dans l’app (fait code local) :** écran `/(tabs)/platform` ; entrée Plus `roles: ["superadmin"]` ; APIs `GET /admin/dashboard`, `GET/PATCH /admin/clubs`, `GET/PATCH /admin/users`. **Recette :** login `platform@nadi-connect.local` (sans slug club) → Plus → Plateforme → KPI + suspendre. Rebuild APK pour device. |
+
+## 9ter. À AJOUTER — Console plateforme superadmin (2026-10-04)
+
+### APIs
+
+| Endpoint | Usage |
+|----------|--------|
+| `GET /api/v1/admin/dashboard` | KPI globaux + `online_users` + `recent_clubs` |
+| `GET /api/v1/admin/clubs` | Liste clubs + compteurs |
+| `PATCH /api/v1/admin/clubs/{id}` | `{ status, plan, trial_ends_on, is_platform }` |
+| `GET /api/v1/admin/users?role=&online_only=&q=` | Comptes cross-club + présence |
+| `PATCH /api/v1/admin/users/{id}` | `{ is_active }` |
+
+Présence = `User.last_seen_at` (login + activité API, fenêtre **15 min**).
+
+### Écran app
+
+1. Menu **Plus** → **Plateforme** visible seulement si `role === "superadmin"`.
+2. Route `/(tabs)/platform` : KPI + connectés + liste clubs (suspendre/réactiver).
+3. Login plateforme : email `platform@…` **sans** code club (ou slug ignoré).
+
+### Recette
+
+Login superadmin → Plus → Plateforme → voir KPI → pull-to-refresh → suspendre un club démo → réactiver.
 
 ## 9bis. À AJOUTER — Onboard sports (2026-10-02)
 

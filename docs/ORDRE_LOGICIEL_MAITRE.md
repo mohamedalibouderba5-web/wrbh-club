@@ -38,11 +38,13 @@
 | Agenda sportif | Séances / matchs, présence, démarrage / fin |
 | Suivi parental | Notifications + préférences (création, rappel, présence, fin) |
 | Finance | Cotisations, paiements, caisse, tableau de bord graphes |
-| Comptes & rôles | Admin, direction, staff, coach, parent |
+| Comptes & rôles | Admin club, direction, staff, coach, parent + **superadmin plateforme** |
 | Traçabilité | Historique / corbeille (restauration) |
 | Communication | Annonces, messages, notifications in-app |
+| Console plateforme | Dashboard multi-clubs (`/platform`) : KPI globaux, présence, suspension |
 
-**Client payeur :** le club. **Utilisateurs quotidiens :** direction, coachs, parents.
+**Client payeur :** le club. **Utilisateurs quotidiens :** direction, coachs, parents.  
+**Opérateur logiciel :** rôle `superadmin` (hors club) — console `/platform` web + écran app `platform`.
 
 ---
 
@@ -50,6 +52,7 @@
 
 | Rôle | Code API | Qui |
 |------|----------|-----|
+| **Super-admin plateforme** | `superadmin` | Ops Nadi Connect — tous les clubs (`club_id` NULL) |
 | Administrateur | `admin` | Super utilisateur club (tout + comptes) |
 | Direction / Gérant | `direction` | Pilotage ; peut aussi être coach d’équipe |
 | Staff | `staff` | Secrétariat / opérations |
@@ -79,12 +82,21 @@ Visibles selon rôle (`AppLayout`) :
 | `/announcements` | Annonces | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `/guide` | Guide / Formation | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `/download` | Télécharger app | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `/platform` | Console plateforme | — | — | — | — | — |
 
-\* Parent : pas le menu Finance complet ; peut voir cotisations liées via inscriptions / profil app.
+\* Parent : pas le menu Finance complet ; peut voir cotisations liées via inscriptions / profil app.  
+\*\* `/platform` : **uniquement** `superadmin` (pas dans le tableau club ci-dessus).
 
 ---
 
 ## 4. Tableau de bord
+
+### Console plateforme (`superadmin`) — `/platform`
+- KPI : clubs (total / actifs / suspendus / essais ≤7 j), comptes, **en ligne** (fenêtre 15 min via `last_seen_at`)
+- Répartition par rôle + parents connectés ; plans (discovery / club / academy)
+- Volumes : athlètes, inscriptions mois, paiements mois
+- Onglets : vue d’ensemble · clubs (suspendre / plan) · comptes (filtre / activer-désactiver)
+- API : `GET /api/v1/admin/dashboard` · `GET/PATCH /api/v1/admin/clubs` · `GET/PATCH /api/v1/admin/users`
 
 ### Staff / coach
 - KPI : athlètes, actifs, parents, séances, inscriptions en attente, impayés  
@@ -314,6 +326,7 @@ Page `/history` :
 | 2026-10-02 16h50 | **Images vitrine** : retrait WRBH/`affiche.jpg` ; nouveaux visuels **Nadi Connect** (hero multi-sports DZ, modules, notifs parents, app phone, collage football/judo/natation/handball) | Aucun changement API app |
 | 2026-10-02 17h10 | **Onboard sports** : `GET /club/sports` → **26 disciplines** DZ (futsal, taekwondo, lutte, tennis, etc.) ; UI `/onboard` **Monosport / Multisport** puis sélection ; fallback local élargi ; `VITE_API_URL` → `https://api.nadi-connect.com` | **À faire app** : miroir mono/multi + liste complète (voir ORDRE Android) |
 | 2026-10-02 17h20 | **APP-B1 / APP-B2** : app **1.13.0**/vc16 → `https://api.nadi-connect.com` + `https://nadi-connect.com` ; `usesCleartextTraffic=false` ; bouton Profil « Découvrir le site » ; DownloadPage + UpdateGate → `wrbh-club-1.13.0.apk` | Installer APK 1.13.0 ; vérifier login 4G HTTPS |
+| 2026-10-03 16h45 | **APP Lot D 1.14.0** : `installment_id` paiements, ClubLock messages, fallback équipes/agenda, pastilles double, slug login requis | Installer 1.14.0 ; recettes M0-10…12 téléphone |
 | 2026-10-02 17h35 | **UX site** : `MarketingShell` (Accueil sticky) sur guide/tarifs/onboard/login/download/pilote/install ; onboard intégré design marketing ; marque AR = **Nadi Connect** + « تسيير ومتابعة النوادي الرياضية » (jamais « نادي كونكت ») | App : mêmes libellés marque ; guide WebView bénéficie déjà d’Accueil site |
 | 2026-10-02 19h30 | **Charge demo live** club `horizon-blida-882` : ~100 athlètes FOOT multi-catégories, ~110 inscriptions, ~90 séances, coachs, finance (paiements + caisse), matériel, annonces ; feedback UI+API. **Fix backend** : `GET/POST /teams` — saison courante filtrée par **`club_id`** (sinon liste vide en prod). Script `backend/scripts/seed_horizon_live.py` | Après déploiement API : listes équipes/agenda OK ; app miroir équipes + feedback |
 | 2026-10-02 23h50 | **Matrice audit expert failles** : `docs/SCENARIOS_AUDIT_EXPERT_FAILLES.md` — Tiers A→E par probabilité de détection, 6 campagnes (isolation, argent, volume, rôles×centaines users, Android, minuscules), 8 théâtres multi-acteurs | App : rejouer miroirs A10/A11/B02/B19 + E06 IDOR |
@@ -324,6 +337,24 @@ Page `/history` :
 | 2026-10-03 15h40 | **ORDRE RÉPARATION FIABILITÉ 100 %** : `docs/ORDRE_REPARATION_FIABILITE_100.md` — Lots A→E (P0 domaine API + teams + payments ; P1 listes/chrome/trial/suspend ; pytest CI ; Android M0 ; S2). DoD = R0+W0+M0 verts, 0 S0/S1 | Exécuter Lot A d’abord ; app Lot D après A1–A3 |
 | 2026-10-03 16h10 | **Lot A2/A3 + B1/B2 code** : `_current_season(club_id)` unique ; `GET /teams` + `/teams/coaches` saison club ; `payments/quick` impute échéance due + clamp FI-04 (409 si soldée) ; cache API web scopé `club_slug` ; chrome AppLayout = nom club ; Finance/Teams sans faux « Réessayer ». Pytest **27** verts (`test_teams_default_season`, `test_payment_double_charge`, `test_trial_expired_write_lock`) | **Impact Android :** retester Équipes/Agenda/Paiements après deploy ; même contrat quick pay |
 | 2026-10-03 16h45 | **Lot B3–B6 + C1/C2** : login club **suspendu** = lecture OK (écritures 403) ; `/inventory/items` réservé staff+ ; `/mobile/children` IDOR strict `club_id` ; hydrate JWT avant GET (A06) ; Athlètes/Inscriptions/Feedback/Matériel sans faux vide. Pytest **31** verts (+ suspend, children IDOR, roles smoke) | **Impact Android :** children parent club-only ; ClubLock suspendu = login possible lecture seule ; pas de rebuild APK obligatoire |
+| 2026-10-03 16h50 | **Reste à régler recentré** : docs `RESTE_A_REGLER_FIABILITE_100.md` + `RAPPORT_RESTE_FIABILITE_100.md` + `RESTE_A_FAIRE_PAR_ROLE.md` (+ AR). Code A2/A3/B/C **clos** sur `6ffcbec` ; ouvert = **A1 domaine client** + recettes + M0 téléphone (~**2–5 j**, pas mois) | App : M0 après A1 vert ; pas de rebuild IP HTTP |
+| 2026-10-03 22h20 | **Audit expert ingénierie** `AUDIT_EXPERT_INGENIERIE_2026-10-03_FR_AR.md` : score global ≈ **66 %** ; P0 IDOR (roster/attendance/media/cleanup/create_payment) + concurrence finance/stock ; barème progressif **absent** | App : mêmes contrats API après fix IDOR agenda/médias/paiements |
+| 2026-10-03 22h35 | **ORDRE correctifs audit** `ORDRE_CORRECTIFS_AUDIT_INGENIERIE_FR_AR.md` : Lots **S→F→K→T→D→B→O→A** (sécurité IDOR d’abord, puis finance/stock, tests, schéma, barème optionnel) | App Lot A : recettes présences/RSVP/photos/paiements après deploy S+F ; rebuild seulement si contrat client change |
+| 2026-10-03 22h25 | **Relecture audit** : mêmes P0 **confirmés** dans le code ; score **≈ 64 %** ; rapport FR+AR mis à jour | App : retester Agenda roster/présences, médias, `POST /payments` après fix |
+| 2026-10-03 22h30 | **Complément audit finance** : amount≤0, ledger non inversé, assign qty≤0, courses reçu | App : même contrat `/payments` vs `/payments/quick` |
+| 2026-10-03 22h35 | **ORDRE correctifs audit** `ORDRE_CORRECTIFS_AUDIT_EXPERT.md` : Lot A IDOR (cleanup, agenda, médias, POST /payments) → Lot B ledger/stock/FOR UPDATE → Lot C schéma/barème optionnel → Lot D recettes | App : D4 après deploy A+B — Agenda, photos, paiements ; pas de rebuild IP HTTP |
+| 2026-10-04 12h35 | **Club essai fiabilité CS Sisi Blida** : onboard discovery + seed ~309 athlètes / paiements / agenda / matériel (`seed_sisi_club_live.py`). Accès `docs/CLUB_SISI_ACCES_FR_AR.md` slug `sisi-blida-13865`. `POST /seasons` encore 405 en prod → 1 saison 2026/2027 + vagues 24/25 | App : login même slug ; M0 sur ce club OK |
+| 2026-10-04 14h00 | **Conseils amélioration ancrés club** : `docs/CS_Sisi_Blida_conseils_amelioration_FR_AR.md` (ex. CONSEILS_AMELIORATION_…) — P0/P1/P2 pour 78→90 %+ | App : M0 + pagination 200 + menus Plus sur Sisi |
+| 2026-10-03 18h45 | **A1 CLOS (Cloudflare)** : enregistrement `api` **DNS only** (nuage gris) → `46.224.38.201` ; health HTTPS client Windows **200**. Login web `horizon-blida-882` / `audit-ess-9475` / `demo-foot-safex` OK. Recette Horizon : athlètes + finance + `GET /teams`=126. GO-ops atteint | **Impact Android :** pointer `https://api.nadi-connect.com` (plus de proxy CF) ; lancer checklist **M0** sur Nox/téléphone 4G dès maintenant |
+| 2026-10-03 22h50 | **Audit expert Lot A (IDOR) + Lot B partiel** : `cleanup-audit` club-scoped ; agenda roster/attendance/convocations ; uploads photo ; `POST /payments` athlète+amount>0 ; `with_for_update` ; fin `OR IS NULL` ; fees `_resolve_club_id` strict. Tests `test_idor_audit.py` ; pytest **36** | **Impact Android :** après deploy — retester Agenda (roster/présences), photos joueur, paiements classique + quick |
+| 2026-10-03 22h35 | **ORDRE correctifs audit ingénierie** `ORDRE_CORRECTIFS_AUDIT_INGENIERIE_FR_AR.md` : Lots **S→F→K→T→D→B→O→A** (IDOR d’abord, finance/stock, tests, schéma, barème optionnel) | App : recettes présences/RSVP/photos/paiements après S+F |
+| 2026-10-03 23h30 | **Codex fiabilité Lots 1+2+4 (P0/P1)** déployés prod `git_sha=codex-lot1-2` : helper `get_scoped` ; cleanup/backfill club-only ; agenda/parental/push `club_id` ; ledger `source_type`/`source_id` + écritures inverse ; stock `FOR UPDATE` + athlète scoped ; médias URL signée (plus de JWT query) ; web headers nginx ; Android token → **SecureStore**. Pytest **39** verts (`test_codex_tenant_p0`, idor, security_m1). Reste ouvert Codex : Lot 3 NOT NULL global, Redis/idempotency/outbox, barème P2 | **Impact Android :** SecureStore déjà en code (`expo-secure-store`) — rebuild APK pour persister token hors AsyncStorage ; retester Agenda/photos/paiements après deploy |
+| 2026-10-03 23h35 | **Codex Lot 2 suite** : table `club_seq_counters` (allocation `FOR UPDATE`) + CHECK stock `quantity >= 0` ; prod `git_sha=codex-lot2-s` health OK. Pytest **39** | Pas de changement contrat client app |
+| 2026-10-04 01h20 | **Reste à régler resync codes** : P1-6…P1-9 + R0-10 + R0-14 **CLOS** (smokes prod) ; parent `/installments` filtre `ParentChild.club_id` ; docs `RESTE_*` / résumé FR+AR mis à jour. Ouvert = **M0** + CX-3/4b/4c | **Impact Android :** lancer checklist M0 ; rebuild APK pour SecureStore |
+| 2026-10-04 01h50 | **M0 Nox partiel** APK 1.14.0 : équipes/agenda/paiements/session/DNS OK ; marque Accueil sans « Nadi Connect » ; manuels ClubLock/mcp/parent ouverts. Rapport `docs/_nox_m0/RAPPORT_M0_NOX_2026-10-04.md` | Corriger chrome produit Accueil ; finir M0 manuels ; SecureStore rebuild |
+| 2026-10-04 12h20 | **Fix login lent / Failed to fetch** : cause = apex `nadi-connect.com` encore **proxied Cloudflare** (IPs CF timeout depuis Windows ; `api` DNS-only OK). Contournement PC : hosts → origine ; web déployé `login-fix-cf` : API runtime → `https://api.nadi-connect.com`, wake 5s non bloquant, messages réseau clairs. **Reste ops :** greyer `@`+`www` CF (`cloudflare_dns_grey_site.sh` + token) | App déjà sur API HTTPS — pas de rebuild pour ce fix web |
+| 2026-10-04 12h35 | **Club essai fiabilité Sisi** : `sisi-blida-13315` + seed ~298 athlètes, 298 inscriptions, 567 paiements, 12 équipes, 30 événements, caisse, matériel, annonces. Credentials `docs/CLUB_SISI_CREDENTIALS_FR_AR.md`. Script `seed_club_sisi_fiabilite.py`. Login humain OK (dashboard + athlètes + finance) | App : login slug Sisi ; listes volumineuses ; pas de rebuild obligatoire |
+| 2026-10-04 14h00 | **Console plateforme V1** : `GET /admin/dashboard` (KPI clubs/users/online/athlètes/paiements) ; `GET/PATCH /admin/users` ; `User.last_seen_at` (login + activité API) ; web `/platform` 3 onglets ; app `platform.tsx` (Plus → Plateforme, rôle `superadmin`) ; fix `platform_admin` `get_settings()` ; tests `test_platform_dashboard.py` | **À AJOUTER app :** entrée Plus réservée `superadmin` ; écran `/(tabs)/platform` consommant `/admin/dashboard` + suspendre clubs ; rebuild APK pour livrer l’écran |
 
 ---
 

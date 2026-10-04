@@ -3,13 +3,14 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import get_settings
 from app.core.roles import Role
 from app.core.security import hash_password
 from app.models import User
 
 
 def ensure_platform_superadmin(db: Session) -> None:
+    settings = get_settings()
     email = (getattr(settings, "platform_admin_email", None) or "platform@nadi-connect.local").strip().lower()
     existing = db.query(User).filter(User.email == email).first()
     if existing:

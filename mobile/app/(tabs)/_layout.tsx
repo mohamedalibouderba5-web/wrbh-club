@@ -105,6 +105,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="history" options={{ title: "Historique", href: null }} />
       <Tabs.Screen name="teams" options={{ title: "Équipes", href: null }} />
       <Tabs.Screen name="users" options={{ title: "Comptes", href: null }} />
+      <Tabs.Screen name="guide" options={{ title: "Guide", href: null }} />
+      <Tabs.Screen name="platform" options={{ title: "Plateforme", href: null }} />
     </Tabs>
   );
 }

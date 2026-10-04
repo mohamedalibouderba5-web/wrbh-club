@@ -1,3 +1,6 @@
+import time
+from datetime import datetime, timezone
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -15,6 +18,23 @@ _PWD_CHANGE_ALLOW = {
     "/api/v1/auth/me",
     "/api/v1/system/wake",
 }
+
+# Throttle présence (évite un UPDATE à chaque requête)
+_LAST_SEEN_TOUCH: dict[int, float] = {}
+_LAST_SEEN_MIN_INTERVAL = 120.0  # secondes
+
+
+def _touch_last_seen(db: Session, user: User) -> None:
+    now = time.time()
+    prev = _LAST_SEEN_TOUCH.get(user.id, 0.0)
+    if now - prev < _LAST_SEEN_MIN_INTERVAL:
+        return
+    user.last_seen_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+        _LAST_SEEN_TOUCH[user.id] = now
+    except Exception:
+        db.rollback()
 
 
 def get_current_user(
@@ -39,6 +59,7 @@ def get_current_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Changement de mot de passe obligatoire avant toute autre action",
             )
+    _touch_last_seen(db, user)
     return user
 
 

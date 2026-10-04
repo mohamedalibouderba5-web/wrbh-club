@@ -13,6 +13,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useAuth } from "../src/context/AuthContext";
+import { useI18n } from "../src/context/I18nContext";
 import { API_BASE, WEB_BASE } from "../src/config";
 import { wakeServer } from "../src/api/client";
 import { colors, statusLabel } from "../src/theme";
@@ -31,6 +32,7 @@ type ClubPublic = {
 
 export default function LoginScreen() {
   const { login } = useAuth();
+  const { t, lang, setLang } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [clubSlug, setClubSlug] = useState("");
@@ -95,9 +97,17 @@ export default function LoginScreen() {
     setLoading(true);
     setError("");
     try {
+      const slug = clubSlug.trim();
+      const user = username.trim();
+      // Superadmin plateforme : slug optionnel (compte hors club)
+      const isPlatformHint = /platform@/i.test(user);
+      if (!slug && !isPlatformHint) {
+        setError("Code club (slug) requis");
+        return;
+      }
       await wakeServer().catch(() => undefined);
-      if (clubSlug.trim()) await AsyncStorage.setItem("wrbh_club_slug", clubSlug.trim());
-      await login(username.trim(), password, clubSlug.trim() || undefined);
+      if (slug) await AsyncStorage.setItem("wrbh_club_slug", slug);
+      await login(user, password, slug || undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -119,7 +129,7 @@ export default function LoginScreen() {
   const accent = brand?.accent_color || colors.gold;
   const productName = "Nadi Connect";
   const clubTitle = brand?.name || "";
-  const subtitle = brand?.name_ar || "النادي المتصل · Le club connecté";
+  const subtitle = brand?.name_ar || "نادي · تسيير ومتابعة النوادي الرياضية في الجزائر";
   // Produit = toujours logo Nadi Connect (logo club = plus tard, hors chrome produit)
 
   return (
@@ -167,7 +177,7 @@ export default function LoginScreen() {
       {!clubs.length && (
         <TextInput
           style={styles.input}
-          placeholder="Code club (slug) — optionnel"
+          placeholder="Code club (slug) — requis sauf plateforme"
           placeholderTextColor="#8a93a8"
           autoCapitalize="none"
           value={clubSlug}
@@ -176,9 +186,12 @@ export default function LoginScreen() {
         />
       )}
 
+      <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 12, marginBottom: 4, alignSelf: "stretch" }}>
+        Plateforme : platform@… sans code club
+      </Text>
       <TextInput
         style={styles.input}
-        placeholder="0555… ou email staff"
+        placeholder={t("loginPhone")}
         placeholderTextColor="#8a93a8"
         autoCapitalize="none"
         autoCorrect={false}
@@ -190,7 +203,7 @@ export default function LoginScreen() {
       />
       <TextInput
         style={styles.input}
-        placeholder="Mot de passe / كلمة المرور"
+        placeholder={t("password")}
         placeholderTextColor="#8a93a8"
         secureTextEntry
         textContentType="password"
@@ -204,25 +217,35 @@ export default function LoginScreen() {
       <Pressable
         style={[styles.btn, { backgroundColor: accent }, loading && { opacity: 0.7 }]}
         onPress={onLogin}
-        disabled={loading || !username.trim() || !password}
+        disabled={
+          loading ||
+          !username.trim() ||
+          !password ||
+          (!clubSlug.trim() && !/platform@/i.test(username))
+        }
       >
-        {loading ? <ActivityIndicator color={colors.navy} /> : <Text style={styles.btnText}>Connexion / دخول</Text>}
+        {loading ? <ActivityIndicator color={colors.navy} /> : <Text style={styles.btnText}>{t("signIn")}</Text>}
       </Pressable>
-      <Text style={styles.hint}>
-        Parents : téléphone. Staff : email. Multi-club : choisissez le club (ex. wrbh, demo-judo-978).
-      </Text>
+      <View style={styles.langRow}>
+        <Pressable style={[styles.langChip, lang === "fr" && styles.langOn]} onPress={() => setLang("fr")}>
+          <Text style={[styles.langT, lang === "fr" && styles.langTOn]}>{t("langFr")}</Text>
+        </Pressable>
+        <Pressable style={[styles.langChip, lang === "ar" && styles.langOn]} onPress={() => setLang("ar")}>
+          <Text style={[styles.langT, lang === "ar" && styles.langTOn]}>{t("langAr")}</Text>
+        </Pressable>
+      </View>
       <Pressable style={styles.wake} onPress={onWake}>
-        <Text style={styles.wakeText}>Actualiser / Réveiller le serveur</Text>
+        <Text style={styles.wakeText}>{t("wake")}</Text>
       </Pressable>
       {!!wakeMsg && <Text style={styles.sub}>{wakeMsg}</Text>}
       <Pressable style={styles.wake} onPress={() => router.push("/onboard")}>
-        <Text style={[styles.wakeText, { color: accent }]}>Créer un club (essai 14 j)</Text>
+        <Text style={[styles.wakeText, { color: accent }]}>{t("createAccount")}</Text>
       </Pressable>
       <Pressable style={styles.wake} onPress={() => void Linking.openURL(`${WEB_BASE}/pricing`)}>
-        <Text style={styles.wakeText}>Offres / Tarifs</Text>
+        <Text style={styles.wakeText}>{t("pricing")}</Text>
       </Pressable>
       <Pressable style={styles.wake} onPress={() => void Linking.openURL(`${WEB_BASE}/guide`)}>
-        <Text style={styles.wakeText}>Guide / Formation</Text>
+        <Text style={styles.wakeText}>{t("guide")}</Text>
       </Pressable>
       <Pressable style={styles.wake} onPress={() => void Linking.openURL(`${WEB_BASE}/pilote`)}>
         <Text style={styles.wakeText}>Devenir pilote</Text>
@@ -276,5 +299,16 @@ const styles = StyleSheet.create({
   btnText: { color: "#0f1f4d", fontWeight: "800", fontSize: 16 },
   wake: { marginTop: 16, alignItems: "center" },
   wakeText: { color: "white", textDecorationLine: "underline" },
+  langRow: { flexDirection: "row", justifyContent: "center", gap: 8, marginTop: 14 },
+  langChip: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  langOn: { backgroundColor: "rgba(255,255,255,0.2)", borderColor: "#fff" },
+  langT: { color: "rgba(255,255,255,0.8)", fontWeight: "700", fontSize: 13 },
+  langTOn: { color: "#fff" },
   error: { color: "#ffb4b4", textAlign: "center", marginBottom: 8 },
 });

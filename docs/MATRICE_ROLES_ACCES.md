@@ -180,4 +180,20 @@ Tout bouton mobile doit respecter cette matrice. Si un rôle n’a pas le droit 
 
 ---
 
+## 15. Super-admin plateforme (`superadmin`)
+
+Hors matrice club. Compte `club_id = NULL`. Accès exclusif :
+
+| Fonction | API | Droit |
+|----------|-----|-------|
+| Dashboard multi-clubs | `GET /api/v1/admin/dashboard` | C |
+| Liste / suspension / plan clubs | `GET/PATCH /api/v1/admin/clubs` | C / M |
+| Liste comptes + présence | `GET /api/v1/admin/users` | C |
+| Activer / désactiver compte | `PATCH /api/v1/admin/users/{id}` | M |
+| Écran web `/platform` + app `platform` | — | ✓ |
+
+Aucun rôle club (`admin` … `parent`) ne peut appeler ces routes (403).
+
+---
+
 *Mettre à jour ce fichier dès qu’un bouton ou endpoint change de droit.*

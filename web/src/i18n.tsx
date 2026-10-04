@@ -183,8 +183,8 @@ const dict = {
     inventoryAssignBtn: "Attribuer",
 
     financePayroll: "Paie",
-    platformAdmin: "Plateforme (clubs)",
-    platformAdminHint: "Liste des clubs — suspendre / réactiver (écriture bloquée si suspendu)",
+    platformAdmin: "Plateforme Nadi Connect",
+    platformAdminHint: "Tableau de bord multi-clubs — présence, comptes, suspension",
     platformAthletes: "Athlètes",
     platformPlan: "Plan",
     platformTrial: "Fin essai",
@@ -376,8 +376,8 @@ const dict = {
     inventoryAssignBtn: "إسناد",
 
     financePayroll: "الأجور",
-    platformAdmin: "المنصة (الأندية)",
-    platformAdminHint: "قائمة الأندية — تعليق / إعادة تفعيل (الكتابة ممنوعة إذا عُلّق)",
+    platformAdmin: "منصة Nadi Connect",
+    platformAdminHint: "لوحة المنصة — الأندية والحسابات والحضور",
     platformAthletes: "اللاعبون",
     platformPlan: "الخطة",
     platformTrial: "نهاية التجربة",

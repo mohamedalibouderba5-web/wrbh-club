@@ -70,6 +70,8 @@ def _ensure_schema() -> None:
         "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS medical_cert_date DATE",
         "ALTER TABLE athletes ADD COLUMN IF NOT EXISTS medical_cert_valid_until DATE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ",
+        "CREATE INDEX IF NOT EXISTS ix_users_last_seen_at ON users (last_seen_at)",
         "ALTER TABLE fee_plans ADD COLUMN IF NOT EXISTS insurance_amount NUMERIC(12, 2) DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS ix_athletes_full_name ON athletes (full_name)",
         "CREATE INDEX IF NOT EXISTS ix_athletes_status ON athletes (status)",
@@ -108,6 +110,23 @@ def _ensure_schema() -> None:
         "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS seq_no INTEGER",
         "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
         "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false",
+        "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS source_type VARCHAR(40)",
+        "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS source_id INTEGER",
+        "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ",
+        "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS reversed_by INTEGER",
+        "ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS reversal_of_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_ledger_source ON ledger_entries (club_id, source_type, source_id)",
+        """
+        CREATE TABLE IF NOT EXISTS club_seq_counters (
+            id SERIAL PRIMARY KEY,
+            club_id INTEGER NOT NULL REFERENCES clubs(id),
+            kind VARCHAR(40) NOT NULL,
+            scope_id INTEGER NOT NULL DEFAULT 0,
+            last_value INTEGER NOT NULL DEFAULT 0,
+            CONSTRAINT uq_club_seq_kind_scope UNIQUE (club_id, kind, scope_id)
+        )
+        """,
+        "DO $$ BEGIN ALTER TABLE inventory_items ADD CONSTRAINT ck_inventory_qty_nonneg CHECK (quantity >= 0); EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; END $$",
         "ALTER TABLE fee_installments ADD COLUMN IF NOT EXISTS seq_no INTEGER",
         "ALTER TABLE fee_installments ADD COLUMN IF NOT EXISTS reference VARCHAR(80)",
         # Kit / équipement + stock typé
@@ -229,9 +248,11 @@ app = FastAPI(
     default_response_class=ORJSONResponse,
 )
 
-# Origines web exactes (Hetzner prod ; plus de Render)
+# Origines web exactes (Hetzner prod + domaine Nadi Connect)
 KNOWN_WEB_ORIGINS = (
     "http://46.224.38.201:8080",
+    "https://nadi-connect.com",
+    "https://www.nadi-connect.com",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",
@@ -250,8 +271,12 @@ _cors_kwargs: dict = {
     "allow_headers": ["*"],
     "expose_headers": ["*"],
 }
-if not settings.is_production:
-    _cors_kwargs["allow_origin_regex"] = r"https://.*\.onrender\.com"
+# Prod + démo : sous-domaines clubs https://{slug}.nadi-connect.com
+_cors_kwargs["allow_origin_regex"] = (
+    r"https://([a-z0-9-]+\.)?nadi-connect\.com"
+    if settings.is_production
+    else r"https://(.*\.)?(nadi-connect\.com|onrender\.com)"
+)
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 upload_dir = Path(settings.upload_dir)
@@ -277,8 +302,11 @@ def on_startup():
             backfill_operation_identities(db)
         finally:
             db.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Ne pas masquer silencieusement : log pour ops (BOOT-01)
+        import logging
+
+        logging.getLogger("nadi.startup").exception("Startup platform/backfill: %s", exc)
 
 
 @app.get("/health")
