@@ -14,9 +14,17 @@ def ensure_platform_superadmin(db: Session) -> None:
     email = (getattr(settings, "platform_admin_email", None) or "platform@nadi-connect.local").strip().lower()
     existing = db.query(User).filter(User.email == email).first()
     if existing:
+        changed = False
         if existing.role != Role.SUPERADMIN:
             existing.role = Role.SUPERADMIN
+            changed = True
+        if getattr(existing, "club_id", None) is not None:
             existing.club_id = None
+            changed = True
+        if not existing.is_active:
+            existing.is_active = True
+            changed = True
+        if changed:
             db.commit()
         return
     pwd = getattr(settings, "platform_admin_password", None) or settings.default_admin_password
