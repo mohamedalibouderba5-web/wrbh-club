@@ -93,18 +93,26 @@ def notify_team_parents_filtered(
 
 
 def notify_event_created(db: Session, event: Event) -> int:
-    if not event.notify_parents or not event.team_id:
-        return 0
     if event.approval_status != "approved" or event.is_cancelled:
         return 0
-    return notify_team_parents_filtered(
-        db,
-        event.team_id,
-        f"Nouvelle séance / حصة جديدة — {event_headline(event)}",
-        event_body(event, "Vous serez informés du début, des absences et de la fin."),
-        kind="session_create",
-        pref_flag="notify_on_create",
-    )
+    from app.services.broadcast import fanout_session_lifecycle
+
+    club_id = int(event.club_id) if event.club_id else None
+    staff_n = 0
+    if club_id:
+        counts = fanout_session_lifecycle(db, club_id=club_id, event=event, action="create")
+        staff_n = int(counts.get("managers", 0)) + int(counts.get("coaches", 0))
+    parents_n = 0
+    if event.notify_parents and event.team_id:
+        parents_n = notify_team_parents_filtered(
+            db,
+            event.team_id,
+            f"Nouvelle séance / حصة جديدة — {event_headline(event)}",
+            event_body(event, "Vous serez informés du début, des absences et de la fin."),
+            kind="session_create",
+            pref_flag="notify_on_create",
+        )
+    return parents_n + staff_n
 
 
 def notify_event_started(db: Session, event: Event) -> int:
@@ -157,37 +165,42 @@ def notify_attendance_change(
     return n
 
 
-def send_due_reminders(db: Session, now: datetime | None = None) -> dict:
-    """Rappels 1× (minutes avant) et veille — à appeler via cron."""
+def send_due_reminders(
+    db: Session, now: datetime | None = None, club_id: int | None = None
+) -> dict:
+    """Rappels 1× (minutes avant) et veille — bornés au `club_id` si fourni."""
     now = now or datetime.now(timezone.utc)
     sent_min = 0
     sent_day = 0
-    # Fenêtre ±7 min pour le rappel « minutes before »
-    events = (
-        db.query(Event)
-        .filter(
-            Event.is_cancelled.is_(False),
-            Event.notify_parents.is_(True),
-            Event.approval_status == "approved",
-            Event.session_status == "scheduled",
-            Event.starts_at >= now,
-            Event.starts_at <= now + timedelta(days=2),
-        )
-        .all()
+    q = db.query(Event).filter(
+        Event.is_cancelled.is_(False),
+        Event.notify_parents.is_(True),
+        Event.approval_status == "approved",
+        Event.session_status == "scheduled",
+        Event.starts_at >= now,
+        Event.starts_at <= now + timedelta(days=2),
     )
+    if club_id is not None:
+        q = q.filter(Event.club_id == club_id)
+    events = q.all()
     for event in events:
         if not event.team_id:
             continue
+        eid_club = int(event.club_id)
         athlete_ids = [
             r[0]
             for r in db.query(TeamMembership.athlete_id).filter(
                 TeamMembership.team_id == event.team_id,
                 TeamMembership.is_active.is_(True),
+                TeamMembership.club_id == eid_club,
             )
         ]
         for aid in athlete_ids:
-            for (pid,) in db.query(ParentChild.parent_id).filter(ParentChild.athlete_id == aid):
-                prefs = get_or_create_parent_prefs(db, pid, event.club_id)
+            for (pid,) in db.query(ParentChild.parent_id).filter(
+                ParentChild.athlete_id == aid,
+                ParentChild.club_id == eid_club,
+            ):
+                prefs = get_or_create_parent_prefs(db, pid, eid_club)
                 starts = event.starts_at
                 if starts.tzinfo is None:
                     starts = starts.replace(tzinfo=timezone.utc)

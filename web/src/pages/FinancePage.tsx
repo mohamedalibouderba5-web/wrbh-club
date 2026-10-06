@@ -52,6 +52,8 @@ type FeeSettings = {
   monthly_subscription_dzd: number;
   annual_insurance_dzd: number;
   inscription_fee_dzd: number;
+  min_athlete_age?: number;
+  max_athlete_age?: number;
 };
 type Category = { id: number; code: string; birth_year_min: number; birth_year_max: number };
 type Athlete = { id: number; full_name: string; category_id?: number; category_code?: string };
@@ -120,11 +122,19 @@ export function FinancePage() {
   const [ledger, setLedger] = useState<Ledger[]>([]);
   const [payroll, setPayroll] = useState<Payroll[]>([]);
   const [settings, setSettings] = useState<FeeSettings | null>(null);
-  const [settingsForm, setSettingsForm] = useState({ monthly: "800", insurance: "1500", inscription: "4000" });
+  const [settingsForm, setSettingsForm] = useState({
+    monthly: "800",
+    insurance: "1500",
+    inscription: "4000",
+    minAge: "5",
+    maxAge: "17",
+  });
   const [cats, setCats] = useState<Category[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [recent, setRecent] = useState<PaymentRow[]>([]);
   const [unpaid, setUnpaid] = useState<Installment[]>([]);
+  const [instMeta, setInstMeta] = useState<{ total: number; remaining_sum: number; amount_sum: number; paid_sum: number } | null>(null);
+  const [instLoadingMore, setInstLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingPay, setSavingPay] = useState(false);
@@ -175,8 +185,9 @@ export function FinancePage() {
     setLoading(true);
     setError("");
     const seasonQ = seasonFilter === "all" ? "" : `?season_id=${seasonFilter}`;
+    type InstMeta = { total: number; remaining_sum: number; amount_sum: number; paid_sum: number };
     const { data, errors } = await loadAllSettled<
-      [Dash, Ledger[], Payroll[], FeeSettings, Category[], PaymentRow[], Installment[], Season[], Analytics]
+      [Dash, Ledger[], Payroll[], FeeSettings, Category[], PaymentRow[], Installment[], InstMeta, Season[], Analytics]
     >([
       () => apiGetFast<Dash>(`/api/v1/dashboard${seasonQ}`, { ttlMs: 0 }),
       () => apiGetFast<Ledger[]>("/api/v1/ledger?limit=300", { ttlMs: 0 }),
@@ -186,25 +197,34 @@ export function FinancePage() {
       () => api<PaymentRow[]>("/api/v1/payments/recent?limit=200").catch(() => []),
       () =>
         api<Installment[]>(
-          `/api/v1/installments?status=due,partial,overdue&limit=500${
+          `/api/v1/installments?status=due,partial,overdue&limit=200&skip=0${
             seasonFilter !== "all" ? `&season_id=${seasonFilter}` : ""
           }`,
         ).catch(() => []),
+      () =>
+        api<{ total: number; remaining_sum: number; amount_sum: number; paid_sum: number }>(
+          `/api/v1/installments/meta?status=due,partial,overdue${
+            seasonFilter !== "all" ? `&season_id=${seasonFilter}` : ""
+          }`,
+        ).catch(() => null as unknown as { total: number; remaining_sum: number; amount_sum: number; paid_sum: number }),
       () => apiGetFast<Season[]>("/api/v1/seasons", { ttlMs: 120_000 }).catch(() => []),
       () => apiGetFast<Analytics>("/api/v1/stats/analytics", { ttlMs: 45_000 }).catch(() => null as unknown as Analytics),
     ]);
-    const [d, l, p, s, c, r, u, seas, an] = data;
+    const [d, l, p, s, c, r, u, meta, seas, an] = data;
     if (d) setDash(d);
     if (l) setLedger(l);
     if (p) setPayroll(p);
     if (seas?.length) setSeasons(seas);
     if (an) setAnalytics(an);
+    if (meta) setInstMeta(meta);
     if (s) {
       setSettings(s);
       setSettingsForm({
         monthly: String(s.monthly_subscription_dzd),
         insurance: String(s.annual_insurance_dzd),
         inscription: String(s.inscription_fee_dzd),
+        minAge: String(s.min_athlete_age ?? 5),
+        maxAge: String(s.max_athlete_age ?? 17),
       });
       setPay((prev) => ({
         ...prev,
@@ -236,6 +256,25 @@ export function FinancePage() {
     load();
   }, [load]);
 
+  async function loadMoreInstallments() {
+    if (instLoadingMore) return;
+    setInstLoadingMore(true);
+    try {
+      const seasonPart = seasonFilter !== "all" ? `&season_id=${seasonFilter}` : "";
+      const more = await api<Installment[]>(
+        `/api/v1/installments?status=due,partial,overdue&limit=200&skip=${unpaid.length}${seasonPart}`,
+      );
+      setUnpaid((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        return [...prev, ...more.filter((x) => !seen.has(x.id))];
+      });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur chargement échéances", "error");
+    } finally {
+      setInstLoadingMore(false);
+    }
+  }
+
   useEffect(() => {
     const params = new URLSearchParams({ limit: "200", sort: "name", order: "asc" });
     if (pay.category_id) params.set("category_id", pay.category_id);
@@ -246,14 +285,21 @@ export function FinancePage() {
 
   const filteredAthletes = useMemo(() => athletes, [athletes]);
 
+  /** Achats = dépenses fournisseur uniquement (pas encaissement joueur équipement) — H313-01 */
   const purchases = useMemo(
-    () => ledger.filter((x) => x.category === "equipment" || x.category === "achat" || /équip|equip|achat/i.test(x.label)),
+    () =>
+      ledger.filter((x) => {
+        if (x.entry_type !== "expense") return false;
+        const cat = (x.category || "").toLowerCase();
+        if (cat === "equipment" || cat === "achat" || cat === "purchase") return true;
+        return /^achat\b/i.test(x.label || "");
+      }),
     [ledger],
   );
-  const caisseRows = useMemo(
-    () => ledger.filter((x) => x.category !== "equipment" && x.category !== "achat"),
-    [ledger],
-  );
+  const caisseRows = useMemo(() => {
+    const purchaseIds = new Set(purchases.map((p) => p.id));
+    return ledger.filter((x) => !purchaseIds.has(x.id));
+  }, [ledger, purchases]);
 
   const financeBars = useMemo(() => {
     if (!dash) return [];
@@ -413,8 +459,11 @@ export function FinancePage() {
   );
   const paymentsTotal = useMemo(() => recent.reduce((s, x) => s + Number(x.amount || 0), 0), [recent]);
   const unpaidRemain = useMemo(
-    () => unpaid.reduce((s, x) => s + Math.max(0, Number(x.amount) - Number(x.amount_paid)), 0),
-    [unpaid],
+    () =>
+      instMeta
+        ? Number(instMeta.remaining_sum || 0)
+        : unpaid.reduce((s, x) => s + Math.max(0, Number(x.amount) - Number(x.amount_paid)), 0),
+    [unpaid, instMeta],
   );
 
   function onTypeChange(type: string) {
@@ -439,6 +488,8 @@ export function FinancePage() {
           monthly_subscription_dzd: Number(settingsForm.monthly),
           annual_insurance_dzd: Number(settingsForm.insurance),
           inscription_fee_dzd: Number(settingsForm.inscription),
+          min_athlete_age: Number(settingsForm.minAge),
+          max_athlete_age: Number(settingsForm.maxAge),
         }),
       });
       setSettings(s);
@@ -446,9 +497,11 @@ export function FinancePage() {
         monthly: String(s.monthly_subscription_dzd),
         insurance: String(s.annual_insurance_dzd),
         inscription: String(s.inscription_fee_dzd),
+        minAge: String(s.min_athlete_age ?? 5),
+        maxAge: String(s.max_athlete_age ?? 17),
       });
       toast(
-        `Constantes enregistrées — assurance ${Number(s.annual_insurance_dzd).toLocaleString()} DZD (échéances ouvertes mises à jour)`,
+        `Constantes enregistrées — assurance ${Number(s.annual_insurance_dzd).toLocaleString()} DZD · âge ${s.min_athlete_age ?? 5}–${s.max_athlete_age ?? 17} ans`,
         "success",
       );
       onTypeChange(pay.payment_type);
@@ -794,7 +847,7 @@ export function FinancePage() {
 
       {tab === "cotisations" && (
         <>
-          <div className="card">
+          <div className="card finance-formula-compact">
             <h2>{t("financeFormulaCot")}</h2>
             <p className="muted" style={{ marginBottom: "0.75rem" }}>
               {t("financeUnpaidHint")}
@@ -838,8 +891,28 @@ export function FinancePage() {
                       onChange={(e) => setSettingsForm((s) => ({ ...s, inscription: e.target.value }))}
                     />
                   </label>
+                  <label>
+                    Âge min. athlète
+                    <input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={settingsForm.minAge}
+                      onChange={(e) => setSettingsForm((s) => ({ ...s, minAge: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Âge max. athlète (adultes : 99)
+                    <input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={settingsForm.maxAge}
+                      onChange={(e) => setSettingsForm((s) => ({ ...s, maxAge: e.target.value }))}
+                    />
+                  </label>
                 </div>
-                <button type="submit" className="primary">
+                <button type="submit" className="primary btn-fit">
                   Enregistrer les constantes
                 </button>
               </form>
@@ -851,6 +924,13 @@ export function FinancePage() {
             <p className="muted" style={{ marginTop: 0 }}>
               N° = numéro d&apos;opération (ECH). Les lignes payées sont masquées — filtres : dues / partielles / en retard.
               Tri par défaut : N° croissant.
+              {instMeta ? (
+                <>
+                  {" "}
+                  Affichées <strong>{unpaid.length}</strong> / <strong>{instMeta.total}</strong> · reste filtré{" "}
+                  <strong>{Math.round(instMeta.remaining_sum).toLocaleString()} DZD</strong>.
+                </>
+              ) : null}
             </p>
             <div className="table-wrap">
               <table>
@@ -930,6 +1010,13 @@ export function FinancePage() {
                 </tbody>
               </table>
             </div>
+            {instMeta && unpaid.length < instMeta.total && (
+              <div style={{ marginTop: 12, textAlign: "center" }}>
+                <button type="button" className="secondary btn-fit" disabled={instLoadingMore} onClick={() => void loadMoreInstallments()}>
+                  {instLoadingMore ? t("loading") : `Charger plus (${unpaid.length}/${instMeta.total})`}
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}

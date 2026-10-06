@@ -52,10 +52,11 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="platform" element={<RoleRoute allow={["superadmin"]}><SuperAdminPage /></RoleRoute>} />
         <Route path="athletes" element={<RoleRoute allow={["admin", "direction", "staff", "coach"]}><AthletesPage /></RoleRoute>} />
-        <Route path="registrations" element={<RegistrationsPage />} />
+        <Route path="registrations" element={<RoleRoute allow={["admin", "direction", "staff", "parent"]}><RegistrationsPage /></RoleRoute>} />
         <Route path="agenda" element={<AgendaPage />} />
         <Route path="teams" element={<RoleRoute allow={["admin", "direction", "staff", "coach"]}><TeamsPage /></RoleRoute>} />
         <Route path="users" element={<RoleRoute allow={["admin", "direction"]}><UsersPage /></RoleRoute>} />
+        <Route path="accounts" element={<Navigate to="/users" replace />} />
         <Route path="history" element={<RoleRoute allow={["admin", "direction", "staff"]}><HistoryPage /></RoleRoute>} />
         <Route path="feedback-admin" element={<RoleRoute allow={["admin", "direction"]}><FeedbackAdminPage /></RoleRoute>} />
         <Route path="finance" element={<RoleRoute allow={["admin", "direction", "staff"]}><FinancePage /></RoleRoute>} />

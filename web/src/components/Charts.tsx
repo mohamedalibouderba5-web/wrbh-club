@@ -406,12 +406,15 @@ export function SlicerChipGroup({
   selected,
   onChange,
   allLabel = "Tout",
+  labelOf,
 }: {
   title: string;
   options: string[];
   selected: string[];
   onChange: (next: string[]) => void;
   allLabel?: string;
+  /** G0-06 : libellé FR/AR pour une clé technique (Suspended, paid…) */
+  labelOf?: (key: string) => string;
 }) {
   const allSelected = selected.length === 0 || selected.length === options.length;
   function toggle(opt: string) {
@@ -445,7 +448,7 @@ export function SlicerChipGroup({
             className={`slicer-chip ${!allSelected && selected.includes(opt) ? "active" : ""}`}
             onClick={() => toggle(opt)}
           >
-            {opt}
+            {labelOf ? labelOf(opt) : opt}
           </button>
         ))}
       </div>

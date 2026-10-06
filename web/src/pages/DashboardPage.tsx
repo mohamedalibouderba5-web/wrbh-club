@@ -14,7 +14,9 @@ import {
 } from "../components/Charts";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
+import { CoachHomePage } from "./CoachHomePage";
 import { ParentHomePage } from "./ParentHomePage";
+import { roleSpaceTitle } from "../roles/access";
 
 type Dash = {
   currency: string;
@@ -71,6 +73,57 @@ function dictToSeries(d: Record<string, number> | undefined, selected: string[],
     .filter((x) => !hideZero || x.value > 0);
 }
 
+/** G0-06 — clés API techniques → libellés FR / AR */
+function metricLabel(key: string, ar: boolean): string {
+  const fr: Record<string, string> = {
+    Active: "Actif",
+    Suspended: "Suspendu",
+    Abandonne: "Abandonné",
+    Left: "Parti",
+    Inactif: "Inactif",
+    training: "Entraînement",
+    match: "Match",
+    tournament: "Tournoi",
+    meeting: "Réunion",
+    other: "Autre",
+    present: "Présent",
+    absent: "Absent",
+    late: "En retard",
+    excused: "Excusé",
+    paid: "Payé",
+    due: "Dû",
+    partial: "Partiel",
+    overdue: "En retard",
+    waived: "Exonéré",
+  };
+  const arMap: Record<string, string> = {
+    Active: "نشط",
+    Suspended: "موقوف",
+    Abandonne: "منسحب",
+    Left: "غادر",
+    Inactif: "غير نشط",
+    training: "تدريب",
+    match: "مباراة",
+    tournament: "بطولة",
+    meeting: "اجتماع",
+    other: "أخرى",
+    present: "حاضر",
+    absent: "غائب",
+    late: "متأخر",
+    excused: "معذور",
+    paid: "مدفوع",
+    due: "مستحق",
+    partial: "جزئي",
+    overdue: "متأخر",
+    waived: "معفى",
+  };
+  return (ar ? arMap[key] : fr[key]) || key;
+}
+
+function localizeSeries(rows: { name: string; value: number }[], ar: boolean) {
+  return rows.map((r) => ({ ...r, name: metricLabel(r.name, ar) }));
+}
+
 function sliceTail<T>(arr: T[], n: number): T[] {
   if (!arr.length) return [];
   return arr.slice(Math.max(0, arr.length - n));
@@ -87,11 +140,14 @@ function recomputeCumulative(monthly: number[]): number[] {
 export function DashboardPage() {
   const { role } = useAuth();
   if (role === "parent") return <ParentHomePage />;
+  if (role === "coach") return <CoachHomePage />;
   return <StaffDashboardPage />;
 }
 
 function StaffDashboardPage() {
+  const { role } = useAuth();
   const { t, lang } = useI18n();
+  const ar = lang === "ar";
   const [events, setEvents] = useState<number | null>(null);
   const [finance, setFinance] = useState<Dash | null>(null);
   const [stats, setStats] = useState<ClubStats | null>(null);
@@ -288,6 +344,22 @@ function StaffDashboardPage() {
 
   return (
     <div className="dashboard-page">
+      <div className="card role-home-hero" style={{ marginBottom: "0.85rem" }}>
+        <span className="badge role-space-badge">{roleSpaceTitle(role, lang)}</span>
+        <p className="muted" style={{ margin: "0.45rem 0 0", fontSize: "0.9rem" }}>
+          {role === "staff"
+            ? ar
+              ? "عمليات النادي: تسجيلات، أجندة، مالية ومعدات. بدون إدارة الحسابات ولا تعليق الأندية."
+              : "Opérations club : inscriptions, agenda, finance et matériel. Pas de gestion des comptes ni de suspension clubs."
+            : role === "direction"
+              ? ar
+                ? "قيادة النادي: الحسابات، الفرق، المالية والموافقة على الحصص."
+                : "Pilotage club : comptes, équipes, finance et validation des séances."
+              : ar
+                ? "إدارة كاملة للنادي (ما عدا وحدة المنصة العامة)."
+                : "Administration complète du club (hors console plateforme globale)."}
+        </p>
+      </div>
       <div className="dashboard-toolbar">
         <div>
           <h2 className="dashboard-title">{lang === "ar" ? "لوحة التحكم التحليلية" : "Tableaux de bord"}</h2>
@@ -304,7 +376,7 @@ function StaffDashboardPage() {
             {lang === "ar" ? "إعادة تعيين الشرائح" : "Réinitialiser segments"}
           </button>
           <button type="button" className="secondary" onClick={() => void refresh(true)}>
-            {t("retry")}
+            {error ? t("retry") : lang === "ar" ? "تحديث" : "Actualiser"}
           </button>
         </div>
       </div>
@@ -339,6 +411,7 @@ function StaffDashboardPage() {
               selected={statusSel}
               onChange={setStatusSel}
               allLabel={lang === "ar" ? "الكل" : "Tout"}
+              labelOf={(k) => metricLabel(k, ar)}
             />
           )}
           {catOptions.length > 0 && (
@@ -357,6 +430,7 @@ function StaffDashboardPage() {
               selected={eventTypeSel}
               onChange={setEventTypeSel}
               allLabel={lang === "ar" ? "الكل" : "Tout"}
+              labelOf={(k) => metricLabel(k, ar)}
             />
           )}
           {attOptions.length > 0 && (
@@ -366,6 +440,7 @@ function StaffDashboardPage() {
               selected={attSel}
               onChange={setAttSel}
               allLabel={lang === "ar" ? "الكل" : "Tout"}
+              labelOf={(k) => metricLabel(k, ar)}
             />
           )}
           {instOptions.length > 0 && (
@@ -375,6 +450,7 @@ function StaffDashboardPage() {
               selected={instSel}
               onChange={setInstSel}
               allLabel={lang === "ar" ? "الكل" : "Tout"}
+              labelOf={(k) => metricLabel(k, ar)}
             />
           )}
           <div className="slicer-group">
@@ -434,7 +510,9 @@ function StaffDashboardPage() {
         </div>
       </div>
 
-      {(stats?.license_expiring_count || stats?.medical_expiring_count) ? (
+      {(stats?.license_expiring_count || stats?.medical_expiring_count) &&
+      (stats?.license_expiring_count ?? 0) + (stats?.medical_expiring_count ?? 0) <=
+        Math.max(20, Math.floor((stats?.athletes_active ?? 0) * 0.15)) ? (
         <div className="card" style={{ borderColor: "#b45309" }}>
           <strong>{t("renewFilter")}</strong>
           <p className="muted" style={{ marginBottom: 0 }}>
@@ -458,12 +536,12 @@ function StaffDashboardPage() {
           <DonutChart
             title={lang === "ar" ? "توزيع الحالات (حلقة)" : "Répartition des statuts (anneau)"}
             subtitle={lang === "ar" ? "قيم + نسب" : "Valeurs + % sur le graphique"}
-            data={statusDonut}
+            data={localizeSeries(statusDonut, ar)}
           />
           <SectorChart
             title={lang === "ar" ? "أنواع الحصص (قطاع)" : "Types de séances (secteur)"}
             subtitle={lang === "ar" ? "تسميات البيانات" : "Étiquettes nom · valeur · %"}
-            data={eventsType}
+            data={localizeSeries(eventsType, ar)}
           />
           <VerticalBarChart
             title={lang === "ar" ? "الفئات العمرية (أعمدة)" : "Catégories d’âge (barres)"}
@@ -530,7 +608,7 @@ function StaffDashboardPage() {
           <DonutChart
             title={lang === "ar" ? "الحضور (حلقة)" : "Présences (anneau)"}
             subtitle={lang === "ar" ? "قيم على الحلقة" : "Valeurs sur l’anneau"}
-            data={attendance}
+            data={localizeSeries(attendance, ar)}
             innerRadius={48}
           />
         )}
@@ -538,7 +616,7 @@ function StaffDashboardPage() {
           <SectorChart
             title={lang === "ar" ? "أقساط الاشتراك" : "Échéances cotisations (secteur)"}
             subtitle={lang === "ar" ? "تسميات كاملة" : "Étiquettes complètes"}
-            data={installments}
+            data={localizeSeries(installments, ar)}
           />
         )}
         {showFinance && (

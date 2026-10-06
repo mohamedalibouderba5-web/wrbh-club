@@ -445,12 +445,45 @@ export function AthletesPage() {
 
   return (
     <div className="grid" style={{ gap: "1rem" }}>
-      <form className="card" onSubmit={onCreate}>
+      <form className="card form-compact" onSubmit={onCreate}>
         <h3 style={{ marginTop: 0 }}>{t("addPlayer")}</h3>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "0.75rem", alignItems: "center" }}>
+          <label className="secondary" style={{ cursor: "pointer", padding: "0.45rem 0.75rem", borderRadius: 8 }}>
+            Import CSV
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: "none" }}
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                try {
+                  const text = await f.text();
+                  const res = await api<{ created: number; skipped: number; error_count: number; errors: string[] }>(
+                    "/api/v1/athletes/import",
+                    { method: "POST", body: JSON.stringify({ csv: text }) },
+                  );
+                  toast(
+                    `Import : ${res.created} créé(s), ${res.skipped} ignoré(s)${res.error_count ? `, ${res.error_count} erreur(s)` : ""}`,
+                    res.created ? "success" : "error",
+                  );
+                  if (res.errors?.length) console.warn(res.errors);
+                  load({ offset: 0 });
+                } catch (err) {
+                  toast(err instanceof Error ? err.message : "Erreur import", "error");
+                }
+              }}
+            />
+          </label>
+          <span className="muted" style={{ fontSize: "0.82rem" }}>
+            Colonnes : full_name, birth_date (aaaa-mm-jj ou jj/mm/aaaa), parent_phone…
+          </span>
+        </div>
         <div className="form-split">
           <PhotoCapture value={form.photo_path} onUploaded={(p) => setForm((f) => ({ ...f, photo_path: p }))} />
-          <div>
-            <div className="field">
+          <div className="form-fields-grid">
+            <div className="field field-span-2">
               <label>Nom / الاسم</label>
               <input required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
             </div>
@@ -493,13 +526,15 @@ export function AthletesPage() {
                 <CallButton phone={form.parent_phone} />
               </div>
             </div>
-            <div className="field">
+            <div className="field field-span-2">
               <label>Nom parent / اسم الولي</label>
               <input value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
             </div>
-            <button type="submit" disabled={saving}>
-              {saving ? t("saving") : t("save")}
-            </button>
+            <div className="field-span-2">
+              <button type="submit" className="btn-fit" disabled={saving}>
+                {saving ? t("saving") : t("save")}
+              </button>
+            </div>
           </div>
         </div>
         {msg && <p style={{ color: "var(--ok)" }}>{msg}</p>}
@@ -576,7 +611,7 @@ export function AthletesPage() {
             {t("renewFilter")}
           </button>
           <button type="button" className="secondary" onClick={() => load({ offset: 0 })}>
-            {t("retry")}
+            {error ? t("retry") : lang === "ar" ? "تحديث" : "Actualiser"}
           </button>
         </div>
         {loading && <p className="muted">{t("loading")}</p>}

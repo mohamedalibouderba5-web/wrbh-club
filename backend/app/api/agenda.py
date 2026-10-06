@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_roles
 from app.core.database import get_db
 from app.core.roles import Role
+from app.core.scoped import get_scoped, get_scoped_optional
 from app.core.tenant import assert_same_club, get_current_club_id
 from app.models import (
     Announcement,
@@ -21,10 +22,12 @@ from app.models import (
     Notification,
     ParentChild,
     PushToken,
+    Season,
     Team,
     TeamCoach,
     TeamMembership,
     User,
+    Venue,
 )
 from app.schemas import (
     AnnouncementCreate,
@@ -84,12 +87,20 @@ def _primary_coach_id(db: Session, team_id: int | None) -> int | None:
 def _enrich_event(db: Session, event: Event) -> EventOut:
     out = EventOut.model_validate(event)
     names: dict[int, str] = {}
-    ids = [i for i in (event.coach_id, event.substitute_coach_id) if i]
+    resolved_coach_id = event.coach_id
+    # G0-02 : si pas de coach sur l’événement, prendre le titulaire de l’équipe
+    if not resolved_coach_id and event.team_id:
+        rows = db.query(TeamCoach).filter(TeamCoach.team_id == event.team_id).all()
+        primary = next((r for r in rows if r.role_label == "primary"), None)
+        pick = primary or (rows[0] if rows else None)
+        resolved_coach_id = pick.user_id if pick else None
+    ids = [i for i in (resolved_coach_id, event.substitute_coach_id) if i]
     if ids:
         for u in db.query(User).filter(User.id.in_(ids)).all():
             names[u.id] = u.full_name
     data = out.model_dump()
-    data["coach_name"] = names.get(event.coach_id) if event.coach_id else None
+    data["coach_id"] = resolved_coach_id or event.coach_id
+    data["coach_name"] = names.get(resolved_coach_id) if resolved_coach_id else None
     data["substitute_coach_name"] = (
         names.get(event.substitute_coach_id) if event.substitute_coach_id else None
     )
@@ -201,6 +212,23 @@ def _coach_needs_approval(db: Session, club_id: int, user: User) -> bool:
     return False
 
 
+def _validate_event_refs(db: Session, club_id: int, data: dict) -> None:
+    """Valide season/team/venue/coach dans le club courant (Codex Lot 1)."""
+    if data.get("season_id") is not None:
+        get_scoped(db, Season, data["season_id"], club_id)
+    if data.get("team_id") is not None:
+        get_scoped(db, Team, data["team_id"], club_id)
+    if data.get("venue_id") is not None:
+        get_scoped(db, Venue, data["venue_id"], club_id)
+    for key in ("coach_id", "substitute_coach_id"):
+        uid = data.get(key)
+        if uid is None:
+            continue
+        coach = get_scoped(db, User, uid, club_id)
+        if coach.role not in {Role.COACH, Role.ADMIN, Role.DIRECTION, Role.STAFF}:
+            raise HTTPException(400, f"{key} invalide")
+
+
 @router.post("/events", response_model=EventOut)
 def create_event(
     payload: EventCreate,
@@ -209,6 +237,7 @@ def create_event(
     club_id: int = Depends(get_current_club_id),
 ):
     data = payload.model_dump()
+    _validate_event_refs(db, club_id, data)
     if not data.get("coach_id") and data.get("team_id"):
         data["coach_id"] = _primary_coach_id(db, data["team_id"])
     if data.get("substitute_coach_id") and data.get("coach_id") == data.get("substitute_coach_id"):
@@ -216,9 +245,6 @@ def create_event(
     pending = _coach_needs_approval(db, club_id, user)
     data["approval_status"] = "pending_approval" if pending else "approved"
     data["session_status"] = "scheduled"
-    if pending:
-        # Pas de notif parents tant que non validé
-        pass
     event = Event(club_id=club_id, **data)
     db.add(event)
     db.commit()
@@ -228,7 +254,6 @@ def create_event(
         notified = notify_event_created(db, event)
         db.commit()
     out = _enrich_event(db, event)
-    # attach transient for clients
     data_out = out.model_dump()
     data_out["_parents_notified"] = notified
     return EventOut(**{k: v for k, v in data_out.items() if k != "_parents_notified"})
@@ -340,6 +365,7 @@ def update_event(
         raise HTTPException(400, "Séance annulée — modification impossible")
     data = payload.model_dump(exclude_unset=True)
     clear_sub = data.pop("clear_substitute", False)
+    _validate_event_refs(db, club_id, data)
     for key, val in data.items():
         setattr(event, key, val)
     if clear_sub:
@@ -367,15 +393,24 @@ def create_convocations(
     assert_same_club(event, club_id)
     created = []
     for aid in athlete_ids:
-        athlete = db.get(Athlete, aid)
-        if not athlete:
-            raise HTTPException(404, "Athlète introuvable")
-        assert_same_club(athlete, club_id)
+        athlete = get_scoped(db, Athlete, aid, club_id)
+        if event.team_id:
+            membership = (
+                db.query(TeamMembership)
+                .filter(
+                    TeamMembership.team_id == event.team_id,
+                    TeamMembership.athlete_id == aid,
+                    TeamMembership.is_active.is_(True),
+                )
+                .first()
+            )
+            if not membership:
+                raise HTTPException(404, "Athlète introuvable")
         existing = db.query(Convocation).filter_by(event_id=event_id, athlete_id=aid).first()
         if existing:
             created.append(existing)
             continue
-        c = Convocation(event_id=event_id, athlete_id=aid)
+        c = Convocation(club_id=club_id, event_id=event_id, athlete_id=aid)
         db.add(c)
         created.append(c)
     db.commit()
@@ -398,7 +433,13 @@ def list_convocations(
     if status:
         q = q.filter(Convocation.status == status)
     if user.role == Role.PARENT:
-        ids = {r[0] for r in db.query(ParentChild.athlete_id).filter(ParentChild.parent_id == user.id)}
+        ids = {
+            r[0]
+            for r in db.query(ParentChild.athlete_id).filter(
+                ParentChild.parent_id == user.id,
+                ParentChild.club_id == club_id,
+            )
+        }
         q = q.filter(Convocation.athlete_id.in_(ids or {-1}))
     rows = q.order_by(Convocation.id.desc()).limit(200).all()
     return [_enrich_convocation(db, c) for c in rows]
@@ -411,14 +452,23 @@ def respond_convocation(
     note: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
     conv = db.get(Convocation, conv_id)
     if not conv:
         raise HTTPException(404, "Convocation introuvable")
+    event = db.get(Event, conv.event_id)
+    if not event:
+        raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
     if user.role == Role.PARENT:
         link = (
             db.query(ParentChild)
-            .filter_by(parent_id=user.id, athlete_id=conv.athlete_id)
+            .filter(
+                ParentChild.parent_id == user.id,
+                ParentChild.athlete_id == conv.athlete_id,
+                ParentChild.club_id == club_id,
+            )
             .first()
         )
         if not link:
@@ -430,7 +480,6 @@ def respond_convocation(
     db.commit()
     db.refresh(conv)
     return _enrich_convocation(db, conv)
-
 
 @router.get("/events/{event_id}", response_model=EventOut)
 def get_event(
@@ -465,8 +514,17 @@ def cancel_event(
     else:
         event.description = f"[Annulé] {reason}"
     notified = 0
+    when = event.starts_at.strftime("%d/%m/%Y %H:%M")
+    from app.services.broadcast import fanout_session_lifecycle
+
+    fanout_session_lifecycle(
+        db,
+        club_id=club_id,
+        event=event,
+        action="cancel",
+        reason=f"{when} — {reason}",
+    )
     if payload.notify and event.team_id:
-        when = event.starts_at.strftime("%d/%m/%Y %H:%M")
         notified = notify_team_parents_filtered(
             db,
             event.team_id,
@@ -486,10 +544,12 @@ def event_roster(
     event_id: int,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
 ):
     event = db.get(Event, event_id)
     if not event:
         raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
     if not event.team_id:
         return []
     memberships = (
@@ -521,16 +581,31 @@ def mark_attendance(
     items: list[AttendanceIn],
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
+    club_id: int = Depends(get_current_club_id),
 ):
     event = db.get(Event, event_id)
     if not event:
         raise HTTPException(404, "Événement introuvable")
+    assert_same_club(event, club_id)
     results = []
     for item in items:
+        athlete = get_scoped(db, Athlete, item.athlete_id, club_id)
+        if event.team_id:
+            membership = (
+                db.query(TeamMembership)
+                .filter(
+                    TeamMembership.team_id == event.team_id,
+                    TeamMembership.athlete_id == athlete.id,
+                    TeamMembership.is_active.is_(True),
+                )
+                .first()
+            )
+            if not membership:
+                raise HTTPException(404, "Athlète introuvable")
         row = db.query(Attendance).filter_by(event_id=event_id, athlete_id=item.athlete_id).first()
         prev = row.status if row else None
         if not row:
-            row = Attendance(event_id=event_id, athlete_id=item.athlete_id)
+            row = Attendance(club_id=club_id, event_id=event_id, athlete_id=item.athlete_id)
             db.add(row)
         row.status = item.status
         row.note = item.note
@@ -584,8 +659,10 @@ def put_parent_prefs(
 def job_parental_reminders(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    return send_due_reminders(db)
+    """Rappels parentaux — **uniquement le club courant** (Codex Lot 1)."""
+    return send_due_reminders(db, club_id=club_id)
 
 comms_router = APIRouter(tags=["communication"])
 
@@ -631,28 +708,79 @@ def create_announcement(
 def list_notifications(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    unread_only: bool = Query(False),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rows = (
-        db.query(Notification)
-        .filter(Notification.user_id == user.id)
-        .order_by(Notification.id.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    q = db.query(Notification).filter(Notification.user_id == user.id)
+    # Isolation multi-tenant : ne jamais exposer des notifs d'un autre club
+    club_id = getattr(user, "club_id", None)
+    if club_id is not None:
+        q = q.filter(Notification.club_id == club_id)
+    if unread_only:
+        q = q.filter(Notification.is_read.is_(False))
+    rows = q.order_by(Notification.id.desc()).offset(skip).limit(limit).all()
     return [
         {
             "id": n.id,
             "title": n.title,
             "body": n.body,
             "kind": n.kind,
+            "link": n.link,
             "is_read": n.is_read,
             "created_at": n.created_at,
         }
         for n in rows
     ]
+
+
+@comms_router.get("/notifications/unread-count")
+def unread_count(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = db.query(Notification).filter(
+        Notification.user_id == user.id,
+        Notification.is_read.is_(False),
+    )
+    club_id = getattr(user, "club_id", None)
+    if club_id is not None:
+        q = q.filter(Notification.club_id == club_id)
+    return {"count": int(q.count())}
+
+
+@comms_router.post("/notifications/{notif_id}/read")
+def mark_notification_read(
+    notif_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    n = db.get(Notification, notif_id)
+    if not n or n.user_id != user.id:
+        raise HTTPException(404, "Notification introuvable")
+    club_id = getattr(user, "club_id", None)
+    if club_id is not None and n.club_id is not None and int(n.club_id) != int(club_id):
+        raise HTTPException(404, "Notification introuvable")
+    n.is_read = True
+    db.commit()
+    return {"ok": True, "id": n.id}
+
+
+@comms_router.post("/notifications/read-all")
+def mark_all_notifications_read(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = db.query(Notification).filter(
+        Notification.user_id == user.id,
+        Notification.is_read.is_(False),
+    )
+    club_id = getattr(user, "club_id", None)
+    if club_id is not None:
+        q = q.filter(Notification.club_id == club_id)
+    updated = q.update({"is_read": True}, synchronize_session=False)
+    db.commit()
+    return {"ok": True, "updated": int(updated)}
 
 
 @comms_router.post("/push-tokens")
@@ -661,11 +789,24 @@ def register_push(
     platform: str = "unknown",
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
-    existing = db.query(PushToken).filter_by(user_id=user.id, token=token).first()
-    if not existing:
-        db.add(PushToken(user_id=user.id, token=token, platform=platform))
-        db.commit()
+    existing = (
+        db.query(PushToken)
+        .filter_by(user_id=user.id, token=token, club_id=club_id)
+        .first()
+    )
+    if existing:
+        existing.platform = platform
+    else:
+        # Éliminer jetons obsolètes du même user/club
+        db.query(PushToken).filter(
+            PushToken.user_id == user.id,
+            PushToken.club_id == club_id,
+            PushToken.token != token,
+        ).delete(synchronize_session=False)
+        db.add(PushToken(club_id=club_id, user_id=user.id, token=token, platform=platform))
+    db.commit()
     return {"ok": True}
 
 

@@ -4,6 +4,7 @@ import { api, formatDateFr } from "../api/client";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
 import { toast } from "../components/Toast";
+import { roleSpaceTitle } from "../roles/access";
 
 type Child = {
   id: number;
@@ -157,9 +158,10 @@ export function ParentHomePage() {
   const events = home?.upcoming_events || [];
 
   return (
-    <div className="stack parent-home">
-      <div className="card">
-        <h2 style={{ marginTop: 0 }}>
+    <div className="stack parent-home role-home">
+      <div className="card role-home-hero">
+        <span className="badge role-space-badge">{roleSpaceTitle("parent", lang)}</span>
+        <h2 style={{ marginTop: 8 }}>
           {ar ? `مرحباً${fullName ? `، ${fullName}` : ""}` : `Bonjour${fullName ? `, ${fullName}` : ""}`}
         </h2>
         <p className="muted" style={{ marginTop: 0 }}>

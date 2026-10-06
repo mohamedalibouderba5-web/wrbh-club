@@ -196,4 +196,19 @@ Aucun rôle club (`admin` … `parent`) ne peut appeler ces routes (403).
 
 ---
 
+## 16. Interfaces web par rôle (2026-10-05)
+
+| Rôle | Accueil (`/`) | Menu visible | Faisable / Affichable |
+|------|---------------|--------------|------------------------|
+| **parent** | `ParentHomePage` | Accueil, Inscriptions, Agenda, Annonces, Guide, App | Voir enfants / séances / notifs ; RSVP ; inscriptions siennes — **pas** pointage, finance club, comptes |
+| **coach** | `CoachHomePage` | Accueil, Athlètes, Agenda, Équipes, Annonces… | Séances + présences de ses équipes — **pas** Finance, Comptes, Corbeille, publier annonces |
+| **staff** | Dashboard analytics | Ops sans Comptes / Feedback admin | Inscriptions, agenda, finance ops, matériel |
+| **direction** | Dashboard analytics | + Comptes + Feedback | Pilotage + validation séances |
+| **admin** | Dashboard analytics | Complet club | Admin club (hors plateforme) |
+| **superadmin** | + `/platform` | Plateforme | Multi-clubs |
+
+Code source : `web/src/roles/access.ts`.
+
+---
+
 *Mettre à jour ce fichier dès qu’un bouton ou endpoint change de droit.*

@@ -10,6 +10,8 @@ import { ChangePasswordGate } from "../components/ChangePasswordGate";
 import { FeedbackWidget } from "../components/FeedbackWidget";
 import { ConfirmHost } from "../components/ConfirmDialog";
 import { Toaster } from "../components/Toast";
+import { NotificationBell } from "../components/NotificationBell";
+import { navForRole, roleLabel } from "../roles/access";
 
 type ClubMeta = {
   trial_ends_on?: string | null;
@@ -151,24 +153,18 @@ export function AppLayout() {
     };
   }, []);
 
-  const links = [
-    { to: "/", label: t("dashboard"), short: lang === "ar" ? "رئيسية" : "Accueil", roles: null as string[] | null },
-    { to: "/platform", label: t("platformAdmin"), short: lang === "ar" ? "منصة" : "Platform", roles: ["superadmin"] },
-    { to: "/athletes", label: t("athletes"), short: lang === "ar" ? "لاعبون" : "Joueurs", roles: ["admin", "direction", "staff", "coach"] },
-    { to: "/registrations", label: t("registrations"), short: lang === "ar" ? "تسجيل" : "Inscript.", roles: ["admin", "direction", "staff", "parent"] },
-    { to: "/agenda", label: t("agenda"), short: lang === "ar" ? "جدول" : "Agenda", roles: null },
-    { to: "/teams", label: t("teams"), short: lang === "ar" ? "فرق" : "Équipes", roles: ["admin", "direction", "staff", "coach"] },
-    { to: "/users", label: lang === "ar" ? "الحسابات" : "Comptes", short: lang === "ar" ? "حسابات" : "Comptes", roles: ["admin", "direction"] },
-    { to: "/history", label: t("history"), short: lang === "ar" ? "سجل" : "Histo.", roles: ["admin", "direction", "staff"] },
-    { to: "/feedback-admin", label: t("feedbackAdmin"), short: lang === "ar" ? "آراء" : "Feedback", roles: ["admin", "direction"] },
-    { to: "/finance", label: t("finance"), short: lang === "ar" ? "مالية" : "Finance", roles: ["admin", "direction", "staff"] },
-    { to: "/inventory", label: t("inventory"), short: lang === "ar" ? "عتاد" : "Matériel", roles: ["admin", "direction", "staff"] },
-    { to: "/announcements", label: t("announcements"), short: lang === "ar" ? "إعلان" : "Annonces", roles: null },
-    { to: "/guide", label: t("guide"), short: lang === "ar" ? "دليل" : "Guide", roles: null },
-    { to: "/download", label: t("download"), short: lang === "ar" ? "تطبيق" : "App", roles: null },
-  ].filter((l) => !l.roles || (role && l.roles.includes(role)));
+  const links = navForRole(role).map((l) => ({
+    to: l.to,
+    label: l.labelKey === "accounts" ? (lang === "ar" ? "الحسابات" : "Comptes") : t(l.labelKey as never),
+    short: lang === "ar" ? l.shortAr : l.shortFr,
+  }));
 
-  const bottom = [links[0], links[1], links[2], links[3], links[links.length - 1]].filter(Boolean);
+  const bottom = links.filter((l) => ["/", "/athletes", "/agenda", "/registrations", "/download", "/teams"].includes(l.to)).slice(0, 5);
+  if (bottom.length < 3) {
+    // fallback : premiers liens
+    bottom.push(...links.slice(0, 5));
+  }
+  const bottomUnique = Array.from(new Map(bottom.map((x) => [x.to, x])).values()).slice(0, 5);
 
   async function onWake() {
     setWaking(true);
@@ -242,7 +238,7 @@ export function AppLayout() {
         <div className="sidebar-user">
           <div>{fullName}</div>
           <div className="badge" style={{ marginTop: 6 }}>
-            {role}
+            {roleLabel(role, lang)}
           </div>
           <button className="secondary" style={{ marginTop: 12, width: "100%" }} onClick={() => checkForUpdate()}>
             {checking ? t("checkingUpdate") : t("checkUpdate")}
@@ -259,17 +255,22 @@ export function AppLayout() {
             ☰
           </button>
           <div className="topbar-titles">
-            <h2 style={{ margin: 0 }}>{clubMeta?.name || t("manage")}</h2>
+            <h2 style={{ margin: 0 }} title={clubMeta?.name || t("manage")}>
+              {clubMeta?.name || t("manage")}
+            </h2>
             <div className="topbar-sub">
               {t("brand")}
               {clubMeta?.slug ? ` · ${clubMeta.slug}` : ""} · {t("season")}
             </div>
           </div>
-          <div className="wake-bar">
-            <button className="accent wake-btn" disabled={waking} onClick={() => void onWake()}>
-              {waking ? (lang === "ar" ? "…" : "Réveil…") : t("wake")}
-            </button>
-            {wakeMsg && <span className="wake-msg">{wakeMsg}</span>}
+          <div className="topbar-actions">
+            <NotificationBell />
+            <div className="wake-bar">
+              <button className="accent wake-btn" disabled={waking} onClick={() => void onWake()}>
+                {waking ? (lang === "ar" ? "…" : "Réveil…") : t("wake")}
+              </button>
+              {wakeMsg && <span className="wake-msg">{wakeMsg}</span>}
+            </div>
           </div>
         </div>
         <div className="page-content">
@@ -332,7 +333,7 @@ export function AppLayout() {
       </main>
 
       <nav className="bottom-nav" aria-label="Navigation mobile">
-        {bottom.map((l) => (
+        {bottomUnique.map((l) => (
           <NavLink key={l.to} to={l.to} end={l.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
             <span>{l.short}</span>
           </NavLink>

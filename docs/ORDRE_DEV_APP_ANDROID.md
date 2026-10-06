@@ -10,10 +10,16 @@
 **Date ordre :** 2026-10-01 (maj)  
 **Version API cible :** ≥ **1.18.0**
 
-> **ORDRE ACTIF (2026-10-01, 16h20) — à exécuter dans cet ordre :**  
-> **`docs/ORDRE_APP_ANDROID.md`**  
-> Lot **A** (produit en marche) → puis Lot **B** (HTTPS) → puis Lot **C** (salon / arabe).  
-> Ne pas inverser. Check-lists et APIs dedans.
+> **ORDRE ACTIF (2026-10-06, 17h00) — priorité développeur app :**  
+> **`docs/ORDRE_DEV_APP_ANDROID.md` §9sexies** (fiabilité globale 06/10 — après lot site G0/G1/NC).  
+> P0 : G2-01 Plus nav · NC-01 notes · NC-03 catégorie inscription · G0-06 i18n Accueil.  
+> P1 : G1-05 âge club · G1-06 import CSV · G1-02 GET /payments.  
+> Sources : `ORDRE_AMELIORATION_GLOBALE_2026-10-06` · `NadiConnect_Ameliorations_2026-10-06`.  
+> (§9quater / §9quinquies déjà livrés en 1.16–1.17 — ne pas refaire.)  
+> (Ancien lot A/B/C dans `ORDRE_APP_ANDROID.md` reste la base.)
+
+> **ORDRE ACTIF historique (2026-10-01) :**  
+> **`docs/ORDRE_APP_ANDROID.md`** Lot A → B → C.
 
 ---
 
@@ -237,7 +243,173 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-03 23h30 | (sync Codex) | **Lots 1+2+4 API/web déployés.** **À AJOUTER app :** (1) token JWT uniquement via `expo-secure-store` (déjà branché `client.ts` / `AuthContext` — rebuild APK obligatoire pour effet device) ; (2) médias : ne jamais mettre le JWT dans l’URL image — utiliser `/media/{id}/signed-url` ou chemin déjà signé `exp`+`sig` ; (3) recettes M0 après deploy : Agenda roster/présences, photo joueur, `/payments` + `/payments/quick`, stock attribution. Pas de rebuild vers IP HTTP |
 | 2026-10-04 01h20 | (sync reste) | **P1 web/API clos** (P1-6…9, R0-10/14). **Priorité app = P2/M0** téléphone/Nox : M0-01…16 + SecureStore rebuild. Pas de rebuild IP HTTP |
 | 2026-10-04 01h50 | **1.14.0** Nox | **M0 partiel OK** sur Nox : session, équipes (U11+sports), agenda, paiements, feedback, DNS HTTPS. **À AJOUTER / corriger :** chrome Accueil affiche « Administrateur WRBH » sans **Nadi Connect** produit ; finir M0-06/07/08/09/14 comptes jetables ; rebuild SecureStore |
+| 2026-10-04 14h15 | **1.15.0** | **Fix Athlètes Sisi** : plus de `limit=300` (erreur « ≤ 200 ») ; pages de 100 + « Charger plus » + retry limit=50 ; Paiements/Matériel athletes ≤200 ; bandeau **Discovery J-n**. Installer 1.15.0 sur Nox/téléphone |
+| 2026-10-04 14h15 | (sync clients) | **Chaîne A0** après avis CS Sisi : **À AJOUTER / rebuild APK** — (1) Accueil titre **Nadi Connect** + sous-titre club ; (2) athlètes pagination « Charger plus » + API `limit` jusqu’à 500 ; (3) shortcuts Accueil Finance + Comptes ; (4) Plus libellé Finance. Recette slug `sisi-blida-13865` (~300 joueurs) |
 | 2026-10-04 14h00 | (sync site) | **Console plateforme V1** livrée site+API. **À AJOUTER dans l’app (fait code local) :** écran `/(tabs)/platform` ; entrée Plus `roles: ["superadmin"]` ; APIs `GET /admin/dashboard`, `GET/PATCH /admin/clubs`, `GET/PATCH /admin/users`. **Recette :** login `platform@nadi-connect.local` (sans slug club) → Plus → Plateforme → KPI + suspendre. Rebuild APK pour device. |
+| 2026-10-04 15h40 | (sync site UX) | **Densité affichage site** (pas d’API). **À AJOUTER app :** (1) Agenda — filtre mois courant + détail séance / roster **à côté** de la liste (pas scroll en bas) ; (2) Inscriptions/Athlètes — formulaires compacts, liste prioritaire ; (3) Finance — KPI cotisations + bouton constantes non full-width ; (4) Équipes — CTA créer équipe/coach compacts. Aucun changement payload. |
+| 2026-10-04 15h55 | (sync site UX fix2) | **À AJOUTER app :** photo à côté des champs sans chevauchement ; Inscriptions filtres cat./groupe près des exports ; Équipes = Sports + Coachs en 2 colonnes puis table. Pas de changement API. |
+| 2026-10-05 02h00 | (sync Hydra313 P1) | **À AJOUTER app :** (1) Finance — onglet Achats = `entry_type=expense` seulement ; paiement équipement = recette `equipment_sale` ; (2) Matériel — recherche athlètes `GET /athletes?q=` ; (3) Échéances — `GET /installments/meta` + pagination skip/limit ; (4) Dashboard membres = inscriptions (pas âge croisé sports). |
+| 2026-10-05 12h20 | (sync rôles UI) | **À AJOUTER app :** Accueil coach (équipes liées + séances) ; menus filtrés comme `roles/access.ts` ; parent sans Finance/Comptes ; coach sans Finance/Comptes/Historique ; annonces publish = staff/direction/admin seulement. Doc `INTERFACES_PAR_ROLE_FR_AR.md`. |
+| 2026-10-05 20h40 | (audit Nox app vs web) | Rapport `RAPPORT_AUDIT_APPROFONDI_APP_ANDROID_VS_WEB_2026-10-05_FR_AR.md` : APK **1.15.0** vs API **1.18.0** — **pas à jour produit**. Preuves `mobile/dist/deep_audit/`. **À AJOUTER :** voir **§9quater** (rebuild, rôles, Hydra, moreHint). |
+| 2026-10-05 23h40 | (ordre dév app) | **§9quater** ajouté — lot obligatoire post-audit Nox (priorité P0/P1). Le développeur app doit exécuter §9quater avant toute autre feature salon. |
+| 2026-10-06 12h00 | (sync notifs hub) | **§9quinquies** — Centre notifications + son (site Chrome) livré. **À AJOUTER app :** push FCM/Expo, cloche + badge, dashboards par rôle, miroir kinds (session_*, payment_*, finance_*, registration, inventory, coach_payroll, parent_message). |
+| 2026-10-06 12h10 | (repère projet) | Fichier `REPERE_PROJET_NADI_CONNECT_FR_AR.md` + tableau `RAPPORT_NOTIFICATIONS_PAR_ROLE_FR_AR.md`. Lire §9quinquies pour notifs/dashboards app. |
+| 2026-10-05 23h50 | **1.16.0** | **§9quater P0+P1** : Accueil coach/parent/staff dédiés ; Plus filtrés + moreHint par rôle ; Achats=`expense` ; équipement=recette hint ; `athletes?q=` Matériel/Finance ; installments `/meta` + Charger plus. vc19 HTTPS |
+| 2026-10-04 16h20 | (sync audit ali sportage) | Club essai `elite-multisports-ali` / `admin@elite-multisports-ali.test` / `AliSportage2026!`. **À AJOUTER app :** (1) message clair si API refuse âge hors plage club ; (2) **ne pas** afficher/promettre scan QR-RFID accès tant que non livré API+app ; (3) recette parent 2 enfants = 2 fiches + paiements séparés (pas de paiement familial unique). Voir `RAPPORT_AUDIT_ALI_SPORTAGE_FIABILITE_2026-10-04_FR_AR.md` |
+| 2026-10-06 01h15 | **1.16.1** | **Fix Paiements** : ordre formulaire Mois → Montant → Joueur ; liste joueurs `ScrollView` maxHeight 168 + overflow hidden ; après sélection = chip + « Changer » (plus de liste flottante sur les mois). vc20 HTTPS |
+| 2026-10-06 12h15 | **1.17.0** | **§9quinquies** : `NotificationBell` header + badge ; mark read / read-all ; deep links ; push listener + canal Android ; dashboards Accueil Admin/Staff/Coach/Parent. vc21 HTTPS |
+| 2026-10-06 14h00 | (sync fiabilité globale) | Campagne Nox 1.17.0 + site : login/Accueil/Agenda/Paiements OK ; nav Athlètes/Matériel Automator faible. **À AJOUTER :** G2-01 chemins Plus stables ; G0-05 libellés FR/AR ; deep links `/users` (pas `/accounts`) ; G2-02 Maestro/Detox login+4 onglets. Ordre `ORDRE_AMELIORATION_GLOBALE_2026-10-06_FR_AR.md` |
+| 2026-10-06 15h00 | (sync rejeu QA) | Nox parcours tabs OK ; Plus→Inscriptions/Équipes/Comptes OK ; **Athlètes/Matériel/Historique taps fragiles**. Site Équipes vide (G0-03) alors qu’app liste OK — **ne pas inventer** parcours divergents ; attendre fix site. Score global **72 %** |
+| 2026-10-06 17h25 | (sync vérif ordre) | Contrôle prod : G0/G1 annoncés livrés **non visibles** sur API/web (`ui-density`) ; Nox encore **1.17.0**. G2-01 **ouvert**. Voir `VERIF_ORDRE_AMELIORATION_2026-10-06_FR_AR.md` |
+| 2026-10-06 17h00 | (site G0/G1/NC) | Site a livré lot fiabilité 06/10 (G0-01…06, NC-01/02/03/09, G1-02/03/05/06/07). **À AJOUTER app :** **§9sexies** (notes GET, catégorie inscription, âge club, import CSV, Plus G2-01, i18n Accueil). |
+| 2026-10-06 17h15 | **1.18.0** | **§9sexies** : Plus `Link`+testID (G2-01) ; notes athlète GET+no wipe (NC-01) ; Cat. inscription (NC-03) ; libellés Suspendu/Payé/… (G0-06) ; âge finance/settings (G1-05) ; Import CSV (G1-06) ; deep links `/accounts`→Comptes ; Maestro `login_tabs.yaml`. vc22 HTTPS |
+
+---
+
+## 9sexies. À AJOUTER — Fiabilité globale 2026-10-06 (après lot site G0/G1/NC) — **OBLIGATOIRE**
+
+**Sources site :** `docs/ORDRE_AMELIORATION_GLOBALE_2026-10-06_FR_AR.md`, `output/reports/audit_global_2026_10_06/NadiConnect_Ameliorations_2026-10-06.md`, `docs/REPERE_COMMERCIALISATION_FIABILITE_2026-10-06_FR_AR.md`.  
+**Site = vérité** — ne pas inventer d’API ; miroir des contrats ci-dessous.
+
+### P0 — Alignement API / navigation
+
+| # | **À AJOUTER** | API / détail |
+|---|----------------|--------------|
+| **G2-01** | Navigation **Plus** fiable → Athlètes, Matériel, Historique, Comptes | Automator/Nox : 6/6 ; corriger taps qui restent sur Plus |
+| **NC-01** | Notes athlète à la relecture | `GET /api/v1/athletes` renvoie `notes` — initialiser édition avec `athlete.notes` ; ne jamais PATCH notes vides si champ non touché |
+| **NC-03** | Catégorie = inscription saison | Afficher `category_code` de l’inscription courante (multisport) |
+| **G0-06** | Filtres Accueil FR/AR | `Active`→Actif, `Suspended`→Suspendu, `training`→Entraînement, `paid`/`due`→Payé/Dû |
+
+### P1 — Config club + import
+
+| # | **À AJOUTER** | API / détail |
+|---|----------------|--------------|
+| **G1-05** | Âge configurable | `GET/PUT /api/v1/finance/settings` → `min_athlete_age`, `max_athlete_age` ; message erreur avec plage ; Elite → max 99 |
+| **G1-06** | Import CSV | `POST /api/v1/athletes/import` body `{ "csv": "..." }` → `{ created, skipped, errors }` |
+| **G1-02** | Liste paiements | `GET /api/v1/payments` = alias `/payments/recent` (plus de 405) |
+| **G0-04** | Deep link Comptes | Web `/accounts`→`/users` — deep links app → écran Comptes |
+
+### P2 — Qualité (audit NC)
+
+| # | **À AJOUTER** | Détail |
+|---|----------------|--------|
+| **NC-06** | i18n AR profil | Titres/labels + RTL |
+| **NC-07** | Validation inscription vide | Erreurs champs + focus 1er invalide |
+| **NC-10** | Libellés métier Achats/Matériel | Pas de `entry_type=expense` brut |
+| **G2-02** | Maestro/Detox minimale | Login + 4 onglets |
+
+### Checklist
+
+- [x] G2-01 Plus → 6 écrans *(Link asChild + testID + hit targets)*
+- [x] NC-01 notes formulaire *(GET détail + notesTouched)*
+- [x] NC-03 category_code inscription *(affichage Cat. code)*
+- [x] G0-06 libellés Accueil *(Suspended→Suspendu, income/expense…)*
+- [x] G1-05 plage âge + message
+- [x] G1-06 écran import CSV
+- [x] Rebuild APK + ligne journal §9 *(1.18.0)*
+
+---
+
+## 9quater. À AJOUTER — Alignement post-audit Nox (2026-10-05) — **OBLIGATOIRE**
+
+**Contexte :** audit approfondi Nox sur club `sisi-blida-13315`.  
+**Rapport :** `docs/RAPPORT_AUDIT_APPROFONDI_APP_ANDROID_VS_WEB_2026-10-05_FR_AR.md`  
+**Preuves :** `mobile/dist/deep_audit/`  
+**Constat :** APK installée **1.15.0** / API prod **1.18.0** → données OK, **produit app en retard** sur le web (rôles UI + Hydra P1 + densité).
+
+### P0 — Rebuild & socle
+
+| # | **À AJOUTER / FAIRE** | Détail |
+|---|----------------------|--------|
+| **N0-1** | Rebuild APK **≥ 1.16.0** (versionCode ≥ 19) | `EXPO_PUBLIC_API_URL=https://api.nadi-connect.com` ; déposer sur `/download` ; bump `android_app_version` côté API/site |
+| **N0-2** | Recette Nox Admin + Coach + Parent | Slug `sisi-blida-13315` — Accueil, Agenda, Finance (admin), Matériel (admin), Inscriptions, Messages, Profil |
+
+### P0 — Interfaces par rôle (miroir web `web/src/roles/access.ts`)
+
+| # | **À AJOUTER** | API / écran | Critère d’acceptation |
+|---|---------------|-------------|------------------------|
+| **N0-3** | Accueil **Coach** dédié | `/(tabs)/index` si `role===coach` | Équipes liées + séances à venir + raccourcis Agenda/Présences ; **pas** KPI finance club |
+| **N0-4** | Accueil **Parent** (renforcer) | déjà partiel | Enfants, convocations, notifs, prefs — texte limites (pas créer séance / pas finance club) |
+| **N0-5** | Menus **Plus** filtrés stricts | `more.tsx` `ITEMS.roles` | Parent : pas Finance/Comptes/Athlètes/Matériel/Historique. Coach : pas Finance/Comptes/Historique/Matériel |
+| **N0-6** | Corriger **`moreHint`** par rôle | `I18nContext` | Ne plus afficher « finance, matériel et historique » pour coach/parent |
+| **N0-7** | Annonces **publish** | `messages.tsx` | Bouton « Publier » = staff / direction / admin seulement (lecture OK pour coach/parent) |
+
+Réf. web : `docs/INTERFACES_PAR_ROLE_FR_AR.md` · `docs/MATRICE_ROLES_ACCES.md` §16.
+
+### P1 — Hydra 313 (alignement finance / matériel / échéances)
+
+| # | **À AJOUTER** | API | Critère |
+|---|---------------|-----|---------|
+| **N1-1** | Paiement **équipement** = recette | Ledger / quick pay | Catégorie ou flux `equipment_sale` (pas dépense Achats) — miroir web H313-01 |
+| **N1-2** | Onglet / liste **Achats** | `GET /ledger?entry_type=expense` | Uniquement expenses |
+| **N1-3** | Recherche athlètes Matériel (et Finance) | `GET /athletes?q=` | Plus de liste plate limit=200 seule |
+| **N1-4** | Échéances meta + pages | `GET /installments/meta` + `skip`/`limit` | « Charger plus » si total > page |
+
+Réf. : journal § 2026-10-05 02h00 (Hydra313 P1).
+
+### P2 — Densité UX (après P0/P1)
+
+| # | **À AJOUTER** | Notes |
+|---|---------------|-------|
+| **N2-1** | Agenda : détail / roster accessible sans scroll excessif | Sync UX web 2026-10-04 |
+| **N2-2** | Formulaires Inscriptions / Athlètes plus compacts | Liste prioritaire |
+
+### Hors scope (ne pas inventer)
+
+- QR / RFID accès terrain  
+- Paiement en ligne  
+- Features non listées dans le maître / ce document  
+
+### Checklist livraison développeur app
+
+- [x] APK rebuildée installée sur Nox *(publiée `/download` 1.16.0 — recette Nox à confirmer)*
+- [x] N0-3 → N0-7 code *(Accueil rôles, Plus, moreHint, publish staff+)*
+- [x] N1-1 → N1-4 code *(Achats expense, équipement hint, `q=`, meta+pages)*
+- [ ] Captures ou checklist M0 jointe
+- [x] Ligne journal §9 + bump version
+
+---
+
+## 9quinquies. À AJOUTER — Notifications + tableaux de bord (2026-10-06) — **OBLIGATOIRE**
+
+**Site livré :** cloche Chrome + son (`NotificationBell`), polling `/notifications`, kinds métier via `broadcast.py`.  
+**Réf. :** `docs/ORDRE_LOGICIEL_MAITRE.md` journal 2026-10-06 · API `GET /notifications`, `unread-count`, `POST .../read`, `read-all`, `POST /push-tokens`.
+
+### Matrice destinataires (miroir site — ne pas inventer)
+
+| Destinataire | Kinds / événements |
+|--------------|-------------------|
+| **Admin / Direction (gérant)** | Tout : séances create/cancel/start/end, inscriptions, encaissements, dépenses, achats matériel, messages parents, rappels salaires coach |
+| **Staff / compta** | Finance (`finance_income`, `finance_expense`), inscriptions, matériel |
+| **Coach** | Séances (création admin, annulation), messages parents, rappel paiement coach (`coach_payroll`) |
+| **Parent** | Séances (create/start/end/cancel/attendance/reminder), paiements (`payment_parent`, `payment_balance` = reste mensuel selon tarif) |
+
+### P0 — App notifications
+
+| # | **À AJOUTER** | Détail |
+|---|---------------|--------|
+| **N3-1** | Cloche + badge non lus | `GET /api/v1/notifications/unread-count` + liste `GET /notifications` |
+| **N3-2** | Marquer lu | `POST /notifications/{id}/read` · `POST /notifications/read-all` |
+| **N3-3** | Push téléphone | Enregistrer jeton `POST /push-tokens` (Expo Notifications / FCM) ; son + vibration à réception |
+| **N3-4** | Préférences parent | Déjà `parent/notification-prefs` — exposer dans Profil |
+| **N3-5** | Deep link `link` | Ouvrir Agenda / Finance / Accueil selon `notification.link` |
+
+### P0 — Tableaux de bord app (par rôle)
+
+| # | **À AJOUTER** | Contenu minimum |
+|---|---------------|-----------------|
+| **N3-6** | Dashboard **Admin/Direction** | KPI club : séances du jour, impayés, dernières notifs, raccourcis Finance / Agenda / Inscriptions |
+| **N3-7** | Dashboard **Staff / compta** | Focus finance : encaissements du jour, dépenses, échéances dues |
+| **N3-8** | Dashboard **Coach** | Équipes + séances + notifs messages parents (aligné N0-3) |
+| **N3-9** | Dashboard **Parent** | Enfants + solde cotisations + prochaines séances (aligné N0-4) |
+
+### Checklist
+
+- [x] N3-1…N3-5 code *(cloche, read, push register+listener, prefs parent déjà Profil, deep link)*  
+- [x] N3-6…N3-9 écrans Accueil distincts *(KPI finance admin/staff ; coach/parent renforcés)*  
+- [x] Rebuild APK + journal §9 *(1.17.0 / vc21)*  
+
+---
 
 ## 9ter. À AJOUTER — Console plateforme superadmin (2026-10-04)
 

@@ -1,7 +1,32 @@
 import { reportApiFailure } from "../feedback/collector";
 
 /** Client API rapide : mémoire + sessionStorage, stale-while-revalidate. */
-const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+function resolveApiBase(): string {
+  const fromEnv = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  // Apex souvent encore en proxy Cloudflare (IPv6/CF hang → « Failed to fetch »).
+  // L’API est en DNS only : on l’utilise dès que la page est sur nadi-connect.com.
+  if (typeof window !== "undefined") {
+    const h = window.location.hostname;
+    if (h === "nadi-connect.com" || h === "www.nadi-connect.com" || h.endsWith(".nadi-connect.com")) {
+      return "https://api.nadi-connect.com";
+    }
+  }
+  return "";
+}
+const API_BASE = resolveApiBase();
+
+function networkErrorMessage(err: unknown): string {
+  const name = err instanceof Error ? err.name : "";
+  const msg = err instanceof Error ? err.message : String(err);
+  if (name === "AbortError") {
+    return "Délai dépassé — le serveur ne répond pas assez vite. Réessayez.";
+  }
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) {
+    return "Connexion impossible (Failed to fetch). Vérifiez Internet, puis réessayez. Si ça continue : le site DNS Cloudflare est peut‑être lent — utilisez https://api.nadi-connect.com côté API (déjà appliqué).";
+  }
+  return msg || "Erreur réseau";
+}
 
 export type TokenPayload = {
   access_token: string;
@@ -57,17 +82,46 @@ export function stableMediaPath(path?: string | null): string | null {
   return p || null;
 }
 
+function extractMediaId(url: string): string | null {
+  const m = url.match(/\/media\/([a-f0-9]+)(?:\?|$)/i);
+  return m?.[1] || null;
+}
+
+/** Précharge une URL signée (sans JWT dans la query — audit Codex Lot 4). */
+export async function ensureSignedMedia(path: string): Promise<string | undefined> {
+  const stable = stableMediaPath(path) || path;
+  const id = extractMediaId(stable);
+  if (!id) return stable.startsWith("http") ? stable : `${API_BASE}${stable}`;
+  const cached = sessionStorage.getItem(`media_sig_${id}`);
+  if (cached) return cached.startsWith("http") ? cached : `${API_BASE}${cached}`;
+  try {
+    const data = await api<{ path: string }>(`/api/v1/media/${id}/signed-url`);
+    const signed = data.path.startsWith("http") ? data.path : `${API_BASE}${data.path}`;
+    sessionStorage.setItem(`media_sig_${id}`, data.path);
+    return signed;
+  } catch {
+    return mediaUrl(path);
+  }
+}
+
 export function mediaUrl(path?: string | null): string | undefined {
   if (!path) return undefined;
-  // Toujours chemin stable + token : les URLs signées expirent et cassent l’aperçu à la réédition
   const stable = stableMediaPath(path) || path;
   let url = stable.startsWith("http") ? stable : `${API_BASE}${stable}`;
   if (url.includes("/media/")) {
-    const token = localStorage.getItem("wrbh_token");
-    if (token) {
-      const base = url.split("?")[0];
-      url = `${base}?access_token=${encodeURIComponent(token)}`;
+    // Jamais de JWT dans l’URL (logs / Referer). Préférer signature exp/sig en cache.
+    const id = extractMediaId(url);
+    if (id) {
+      const cached = sessionStorage.getItem(`media_sig_${id}`);
+      if (cached) {
+        return cached.startsWith("http") ? cached : `${API_BASE}${cached}`;
+      }
+      // Rafraîchit en fond pour le prochain rendu
+      void ensureSignedMedia(stable);
     }
+    // Si déjà signé (exp+sig), garder ; sinon chemin nu (401 jusqu’au cache)
+    if (url.includes("sig=") && url.includes("exp=")) return url;
+    return url.split("?")[0];
   }
   return url;
 }
@@ -148,7 +202,8 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, retries = 0)
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timeoutMs = path.includes("/system/wake") || path.includes("/system/health") ? 45_000 : 25_000;
+      // Wake/health : timeout court (évite login bloqué 45s → « Failed to fetch »)
+      const timeoutMs = path.includes("/system/wake") || path.includes("/system/health") ? 8_000 : 20_000;
       const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : 0;
       const res = await fetch(`${API_BASE}${path}`, {
         ...options,
@@ -204,7 +259,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, retries = 0)
     }
   }
   window.dispatchEvent(new CustomEvent("wrbh:cold-start-failed"));
-  throw lastErr || new Error("Erreur réseau — utilisez Actualiser / Réveiller le serveur");
+  throw new Error(networkErrorMessage(lastErr) || "Erreur réseau — réessayez dans quelques secondes");
 }
 
 /** GET/POST générique (mutations invalident le cache lié). */
@@ -293,29 +348,41 @@ export async function login(
 ): Promise<TokenPayload> {
   const body = new URLSearchParams({ username, password });
   if (clubSlug) body.set("club_slug", clubSlug);
-  const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) {
-    let msg = "Identifiants incorrects";
-    try {
-      const j = await res.json();
-      if (typeof j.detail === "string") msg = j.detail;
-    } catch {
-      /* ignore */
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? window.setTimeout(() => controller.abort(), 20_000) : 0;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: controller?.signal,
+    });
+    if (!res.ok) {
+      let msg = "Identifiants incorrects";
+      try {
+        const j = await res.json();
+        if (typeof j.detail === "string") msg = j.detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
     }
-    throw new Error(msg);
+    invalidateApiCache();
+    return res.json();
+  } catch (e) {
+    if (e instanceof Error && e.message && !/failed to fetch|abort/i.test(e.message) && e.name !== "AbortError") {
+      throw e;
+    }
+    throw new Error(networkErrorMessage(e));
+  } finally {
+    if (timer) window.clearTimeout(timer);
   }
-  invalidateApiCache();
-  return res.json();
 }
 
 export async function wakeServer() {
-  // Appel direct (sans rawFetch) pour éviter une boucle wake→retry→wake
+  // Timeout court : ne doit jamais bloquer le login des dizaines de secondes
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const timer = controller ? window.setTimeout(() => controller.abort(), 45_000) : 0;
+  const timer = controller ? window.setTimeout(() => controller.abort(), 5_000) : 0;
   try {
     const res = await fetch(`${API_BASE}/api/v1/system/wake`, {
       method: "POST",

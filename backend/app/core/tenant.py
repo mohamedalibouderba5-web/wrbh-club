@@ -90,8 +90,8 @@ def assert_same_club(obj, club_id: int) -> None:
     """Vérifie qu'un objet appartient au club courant, sinon 404 (pas 403 pour ne pas
     divulguer l'existence de la ressource d'un autre club)."""
     obj_club = getattr(obj, "club_id", None)
-    # Tolérance migration encore active — A3 la retirera après backfill NOT NULL
-    if obj_club is not None and int(obj_club) != int(club_id):
+    # A3 : plus de tolérance NULL — une ligne sans club est invisible / refusée
+    if obj_club is None or int(obj_club) != int(club_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ressource introuvable")
 
 

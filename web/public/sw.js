@@ -1,5 +1,5 @@
 /* Service worker WRBH — shell + mise à jour forcée */
-const CACHE = "wrbh-shell-v9";
+const CACHE = "nadi-shell-v10";
 const SHELL = ["/", "/index.html", "/logo.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -19,6 +19,23 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientsArr) => {
+      for (const c of clientsArr) {
+        if ("focus" in c) {
+          c.focus();
+          if ("navigate" in c && url) c.navigate(url);
+          return;
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    }),
+  );
 });
 
 self.addEventListener("fetch", (event) => {

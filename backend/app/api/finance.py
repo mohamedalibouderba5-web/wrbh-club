@@ -1,13 +1,14 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
 from app.core.database import get_db
 from app.core.roles import Role
+from app.core.scoped import get_scoped
 from app.core.tenant import assert_same_club, get_current_club_id
 from sqlalchemy import or_
 from app.models import (
@@ -149,7 +150,8 @@ def _ledger_income_for_payment(
     paid_on: date,
     user_id: int,
     category: str = "subscription",
-) -> None:
+    payment_id: int | None = None,
+) -> LedgerEntry:
     entry = LedgerEntry(
         club_id=club_id,
         season_id=season_id,
@@ -159,9 +161,68 @@ def _ledger_income_for_payment(
         amount=amount,
         entry_date=paid_on,
         created_by=user_id,
+        source_type="payment" if payment_id else None,
+        source_id=payment_id,
     )
     assign_ledger_identity(db, entry, club_id=club_id)
     db.add(entry)
+    return entry
+
+
+def _reverse_payment_ledger(
+    db: Session,
+    *,
+    club_id: int,
+    payment: Payment,
+    user_id: int,
+) -> None:
+    """Écriture inverse traçable — ne jamais effacer l'historique caisse."""
+    originals = (
+        db.query(LedgerEntry)
+        .filter(
+            LedgerEntry.club_id == club_id,
+            LedgerEntry.source_type == "payment",
+            LedgerEntry.source_id == payment.id,
+            LedgerEntry.reversed_at.is_(None),
+            LedgerEntry.reversal_of_id.is_(None),
+        )
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    for orig in originals:
+        rev = LedgerEntry(
+            club_id=club_id,
+            season_id=orig.season_id,
+            entry_type="expense" if orig.entry_type == "income" else "income",
+            category=orig.category,
+            label=f"Annulation — {orig.label}",
+            amount=orig.amount,
+            entry_date=date.today(),
+            created_by=user_id,
+            source_type="payment_reversal",
+            source_id=payment.id,
+            reversal_of_id=orig.id,
+        )
+        assign_ledger_identity(db, rev, club_id=club_id)
+        db.add(rev)
+        orig.reversed_at = now
+        orig.reversed_by = user_id
+    if not originals:
+        # Paiements antérieurs sans source_type : régularisation par montant
+        rev = LedgerEntry(
+            club_id=club_id,
+            season_id=_current_season_id(db, club_id),
+            entry_type="expense",
+            category="subscription",
+            label=f"Annulation paiement #{payment.id}",
+            amount=Decimal(str(payment.amount)),
+            entry_date=date.today(),
+            created_by=user_id,
+            source_type="payment_reversal",
+            source_id=payment.id,
+        )
+        assign_ledger_identity(db, rev, club_id=club_id)
+        db.add(rev)
 
 
 @router.get("/finance/settings", response_model=ClubFeeSettingsOut)
@@ -170,11 +231,16 @@ def get_finance_settings(
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
     club_id: int = Depends(get_current_club_id),
 ):
+    from app.services.age import get_club_age_bounds
+
     fees = get_fee_settings(db, club_id=club_id)
+    lo, hi = get_club_age_bounds(db, club_id)
     return ClubFeeSettingsOut(
         monthly_subscription_dzd=fees["monthly_subscription_dzd"],
         annual_insurance_dzd=fees["annual_insurance_dzd"],
         inscription_fee_dzd=fees["inscription_fee_dzd"],
+        min_athlete_age=lo,
+        max_athlete_age=hi,
     )
 
 
@@ -185,6 +251,8 @@ def update_finance_settings(
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
     club_id: int = Depends(get_current_club_id),
 ):
+    from app.services.age import get_club_age_bounds
+
     ensure_default_settings(db, club_id=club_id)
     mapping = {
         "monthly_subscription_dzd": payload.monthly_subscription_dzd,
@@ -214,6 +282,36 @@ def update_finance_settings(
                     label_ar=meta[2],
                 )
             )
+    # G1-05 : âge athlète configurable par club
+    age_meta = {
+        "min_athlete_age": ("Âge minimum athlète", "الحد الأدنى للعمر"),
+        "max_athlete_age": ("Âge maximum athlète", "الحد الأقصى للعمر"),
+    }
+    for key, val in (
+        ("min_athlete_age", payload.min_athlete_age),
+        ("max_athlete_age", payload.max_athlete_age),
+    ):
+        if val is None:
+            continue
+        if val < 0 or val > 120:
+            raise HTTPException(400, f"Âge invalide pour {key}")
+        row = (
+            db.query(ClubSetting)
+            .filter(ClubSetting.club_id == club_id, ClubSetting.key == key)
+            .first()
+        )
+        if row:
+            row.value = str(val)
+        else:
+            db.add(
+                ClubSetting(
+                    club_id=club_id,
+                    key=key,
+                    value=str(val),
+                    label=age_meta[key][0],
+                    label_ar=age_meta[key][1],
+                )
+            )
     fees = get_fee_settings(db, club_id=club_id)
     # Relecture forcée après écriture (évite cache mémoire stale)
     for key, val in mapping.items():
@@ -232,11 +330,79 @@ def update_finance_settings(
     db.commit()
     cache_delete_prefix("finance:")
     cache_delete_prefix("bootstrap:")
+    lo, hi = get_club_age_bounds(db, club_id)
+    if lo > hi:
+        raise HTTPException(400, f"min_athlete_age ({lo}) > max_athlete_age ({hi})")
     return ClubFeeSettingsOut(
         monthly_subscription_dzd=fees["monthly_subscription_dzd"],
         annual_insurance_dzd=fees["annual_insurance_dzd"],
         inscription_fee_dzd=fees["inscription_fee_dzd"],
+        min_athlete_age=lo,
+        max_athlete_age=hi,
     )
+
+
+def _installments_query(
+    db: Session,
+    *,
+    club_id: int,
+    user: User,
+    athlete_id: int | None = None,
+    season_id: int | None = None,
+    status: str | None = None,
+):
+    q = db.query(FeeInstallment).filter(FeeInstallment.club_id == club_id)
+    if athlete_id:
+        q = q.filter(FeeInstallment.athlete_id == athlete_id)
+    if season_id:
+        q = q.filter(FeeInstallment.season_id == season_id)
+    if status:
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) == 1:
+            q = q.filter(FeeInstallment.status == statuses[0])
+        elif statuses:
+            q = q.filter(FeeInstallment.status.in_(statuses))
+    if user.role == Role.PARENT:
+        ids = {
+            r[0]
+            for r in db.query(ParentChild.athlete_id).filter(
+                ParentChild.parent_id == user.id,
+                ParentChild.club_id == club_id,
+            )
+        }
+        q = q.filter(FeeInstallment.athlete_id.in_(ids or {-1}))
+    return q
+
+
+@router.get("/installments/meta")
+def installments_meta(
+    athlete_id: int | None = None,
+    season_id: int | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
+):
+    """H313-04 : totaux sur le filtre complet (pas seulement la page affichée)."""
+    q = _installments_query(
+        db, club_id=club_id, user=user, athlete_id=athlete_id, season_id=season_id, status=status
+    )
+    total = q.count()
+    rem = Decimal("0")
+    amt = Decimal("0")
+    paid = Decimal("0")
+    for row in q.with_entities(FeeInstallment.amount, FeeInstallment.amount_paid).all():
+        a = Decimal(str(row[0] or 0))
+        p = Decimal(str(row[1] or 0))
+        amt += a
+        paid += p
+        rem += max(a - p, Decimal("0"))
+    return {
+        "total": int(total),
+        "amount_sum": float(amt),
+        "paid_sum": float(paid),
+        "remaining_sum": float(rem),
+    }
 
 
 @router.get("/installments", response_model=list[InstallmentOut])
@@ -250,22 +416,9 @@ def list_installments(
     user: User = Depends(get_current_user),
     club_id: int = Depends(get_current_club_id),
 ):
-    q = db.query(FeeInstallment).filter(
-        FeeInstallment.club_id == club_id
+    q = _installments_query(
+        db, club_id=club_id, user=user, athlete_id=athlete_id, season_id=season_id, status=status
     )
-    if athlete_id:
-        q = q.filter(FeeInstallment.athlete_id == athlete_id)
-    if season_id:
-        q = q.filter(FeeInstallment.season_id == season_id)
-    if status:
-        statuses = [s.strip() for s in status.split(",") if s.strip()]
-        if len(statuses) == 1:
-            q = q.filter(FeeInstallment.status == statuses[0])
-        elif statuses:
-            q = q.filter(FeeInstallment.status.in_(statuses))
-    if user.role == Role.PARENT:
-        ids = {r[0] for r in db.query(ParentChild.athlete_id).filter(ParentChild.parent_id == user.id)}
-        q = q.filter(FeeInstallment.athlete_id.in_(ids or {-1}))
     rows = (
         q.order_by(FeeInstallment.seq_no.asc().nullslast(), FeeInstallment.id.asc())
         .offset(skip)
@@ -373,16 +526,36 @@ def create_payment(
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
     club_id: int = Depends(get_current_club_id),
 ):
+    if payload.amount is None or payload.amount <= 0:
+        raise HTTPException(422, "Le montant doit être strictement positif")
+
+    athlete = db.get(Athlete, payload.athlete_id)
+    if not athlete:
+        raise HTTPException(404, "Joueur introuvable")
+    assert_same_club(athlete, club_id)
+
+    season_id = _current_season_id(db, club_id)
+
     payment = Payment(**payload.model_dump(), club_id=club_id, recorded_by=user.id)
     assign_payment_identity(db, payment, club_id=club_id)
     db.add(payment)
     db.flush()
 
     if payload.installment_id:
-        inst = db.get(FeeInstallment, payload.installment_id)
+        inst = (
+            db.query(FeeInstallment)
+            .filter(
+                FeeInstallment.id == payload.installment_id,
+                FeeInstallment.club_id == club_id,
+            )
+            .with_for_update()
+            .first()
+        )
         if not inst:
             raise HTTPException(404, "Échéance introuvable")
         assert_same_club(inst, club_id)
+        if inst.athlete_id != payload.athlete_id:
+            raise HTTPException(404, "Échéance introuvable")
         remaining = _installment_remaining(inst)
         if remaining <= 0:
             raise HTTPException(409, "Échéance déjà soldée")
@@ -392,16 +565,16 @@ def create_payment(
             db.flush()
 
     receipt = _make_receipt(db, payment.id, club_id)
-    athlete = db.get(Athlete, payload.athlete_id)
     paid_amount = payment.amount
     _ledger_income_for_payment(
         db,
         club_id=club_id,
-        season_id=None,
-        label=f"Paiement — {athlete.full_name if athlete else payload.athlete_id}",
+        season_id=season_id,
+        label=f"Paiement — {athlete.full_name}",
         amount=paid_amount,
         paid_on=payload.paid_on,
         user_id=user.id,
+        payment_id=payment.id,
     )
     write_audit(
         db,
@@ -411,6 +584,25 @@ def create_payment(
         user_id=user.id,
         detail=f"athlete={payload.athlete_id} amount={paid_amount}",
     )
+    try:
+        from app.services.broadcast import fanout_finance_income, fanout_parent_payment_balance
+
+        fanout_finance_income(
+            db,
+            club_id=club_id,
+            label=athlete.full_name,
+            amount=paid_amount,
+            athlete_id=athlete.id,
+        )
+        fanout_parent_payment_balance(
+            db,
+            club_id=club_id,
+            athlete_id=athlete.id,
+            athlete_name=athlete.full_name,
+            amount_paid=paid_amount,
+        )
+    except Exception:
+        pass
     db.commit()
     db.refresh(payment)
     cache_delete_prefix("finance:")
@@ -420,7 +612,6 @@ def create_payment(
         "receipt_number": receipt.number,
         "amount": float(payment.amount),
     }
-
 
 @router.post("/payments/quick")
 def create_quick_payment(
@@ -461,16 +652,22 @@ def create_quick_payment(
             FeeInstallment.status.in_(("due", "partial", "overdue")),
         )
         if club_id:
-            q = q.filter(
-                (FeeInstallment.club_id == club_id) | (FeeInstallment.club_id.is_(None))
-            )
+            q = q.filter(FeeInstallment.club_id == club_id)
         if labels:
             q = q.filter(FeeInstallment.label.in_(labels))
         return q.order_by(FeeInstallment.due_date.asc(), FeeInstallment.id.asc())
 
-    # Priorité absolue : échéance explicitement choisie
+    # Priorité absolue : échéance explicitement choisie (verrou ligne)
     if payload.installment_id:
-        installment = db.get(FeeInstallment, payload.installment_id)
+        installment = (
+            db.query(FeeInstallment)
+            .filter(
+                FeeInstallment.id == payload.installment_id,
+                FeeInstallment.club_id == club_id,
+            )
+            .with_for_update()
+            .first()
+        )
         if not installment:
             raise HTTPException(404, "Échéance introuvable")
         assert_same_club(installment, club_id)
@@ -486,9 +683,10 @@ def create_quick_payment(
         if month < 1 or month > 12:
             raise HTTPException(400, "Mois invalide (1–12)")
         amount = amount if amount is not None else fees["monthly_subscription_dzd"]
+        mlabel = f"mensuel-{year}-{month:02d}"
         if installment is None:
-            # Imputer d'abord toute échéance due (évite fantômes ECH/…)
-            installment = _open_installments().first()
+            # FIN-02 : uniquement échéances mensuelles (pas d'assurance/inscription)
+            installment = _open_installments(labels=[mlabel]).first()
             if installment is None:
                 installment = ensure_monthly_installment(
                     db,
@@ -506,8 +704,6 @@ def create_quick_payment(
         amount = amount if amount is not None else fees["annual_insurance_dzd"]
         if installment is None:
             installment = _open_installments(labels=["assurance"]).first()
-            if installment is None:
-                installment = _open_installments().first()
             if installment is None:
                 if reg:
                     installment = ensure_insurance_installment(db, reg, amount)
@@ -530,12 +726,13 @@ def create_quick_payment(
     elif ptype == "inscription":
         amount = amount if amount is not None else fees["inscription_fee_dzd"]
         if installment is None:
-            # 1) échéance inscription existante (due/partial)
             installment = _open_installments(labels=["inscription"]).first()
-            # 2) toute échéance due du joueur (ex. ECH/… seedée avec autre label)
             if installment is None:
-                installment = _open_installments().first()
-            # 3) ensure / create inscription — uniquement si aucune due
+                installment = (
+                    _open_installments()
+                    .filter(FeeInstallment.label.ilike("%inscription%"))
+                    .first()
+                )
             if installment is None and reg:
                 if reg.subscription_fee is None or Decimal(str(reg.subscription_fee)) <= 0:
                     reg.subscription_fee = amount
@@ -562,7 +759,8 @@ def create_quick_payment(
         if amount <= 0:
             raise HTTPException(400, "Montant équipement requis")
         label = f"Équipement ({eq}) — {display}"
-        ledger_category = "equipment"
+        # Recette joueur (pas achat fournisseur) — H313-01
+        ledger_category = "equipment_sale"
         if installment is None:
             installment = FeeInstallment(
                 club_id=club_id,
@@ -592,8 +790,17 @@ def create_quick_payment(
     if installment is not None:
         assign_installment_identity(db, installment, club_id=club_id)
 
-    # Clamp au reste dû (FI-04 : pas de surpaiement silencieux)
+    # Clamp au reste dû (FI-04) + verrou ligne (FIN-01)
     if installment is not None:
+        locked = (
+            db.query(FeeInstallment)
+            .filter(FeeInstallment.id == installment.id, FeeInstallment.club_id == club_id)
+            .with_for_update()
+            .first()
+        )
+        if not locked:
+            raise HTTPException(404, "Échéance introuvable")
+        installment = locked
         remaining = _installment_remaining(installment)
         if remaining <= 0:
             raise HTTPException(409, "Échéance déjà soldée")
@@ -626,6 +833,7 @@ def create_quick_payment(
         paid_on=paid_on,
         user_id=user.id,
         category=ledger_category,
+        payment_id=payment.id,
     )
 
     write_audit(
@@ -636,6 +844,25 @@ def create_quick_payment(
         user_id=user.id,
         detail=f"type={ptype} athlete={athlete.id} amount={amount} installment={installment.id if installment else None}",
     )
+    try:
+        from app.services.broadcast import fanout_finance_income, fanout_parent_payment_balance
+
+        fanout_finance_income(
+            db,
+            club_id=club_id,
+            label=display,
+            amount=amount,
+            athlete_id=athlete.id,
+        )
+        fanout_parent_payment_balance(
+            db,
+            club_id=club_id,
+            athlete_id=athlete.id,
+            athlete_name=display,
+            amount_paid=amount,
+        )
+    except Exception:
+        pass
     db.commit()
     cache_delete_prefix("finance:")
     cache_delete_prefix("bootstrap:")
@@ -683,6 +910,26 @@ def list_recent_payments(
     ]
 
 
+@router.get("/payments")
+def list_payments_alias(
+    athlete_id: int | None = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(40, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """G1-02 : alias GET /payments → même payload que /payments/recent (évite 405)."""
+    return list_recent_payments(
+        athlete_id=athlete_id,
+        skip=skip,
+        limit=limit,
+        db=db,
+        _=user,
+        club_id=club_id,
+    )
+
+
 @router.get("/ledger", response_model=list[LedgerOut])
 def list_ledger(
     entry_type: str | None = None,
@@ -723,6 +970,27 @@ def create_ledger(
     entry = LedgerEntry(club_id=club_id, created_by=user.id, **payload.model_dump())
     assign_ledger_identity(db, entry, club_id=club_id)
     db.add(entry)
+    db.flush()
+    try:
+        from app.services.broadcast import fanout_finance_expense, fanout_finance_income
+
+        if entry.entry_type == "expense":
+            fanout_finance_expense(
+                db,
+                club_id=club_id,
+                label=entry.label,
+                amount=entry.amount,
+                category=entry.category or "expense",
+            )
+        else:
+            fanout_finance_income(
+                db,
+                club_id=club_id,
+                label=entry.label,
+                amount=entry.amount,
+            )
+    except Exception:
+        pass
     db.commit()
     db.refresh(entry)
     cache_delete_prefix("finance:")
@@ -902,6 +1170,7 @@ def delete_payment(
             else:
                 inst.status = "paid"
     detail = f"athlete={payment.athlete_id} amount={payment.amount}"
+    _reverse_payment_ledger(db, club_id=club_id, payment=payment, user_id=user.id)
     # Receipts.payment_id is unique FK without cascade — delete receipt first
     db.query(Receipt).filter(Receipt.payment_id == payment_id).delete(synchronize_session=False)
     db.delete(payment)
@@ -1165,12 +1434,18 @@ def assign_item(
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
     club_id: int = Depends(get_current_club_id),
 ):
-    item = db.get(InventoryItem, item_id)
-    if not item:
-        raise HTTPException(404, "Article introuvable")
-    assert_same_club(item, club_id)
-    if item.quantity < quantity:
-        raise HTTPException(400, "Stock insuffisant")
+    if quantity < 1:
+        raise HTTPException(400, "Quantité invalide")
+    if athlete_id is not None:
+        get_scoped(db, Athlete, athlete_id, club_id)
+    item = (
+        db.query(InventoryItem)
+        .filter(InventoryItem.id == item_id, InventoryItem.club_id == club_id)
+        .with_for_update()
+        .first()
+    )
+    if item is None or item.quantity < quantity:
+        raise HTTPException(409, "Stock insuffisant ou article introuvable")
     item.quantity -= quantity
     asg = InventoryAssignment(
         club_id=club_id,
@@ -1250,7 +1525,10 @@ def update_assignment(
         asg.quantity = new_qty
 
     if "athlete_id" in data:
-        asg.athlete_id = data["athlete_id"]
+        new_ath = data["athlete_id"]
+        if new_ath is not None:
+            get_scoped(db, Athlete, int(new_ath), club_id)
+        asg.athlete_id = new_ath
     if "assigned_on" in data and data["assigned_on"]:
         asg.assigned_on = data["assigned_on"]
     if "status" in data and data["status"]:
@@ -1393,6 +1671,26 @@ def purchase_equipment(
         )
         db.add(asg)
         assigned = {"athlete_id": athlete.id, "athlete_name": athlete.full_name, "quantity": qty}
+
+    try:
+        from app.services.broadcast import fanout_finance_expense, fanout_inventory
+
+        fanout_inventory(
+            db,
+            club_id=club_id,
+            label=f"Achat {payload.name} ×{payload.quantity} ({total} DZD)",
+            kind="inventory_purchase",
+        )
+        if total > 0:
+            fanout_finance_expense(
+                db,
+                club_id=club_id,
+                label=f"Achat {payload.name} ×{payload.quantity}",
+                amount=total,
+                category="equipment",
+            )
+    except Exception:
+        pass
 
     db.commit()
     cache_delete_prefix("inventory:")

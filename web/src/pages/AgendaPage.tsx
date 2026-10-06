@@ -84,6 +84,8 @@ export function AgendaPage() {
   });
   const [cancelReason, setCancelReason] = useState("");
   const [msg, setMsg] = useState("");
+  /** Filtre séances : mois courant par défaut (évite une longue liste) */
+  const [monthFilter, setMonthFilter] = useState<"current" | "all" | string>("current");
 
   async function load() {
     setLoading(true);
@@ -115,7 +117,9 @@ export function AgendaPage() {
       if (isCoach && data[3]) {
         setMyTeams((data[3] as { teams: typeof myTeams }).teams || []);
       }
-      if (errors.length) setMsg(errors.join(" · "));
+      // G0-02 / G0-05 : données partielles OK — pas de faux message d’erreur
+      if (errors.length && !e && !tms) setMsg(errors.join(" · "));
+      else if (errors.length) setMsg("");
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Erreur chargement");
     } finally {
@@ -161,6 +165,42 @@ export function AgendaPage() {
     });
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [coaches, teamCoaches]);
+
+  const monthKeyOf = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+
+  const currentMonthKey = useMemo(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+
+  const availableMonths = useMemo(() => {
+    const keys = new Set<string>();
+    events.forEach((ev) => {
+      const k = monthKeyOf(ev.starts_at);
+      if (k) keys.add(k);
+    });
+    return Array.from(keys).sort().reverse();
+  }, [events]);
+
+  const filteredEvents = useMemo(() => {
+    if (monthFilter === "all") return events;
+    const key = monthFilter === "current" ? currentMonthKey : monthFilter;
+    return events.filter((ev) => monthKeyOf(ev.starts_at) === key);
+  }, [events, monthFilter, currentMonthKey]);
+
+  const monthLabel = (key: string) => {
+    const [y, m] = key.split("-").map(Number);
+    if (!y || !m) return key;
+    try {
+      return new Date(y, m - 1, 1).toLocaleDateString("fr-DZ", { month: "long", year: "numeric" });
+    } catch {
+      return key;
+    }
+  };
 
   async function openSession(ev: EventRow) {
     setSelected(ev);
@@ -435,240 +475,285 @@ export function AgendaPage() {
           </div>
         )}
         {msg && <p className="error">{msg}</p>}
-        <div className="session-board">
-          {events.map((ev) => (
+
+        <div className="agenda-month-bar">
+          <strong style={{ fontSize: "0.88rem" }}>Mois</strong>
+          <button
+            type="button"
+            className={`chip ${monthFilter === "current" ? "active" : ""}`}
+            onClick={() => setMonthFilter("current")}
+          >
+            Ce mois
+          </button>
+          <button
+            type="button"
+            className={`chip ${monthFilter === "all" ? "active" : ""}`}
+            onClick={() => setMonthFilter("all")}
+          >
+            Toutes
+          </button>
+          {availableMonths.map((k) => (
             <button
-              key={ev.id}
+              key={k}
               type="button"
-              className={`session-card ${selected?.id === ev.id ? "selected" : ""} ${ev.is_cancelled ? "cancelled" : ""} type-${ev.event_type}`}
-              onClick={() => openSession(ev)}
+              className={`chip ${monthFilter === k ? "active" : ""}`}
+              onClick={() => setMonthFilter(k)}
             >
-              <div className="session-icon">{typeIcon[ev.event_type] || "•"}</div>
-              <div className="session-body">
-                <strong>{ev.title}</strong>
-                {ev.title_ar && <div className="ar-line">{ev.title_ar}</div>}
-                <div className="session-meta">
-                  {new Date(ev.starts_at).toLocaleString("fr-DZ")}
-                  {ev.opponent ? ` · vs ${ev.opponent}` : ""}
-                </div>
-                {(ev.coach_name || ev.substitute_coach_name) && (
-                  <div className="session-meta">
-                    {ev.substitute_coach_name
-                      ? `Coach: ${ev.substitute_coach_name} (remplace ${ev.coach_name || "—"})`
-                      : `Coach: ${ev.coach_name}`}
-                  </div>
-                )}
-                <span className="badge">{ev.is_cancelled ? "annulé" : ev.event_type}</span>
-              </div>
+              {monthLabel(k)}
             </button>
           ))}
-          {loading && !events.length && <p className="muted">{t("loading")}</p>}
-          {!loading && !events.length && (
-            <p style={{ color: "var(--muted)" }}>
-              {isCoach && !myTeams.length
-                ? "0 séance — liez d’abord le coach à une équipe (U11G1, U13G2…)."
-                : "Aucune séance"}
-            </p>
-          )}
+          <span className="muted" style={{ fontSize: "0.8rem" }}>
+            {filteredEvents.length}/{events.length} séance{events.length > 1 ? "s" : ""}
+          </span>
         </div>
 
-        {selected && (
-          <div className="card session-panel">
-            <div className="session-panel-head">
-              <div>
-                <h3 style={{ margin: 0 }}>{selected.title}</h3>
-                {selected.title_ar && <div className="ar-line">{selected.title_ar}</div>}
-                <div style={{ color: "var(--muted)" }}>{new Date(selected.starts_at).toLocaleString("fr-DZ")}</div>
-                {selected.location_text && (
-                  <div style={{ marginTop: 4 }}>📍 {selected.location_text}</div>
-                )}
-                <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <span className="badge">
-                    {selected.approval_status === "pending_approval"
-                      ? "En attente validation"
-                      : selected.approval_status === "rejected"
-                        ? "Rejetée"
-                        : "Validée"}
-                  </span>
-                  <span className="badge">
-                    {selected.session_status === "in_progress"
-                      ? "En cours"
-                      : selected.session_status === "completed"
-                        ? "Terminée"
-                        : selected.is_cancelled
-                          ? "Annulée"
-                          : "Planifiée"}
-                  </span>
-                  {selected.notify_parents !== false && <span className="badge">Parents notifiés</span>}
-                </div>
-                {(selected.coach_name || selected.substitute_coach_name) && (
-                  <div style={{ color: "var(--muted)", marginTop: 4 }}>
-                    {selected.substitute_coach_name
-                      ? `Coach: ${selected.substitute_coach_name} (remplaçant) · titulaire: ${selected.coach_name || "—"}`
-                      : `Coach: ${selected.coach_name}`}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                {canEdit &&
-                  !selected.is_cancelled &&
-                  selected.approval_status === "pending_approval" &&
-                  (role === "admin" || role === "direction" || role === "staff") && (
-                    <button type="button" className="accent" onClick={() => void approveSession()}>
-                      Valider (parents)
-                    </button>
-                  )}
-                {canEdit &&
-                  !selected.is_cancelled &&
-                  selected.approval_status === "approved" &&
-                  selected.session_status !== "in_progress" &&
-                  selected.session_status !== "completed" && (
-                    <button type="button" className="accent" onClick={() => void startSession()}>
-                      Démarrer la séance
-                    </button>
-                  )}
-                {canEdit && !selected.is_cancelled && selected.session_status === "in_progress" && (
-                  <button type="button" className="primary" onClick={() => void completeSession()}>
-                    Terminer la séance
-                  </button>
-                )}
-                {canEdit && !selected.is_cancelled && (
-                  <button type="button" onClick={() => setEditing((v) => !v)}>
-                    {editing ? t("cancel") : t("edit")}
-                  </button>
-                )}
-                {!selected.is_cancelled && (
-                  <button type="button" className="accent" onClick={markAllPresent}>
-                    Tous présents
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {editing && canEdit && !selected.is_cancelled && (
-              <div style={{ marginBottom: "1rem", borderTop: "1px solid var(--border)", paddingTop: "0.75rem" }}>
-                <h4 style={{ marginTop: 0 }}>Modifier la séance</h4>
-                <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                  <div className="field">
-                    <label>Type</label>
-                    <select
-                      value={editForm.event_type}
-                      onChange={(e) => setEditForm({ ...editForm, event_type: e.target.value })}
-                    >
-                      <option value="training">Entraînement</option>
-                      <option value="match">Match</option>
-                      <option value="meeting">Réunion</option>
-                      <option value="camp">Stage</option>
-                      <option value="gala">Gala</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Début</label>
-                    <input
-                      type="datetime-local"
-                      value={editForm.starts_at}
-                      onChange={(e) => setEditForm({ ...editForm, starts_at: e.target.value })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Titre FR</label>
-                    <input
-                      value={editForm.title}
-                      onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label>العنوان AR</label>
-                    <input
-                      value={editForm.title_ar}
-                      onChange={(e) => setEditForm({ ...editForm, title_ar: e.target.value })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Équipe</label>
-                    <select
-                      value={editForm.team_id}
-                      onChange={(e) => setEditForm({ ...editForm, team_id: Number(e.target.value) })}
-                    >
-                      {teams.map((tm) => (
-                        <option key={tm.id} value={tm.id}>
-                          {tm.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Coach</label>
-                    {coachSelect(
-                      editForm.coach_id,
-                      (v) => setEditForm({ ...editForm, coach_id: v }),
-                      coaches.map((c) => ({ id: c.id, name: c.full_name })),
-                      false,
-                    )}
-                  </div>
-                  <div className="field">
-                    <label>Remplaçant</label>
-                    {coachSelect(
-                      editForm.substitute_coach_id,
-                      (v) => setEditForm({ ...editForm, substitute_coach_id: v }),
-                      coaches
-                        .filter((c) => c.id !== editForm.coach_id)
-                        .map((c) => ({ id: c.id, name: c.full_name })),
-                    )}
-                  </div>
-                </div>
-                <button type="button" className="accent" onClick={saveEdit}>
-                  {t("save")}
-                </button>
-              </div>
-            )}
-
-            {selected.is_cancelled ? (
-              <p className="error">Séance annulée — {selected.description}</p>
-            ) : (
-              <>
-                <h4>{t("attendance")}</h4>
-                <div className="roster-grid">
-                  {roster.map((r) => (
-                    <div key={r.athlete_id} className={`roster-card att-${r.attendance_status || "none"}`}>
-                      {r.photo_path ? (
-                        <img src={mediaUrl(r.photo_path)} alt="" />
-                      ) : (
-                        <div className="roster-avatar">{r.full_name.slice(0, 1)}</div>
-                      )}
-                      <strong>{r.full_name}</strong>
-                      <div className="att-btns">
-                        <button type="button" onClick={() => setAttendance(r.athlete_id, "present")}>
-                          {t("present")}
-                        </button>
-                        <button type="button" onClick={() => setAttendance(r.athlete_id, "absent")}>
-                          {t("absent")}
-                        </button>
-                        <button type="button" onClick={() => setAttendance(r.athlete_id, "late")}>
-                          {t("late")}
-                        </button>
-                      </div>
+        <div className="agenda-workspace">
+          <div className="agenda-sessions">
+            <div className="session-board">
+              {filteredEvents.map((ev) => (
+                <button
+                  key={ev.id}
+                  type="button"
+                  className={`session-card ${selected?.id === ev.id ? "selected" : ""} ${ev.is_cancelled ? "cancelled" : ""} type-${ev.event_type}`}
+                  onClick={() => openSession(ev)}
+                >
+                  <div className="session-icon">{typeIcon[ev.event_type] || "•"}</div>
+                  <div className="session-body">
+                    <strong>{ev.title}</strong>
+                    {ev.title_ar && <div className="ar-line">{ev.title_ar}</div>}
+                    <div className="session-meta">
+                      {new Date(ev.starts_at).toLocaleString("fr-DZ")}
+                      {ev.opponent ? ` · vs ${ev.opponent}` : ""}
                     </div>
-                  ))}
-                  {!roster.length && <p style={{ color: "var(--muted)" }}>Aucun joueur dans l'équipe</p>}
-                </div>
+                    {(ev.coach_name || ev.substitute_coach_name) && (
+                      <div className="session-meta">
+                        {ev.substitute_coach_name
+                          ? `Coach: ${ev.substitute_coach_name} (remplace ${ev.coach_name || "—"})`
+                          : `Coach: ${ev.coach_name}`}
+                      </div>
+                    )}
+                    <span className="badge">{ev.is_cancelled ? "annulé" : ev.event_type}</span>
+                  </div>
+                </button>
+              ))}
+              {loading && !events.length && <p className="muted">{t("loading")}</p>}
+              {!loading && !events.length && (
+                <p style={{ color: "var(--muted)" }}>
+                  {isCoach && !myTeams.length
+                    ? "0 séance — liez d’abord le coach à une équipe (U11G1, U13G2…)."
+                    : "Aucune séance"}
+                </p>
+              )}
+              {!loading && events.length > 0 && !filteredEvents.length && (
+                <p className="muted">Aucune séance pour ce mois — choisissez « Toutes » ou un autre mois.</p>
+              )}
+            </div>
+          </div>
 
-                <div className="cancel-box">
-                  <h4>{t("cancelSession")}</h4>
-                  <input
-                    placeholder="Motif / السبب"
-                    value={cancelReason}
-                    onChange={(e) => setCancelReason(e.target.value)}
-                  />
-                  <button type="button" className="danger" onClick={cancelSession}>
-                    Annuler + notifier parents
+          {!selected ? (
+            <div className="session-panel-empty">
+              Cliquez une séance pour voir les joueurs et marquer les présences à côté.
+            </div>
+          ) : (
+            <div className="card session-panel sticky-panel">
+              <div className="session-panel-head">
+                <div>
+                  <h3 style={{ margin: 0 }}>{selected.title}</h3>
+                  {selected.title_ar && <div className="ar-line">{selected.title_ar}</div>}
+                  <div style={{ color: "var(--muted)" }}>{new Date(selected.starts_at).toLocaleString("fr-DZ")}</div>
+                  {selected.location_text && (
+                    <div style={{ marginTop: 4 }}>📍 {selected.location_text}</div>
+                  )}
+                  <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <span className="badge">
+                      {selected.approval_status === "pending_approval"
+                        ? "En attente validation"
+                        : selected.approval_status === "rejected"
+                          ? "Rejetée"
+                          : "Validée"}
+                    </span>
+                    <span className="badge">
+                      {selected.session_status === "in_progress"
+                        ? "En cours"
+                        : selected.session_status === "completed"
+                          ? "Terminée"
+                          : selected.is_cancelled
+                            ? "Annulée"
+                            : "Planifiée"}
+                    </span>
+                    {selected.notify_parents !== false && <span className="badge">Parents notifiés</span>}
+                  </div>
+                  {(selected.coach_name || selected.substitute_coach_name) && (
+                    <div style={{ color: "var(--muted)", marginTop: 4 }}>
+                      {selected.substitute_coach_name
+                        ? `Coach: ${selected.substitute_coach_name} (remplaçant) · titulaire: ${selected.coach_name || "—"}`
+                        : `Coach: ${selected.coach_name}`}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  {canEdit &&
+                    !selected.is_cancelled &&
+                    selected.approval_status === "pending_approval" &&
+                    (role === "admin" || role === "direction" || role === "staff") && (
+                      <button type="button" className="accent btn-fit" onClick={() => void approveSession()}>
+                        Valider (parents)
+                      </button>
+                    )}
+                  {canEdit &&
+                    !selected.is_cancelled &&
+                    selected.approval_status === "approved" &&
+                    selected.session_status !== "in_progress" &&
+                    selected.session_status !== "completed" && (
+                      <button type="button" className="accent btn-fit" onClick={() => void startSession()}>
+                        Démarrer la séance
+                      </button>
+                    )}
+                  {canEdit && !selected.is_cancelled && selected.session_status === "in_progress" && (
+                    <button type="button" className="primary btn-fit" onClick={() => void completeSession()}>
+                      Terminer la séance
+                    </button>
+                  )}
+                  {canEdit && !selected.is_cancelled && (
+                    <button type="button" className="btn-fit" onClick={() => setEditing((v) => !v)}>
+                      {editing ? t("cancel") : t("edit")}
+                    </button>
+                  )}
+                  {!selected.is_cancelled && (
+                    <button type="button" className="accent btn-fit" onClick={markAllPresent}>
+                      Tous présents
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {editing && canEdit && !selected.is_cancelled && (
+                <div style={{ marginBottom: "1rem", borderTop: "1px solid var(--border)", paddingTop: "0.75rem" }}>
+                  <h4 style={{ marginTop: 0 }}>Modifier la séance</h4>
+                  <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                    <div className="field">
+                      <label>Type</label>
+                      <select
+                        value={editForm.event_type}
+                        onChange={(e) => setEditForm({ ...editForm, event_type: e.target.value })}
+                      >
+                        <option value="training">Entraînement</option>
+                        <option value="match">Match</option>
+                        <option value="meeting">Réunion</option>
+                        <option value="camp">Stage</option>
+                        <option value="gala">Gala</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>Début</label>
+                      <input
+                        type="datetime-local"
+                        value={editForm.starts_at}
+                        onChange={(e) => setEditForm({ ...editForm, starts_at: e.target.value })}
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Titre FR</label>
+                      <input
+                        value={editForm.title}
+                        onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                      />
+                    </div>
+                    <div className="field">
+                      <label>العنوان AR</label>
+                      <input
+                        value={editForm.title_ar}
+                        onChange={(e) => setEditForm({ ...editForm, title_ar: e.target.value })}
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Équipe</label>
+                      <select
+                        value={editForm.team_id}
+                        onChange={(e) => setEditForm({ ...editForm, team_id: Number(e.target.value) })}
+                      >
+                        {teams.map((tm) => (
+                          <option key={tm.id} value={tm.id}>
+                            {tm.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>Coach</label>
+                      {coachSelect(
+                        editForm.coach_id,
+                        (v) => setEditForm({ ...editForm, coach_id: v }),
+                        coaches.map((c) => ({ id: c.id, name: c.full_name })),
+                        false,
+                      )}
+                    </div>
+                    <div className="field">
+                      <label>Remplaçant</label>
+                      {coachSelect(
+                        editForm.substitute_coach_id,
+                        (v) => setEditForm({ ...editForm, substitute_coach_id: v }),
+                        coaches
+                          .filter((c) => c.id !== editForm.coach_id)
+                          .map((c) => ({ id: c.id, name: c.full_name })),
+                      )}
+                    </div>
+                  </div>
+                  <button type="button" className="accent btn-fit" onClick={saveEdit}>
+                    {t("save")}
                   </button>
                 </div>
-              </>
-            )}
-            {msg && <p style={{ color: "var(--ok)" }}>{msg}</p>}
-          </div>
-        )}
+              )}
+
+              {selected.is_cancelled ? (
+                <p className="error">Séance annulée — {selected.description}</p>
+              ) : (
+                <>
+                  <h4 style={{ margin: "0 0 0.5rem" }}>
+                    {t("attendance")} ({roster.length})
+                  </h4>
+                  <div className="roster-grid">
+                    {roster.map((r) => (
+                      <div key={r.athlete_id} className={`roster-card att-${r.attendance_status || "none"}`}>
+                        {r.photo_path ? (
+                          <img src={mediaUrl(r.photo_path)} alt="" />
+                        ) : (
+                          <div className="roster-avatar">{r.full_name.slice(0, 1)}</div>
+                        )}
+                        <strong>{r.full_name}</strong>
+                        <div className="att-btns">
+                          <button type="button" onClick={() => setAttendance(r.athlete_id, "present")}>
+                            {t("present")}
+                          </button>
+                          <button type="button" onClick={() => setAttendance(r.athlete_id, "absent")}>
+                            {t("absent")}
+                          </button>
+                          <button type="button" onClick={() => setAttendance(r.athlete_id, "late")}>
+                            {t("late")}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {!roster.length && <p style={{ color: "var(--muted)" }}>Aucun joueur dans l'équipe</p>}
+                  </div>
+
+                  <div className="cancel-box">
+                    <h4>{t("cancelSession")}</h4>
+                    <input
+                      placeholder="Motif / السبب"
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                    />
+                    <button type="button" className="danger btn-fit" onClick={cancelSession}>
+                      Annuler + notifier parents
+                    </button>
+                  </div>
+                </>
+              )}
+              {msg && <p style={{ color: "var(--ok)" }}>{msg}</p>}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

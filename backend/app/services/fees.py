@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models import Club, ClubSetting, FeeInstallment, Registration
+from app.models import ClubSetting, FeeInstallment, Registration
 from app.services.references import assign_installment_identity
 
 # Constantes par défaut cotisation (modifiables via /finance/settings)
@@ -49,17 +49,15 @@ MONTH_LABELS_AR = {
 }
 
 
-def _resolve_club_id(db: Session, club_id: int | None = None) -> int | None:
-    if club_id is not None:
-        return club_id
-    club = db.query(Club).first()
-    return club.id if club else None
+def _resolve_club_id(db: Session, club_id: int | None = None) -> int:
+    """Jamais de fallback Club.first() (SEC-11) — le club doit être explicite."""
+    if club_id is None:
+        raise ValueError("club_id requis pour les tarifs / échéances")
+    return int(club_id)
 
 
 def ensure_default_settings(db: Session, club_id: int | None = None) -> dict[str, str]:
     cid = _resolve_club_id(db, club_id)
-    if not cid:
-        return {k: v[0] for k, v in DEFAULT_SETTINGS.items()}
     existing = {
         s.key: s.value
         for s in db.query(ClubSetting).filter(ClubSetting.club_id == cid).all()

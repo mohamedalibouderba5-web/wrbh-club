@@ -93,17 +93,31 @@ export function TeamsPage() {
 
   async function load() {
     try {
-      const { data, errors } = await loadAllSettled<[TeamRow[], Coach[], Category[], Discipline[]]>([
+      const { data, errors } = await loadAllSettled<[TeamRow[], Coach[], Category[], Discipline[], TeamRow[]]>([
         () => api<TeamRow[]>("/api/v1/teams/coaches"),
         () => api<Coach[]>(`/api/v1/coaches?include_inactive=true`),
         () => api<Category[]>("/api/v1/categories"),
         () => api<Discipline[]>("/api/v1/disciplines").catch(() => []),
+        // G0-03 fallback si /teams/coaches vide ou erreur
+        () =>
+          api<TeamRow[]>("/api/v1/teams")
+            .then((rows) =>
+              (Array.isArray(rows) ? rows : []).map((t) => ({
+                ...t,
+                coaches: Array.isArray((t as TeamRow).coaches) ? (t as TeamRow).coaches : [],
+              })),
+            )
+            .catch(() => [] as TeamRow[]),
       ]);
-      if (data[0]) {
-        setTeams(data[0]);
-        if (!selectedId && data[0][0]) selectTeam(data[0][0]);
+      let teamRows = data[0];
+      if ((!teamRows || !teamRows.length) && data[4]?.length) {
+        teamRows = data[4];
+      }
+      if (teamRows) {
+        setTeams(teamRows);
+        if (!selectedId && teamRows[0]) selectTeam(teamRows[0]);
         else if (selectedId) {
-          const t = data[0].find((x) => x.id === selectedId);
+          const t = teamRows.find((x) => x.id === selectedId);
           if (t) selectTeam(t);
         }
       }
@@ -111,7 +125,7 @@ export function TeamsPage() {
       if (data[2]) setCategories(data[2]);
       if (data[3]) setDisciplines(data[3]);
       // Données partielles OK — ne pas masquer une liste OK derrière « Réessayer »
-      if (errors.length && !data[0] && !data[1]) setMsg(errors.join(" · "));
+      if (errors.length && !teamRows?.length && !data[1]) setMsg(errors.join(" · "));
       else if (errors.length) setMsg("");
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Erreur chargement");
@@ -427,224 +441,237 @@ export function TeamsPage() {
 
   return (
     <div className="grid" style={{ gap: "1rem" }} dir={lang === "ar" ? "rtl" : "ltr"}>
-      {canManageCoaches && (
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>{t("teamsSports")}</h3>
-          <p className="muted" style={{ marginTop: 0 }}>
-            {t("teamsSportsHint")}
+      {role === "coach" && (
+        <div className="card role-home-hero">
+          <span className="badge role-space-badge">{lang === "ar" ? "فضاء المدرب" : "Espace coach"}</span>
+          <p className="muted" style={{ margin: "0.45rem 0 0" }}>
+            {lang === "ar"
+              ? "عرض فرقك والتعيينات فقط. إنشاء الفرق وتعيين المدربين من صلاحيات الإدارة."
+              : "Consultation de vos équipes et assignations uniquement. Création d’équipes / coachs = administration."}
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-            {disciplines.map((d) => (
-              <span key={d.id} className="badge">
-                {d.name} · {d.code} · {d.categories_count} cat.
-              </span>
-            ))}
-            {!disciplines.length && <span className="muted">{t("teamsNoSport")}</span>}
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-            <label className="field" style={{ margin: 0, minWidth: 180 }}>
-              {t("teamsAddSport")}
-              <select value={addSport} onChange={(e) => setAddSport(e.target.value)}>
-                {(sportCatalog.length
-                  ? sportCatalog
-                  : [
-                      { code: "football", label: "Football" },
-                      { code: "judo", label: "Judo" },
-                      { code: "karate", label: "Karaté" },
-                      { code: "swimming", label: "Natation" },
-                      { code: "athletics", label: "Athlétisme" },
-                    ]
-                ).map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="button" disabled={sportBusy} onClick={() => void onAddSport()}>
-              {sportBusy ? "…" : t("teamsAddSportBtn")}
-            </button>
-          </div>
         </div>
       )}
       {canManageCoaches && (
-        <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <div>
-              <h3 style={{ margin: 0 }}>{t("teamsCoaches")}</h3>
-              <p className="muted" style={{ margin: "0.35rem 0 0" }}>
-                Ajouter ou modifier un coach comme pour un joueur, puis l’assigner à une équipe (U14G1, U11G2…).
-              </p>
+        <div className="teams-top-grid">
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>{t("teamsSports")}</h3>
+            <p className="muted" style={{ marginTop: 0 }}>
+              {t("teamsSportsHint")}
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              {disciplines.map((d) => (
+                <span key={d.id} className="badge">
+                  {d.name} · {d.code} · {d.categories_count} cat.
+                </span>
+              ))}
+              {!disciplines.length && <span className="muted">{t("teamsNoSport")}</span>}
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.9rem" }}>
-                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-                Afficher coachs archivés
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+              <label className="field" style={{ margin: 0, minWidth: 160, flex: "1 1 160px" }}>
+                {t("teamsAddSport")}
+                <select value={addSport} onChange={(e) => setAddSport(e.target.value)}>
+                  {(sportCatalog.length
+                    ? sportCatalog
+                    : [
+                        { code: "football", label: "Football" },
+                        { code: "judo", label: "Judo" },
+                        { code: "karate", label: "Karaté" },
+                        { code: "swimming", label: "Natation" },
+                        { code: "athletics", label: "Athlétisme" },
+                      ]
+                  ).map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
               </label>
-              <button type="button" className="secondary" disabled={syncBusy} onClick={() => void repairCoachAgenda()}>
-                Réparer agenda coachs
-              </button>
-              <button type="button" className="secondary" disabled={syncBusy} onClick={() => void syncStructure()}>
-                Structure type (secours)
+              <button type="button" className="btn-fit" disabled={sportBusy} onClick={() => void onAddSport()}>
+                {sportBusy ? "…" : t("teamsAddSportBtn")}
               </button>
             </div>
           </div>
 
-          <form className="grid" style={{ gap: "0.75rem", marginTop: "1rem" }} onSubmit={onCreateTeam}>
-            <h4 style={{ margin: 0 }}>{t("teamsCreateCustom")}</h4>
-            <p className="muted" style={{ margin: 0 }}>
-              Choisissez une catégorie existante ou créez-en une (années de naissance). Le n° d’équipe (G1, G2…) est
-              détecté automatiquement.
-            </p>
-            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Catégorie existante</label>
-                <select
-                  value={teamForm.category_id}
-                  onChange={(e) => setTeamForm({ ...teamForm, category_id: e.target.value })}
-                >
-                  <option value="">— Nouvelle catégorie —</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} ({c.birth_year_min}–{c.birth_year_max})
-                    </option>
-                  ))}
-                </select>
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <h3 style={{ margin: 0 }}>{t("teamsCoaches")}</h3>
+                <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+                  Créer une équipe / un coach, puis assigner (U14G1, U11G2…).
+                </p>
               </div>
-              {!teamForm.category_id && (
-                <>
-                  <div className="field" style={{ margin: 0 }}>
-                    <label>Code catégorie *</label>
-                    <input
-                      placeholder="U11"
-                      value={teamForm.new_code}
-                      onChange={(e) => setTeamForm({ ...teamForm, new_code: e.target.value })}
-                    />
-                  </div>
-                  <div className="field" style={{ margin: 0 }}>
-                    <label>Nom catégorie *</label>
-                    <input
-                      placeholder="Sous 11"
-                      value={teamForm.new_name}
-                      onChange={(e) => setTeamForm({ ...teamForm, new_name: e.target.value })}
-                    />
-                  </div>
-                  <div className="field" style={{ margin: 0 }}>
-                    <label>Année naissance min *</label>
-                    <input
-                      className="ltr"
-                      inputMode="numeric"
-                      placeholder="2016"
-                      value={teamForm.birth_year_min}
-                      onChange={(e) => setTeamForm({ ...teamForm, birth_year_min: e.target.value })}
-                    />
-                  </div>
-                  <div className="field" style={{ margin: 0 }}>
-                    <label>Année naissance max *</label>
-                    <input
-                      className="ltr"
-                      inputMode="numeric"
-                      placeholder="2017"
-                      value={teamForm.birth_year_max}
-                      onChange={(e) => setTeamForm({ ...teamForm, birth_year_max: e.target.value })}
-                    />
-                  </div>
-                </>
-              )}
-              <div className="field" style={{ margin: 0 }}>
-                <label>Nom équipe (auto si vide)</label>
-                <input
-                  placeholder="U11 Groupe 2"
-                  value={teamForm.team_name}
-                  onChange={(e) => setTeamForm({ ...teamForm, team_name: e.target.value })}
-                />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>{t("teamsCoachPrimary")}</label>
-                <select
-                  value={teamForm.coach_id}
-                  onChange={(e) => setTeamForm({ ...teamForm, coach_id: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {activeCoaches.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.full_name}
-                      {c.categories?.length ? ` (${c.categories.join(", ")})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <button type="submit" disabled={teamBusy}>
-              {teamBusy ? "…" : t("teamsCreateBtn")}
-            </button>
-          </form>
-
-          <form className="grid" style={{ gap: "0.75rem", marginTop: "1.25rem" }} onSubmit={onCreateCoach}>
-            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Nom complet *</label>
-                <input
-                  required
-                  value={coachForm.full_name}
-                  onChange={(e) => setCoachForm({ ...coachForm, full_name: e.target.value })}
-                />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Nom arabe</label>
-                <input
-                  value={coachForm.full_name_ar}
-                  onChange={(e) => setCoachForm({ ...coachForm, full_name_ar: e.target.value })}
-                />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Téléphone</label>
-                <input
-                  className="ltr"
-                  inputMode="tel"
-                  placeholder="05XXXXXXXX"
-                  value={coachForm.phone}
-                  onChange={(e) => setCoachForm({ ...coachForm, phone: e.target.value })}
-                />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Email (optionnel)</label>
-                <input
-                  className="ltr"
-                  type="email"
-                  value={coachForm.email}
-                  onChange={(e) => setCoachForm({ ...coachForm, email: e.target.value })}
-                />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>{editCoachId ? "Nouveau mot de passe" : "Mot de passe (auto si vide)"}</label>
-                <input
-                  className="ltr"
-                  type="text"
-                  autoComplete="new-password"
-                  value={coachForm.password}
-                  onChange={(e) => setCoachForm({ ...coachForm, password: e.target.value })}
-                />
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="submit" disabled={coachBusy}>
-                {coachBusy ? "…" : editCoachId ? "Enregistrer le coach" : "Ajouter un coach"}
-              </button>
-              {editCoachId && (
-                <button type="button" className="secondary" onClick={resetCoachForm}>
-                  Annuler
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.9rem" }}>
+                  <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+                  Afficher coachs archivés
+                </label>
+                <button type="button" className="secondary btn-fit" disabled={syncBusy} onClick={() => void repairCoachAgenda()}>
+                  Réparer agenda
                 </button>
-              )}
+                <button type="button" className="secondary btn-fit" disabled={syncBusy} onClick={() => void syncStructure()}>
+                  Structure type
+                </button>
+              </div>
             </div>
-            {tempPassword && (
-              <p style={{ color: "var(--ok)", margin: 0 }}>
-                Mot de passe temporaire : <strong className="ltr">{tempPassword}</strong> — à communiquer au coach.
-              </p>
-            )}
-          </form>
 
-          <table style={{ marginTop: "1rem" }}>
+            <form className="grid teams-create-form" style={{ gap: "0.65rem", marginTop: "0.85rem" }} onSubmit={onCreateTeam}>
+              <h4 style={{ margin: 0 }}>{t("teamsCreateCustom")}</h4>
+              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Catégorie existante</label>
+                  <select
+                    value={teamForm.category_id}
+                    onChange={(e) => setTeamForm({ ...teamForm, category_id: e.target.value })}
+                  >
+                    <option value="">— Nouvelle catégorie —</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} ({c.birth_year_min}–{c.birth_year_max})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {!teamForm.category_id && (
+                  <>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Code catégorie *</label>
+                      <input
+                        placeholder="U11"
+                        value={teamForm.new_code}
+                        onChange={(e) => setTeamForm({ ...teamForm, new_code: e.target.value })}
+                      />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Nom catégorie *</label>
+                      <input
+                        placeholder="Sous 11"
+                        value={teamForm.new_name}
+                        onChange={(e) => setTeamForm({ ...teamForm, new_name: e.target.value })}
+                      />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Année naissance min *</label>
+                      <input
+                        className="ltr"
+                        inputMode="numeric"
+                        placeholder="2016"
+                        value={teamForm.birth_year_min}
+                        onChange={(e) => setTeamForm({ ...teamForm, birth_year_min: e.target.value })}
+                      />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Année naissance max *</label>
+                      <input
+                        className="ltr"
+                        inputMode="numeric"
+                        placeholder="2017"
+                        value={teamForm.birth_year_max}
+                        onChange={(e) => setTeamForm({ ...teamForm, birth_year_max: e.target.value })}
+                      />
+                    </div>
+                  </>
+                )}
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Nom équipe (auto si vide)</label>
+                  <input
+                    placeholder="U11 Groupe 2"
+                    value={teamForm.team_name}
+                    onChange={(e) => setTeamForm({ ...teamForm, team_name: e.target.value })}
+                  />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>{t("teamsCoachPrimary")}</label>
+                  <select
+                    value={teamForm.coach_id}
+                    onChange={(e) => setTeamForm({ ...teamForm, coach_id: e.target.value })}
+                  >
+                    <option value="">—</option>
+                    {activeCoaches.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.full_name}
+                        {c.categories?.length ? ` (${c.categories.join(", ")})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <button type="submit" className="btn-fit" disabled={teamBusy}>
+                {teamBusy ? "…" : t("teamsCreateBtn")}
+              </button>
+            </form>
+
+            <form className="grid" style={{ gap: "0.65rem", marginTop: "1rem" }} onSubmit={onCreateCoach}>
+              <h4 style={{ margin: 0 }}>Ajouter un coach</h4>
+              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Nom complet *</label>
+                  <input
+                    required
+                    value={coachForm.full_name}
+                    onChange={(e) => setCoachForm({ ...coachForm, full_name: e.target.value })}
+                  />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Nom arabe</label>
+                  <input
+                    value={coachForm.full_name_ar}
+                    onChange={(e) => setCoachForm({ ...coachForm, full_name_ar: e.target.value })}
+                  />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Téléphone</label>
+                  <input
+                    className="ltr"
+                    inputMode="tel"
+                    placeholder="05XXXXXXXX"
+                    value={coachForm.phone}
+                    onChange={(e) => setCoachForm({ ...coachForm, phone: e.target.value })}
+                  />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Email (optionnel)</label>
+                  <input
+                    className="ltr"
+                    type="email"
+                    value={coachForm.email}
+                    onChange={(e) => setCoachForm({ ...coachForm, email: e.target.value })}
+                  />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>{editCoachId ? "Nouveau mot de passe" : "Mot de passe (auto si vide)"}</label>
+                  <input
+                    className="ltr"
+                    type="text"
+                    autoComplete="new-password"
+                    value={coachForm.password}
+                    onChange={(e) => setCoachForm({ ...coachForm, password: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="submit" className="btn-fit" disabled={coachBusy}>
+                  {coachBusy ? "…" : editCoachId ? "Enregistrer le coach" : "Ajouter un coach"}
+                </button>
+                {editCoachId && (
+                  <button type="button" className="secondary btn-fit" onClick={resetCoachForm}>
+                    Annuler
+                  </button>
+                )}
+              </div>
+              {tempPassword && (
+                <p style={{ color: "var(--ok)", margin: 0 }}>
+                  Mot de passe temporaire : <strong className="ltr">{tempPassword}</strong> — à communiquer au coach.
+                </p>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
+
+      {canManageCoaches && (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>{t("teamsCoaches")} — liste</h3>
+          <table>
             <thead>
               <tr>
                 <th>{t("teamsColCoach")}</th>
@@ -666,7 +693,7 @@ export function TeamsPage() {
                     </div>
                     <div className="muted" style={{ fontSize: "0.8rem" }}>
                       {(c.teams || [])
-                        .map((t) => `${t.category_code || "?"} · ${t.team_name}`)
+                        .map((tm) => `${tm.category_code || "?"} · ${tm.team_name}`)
                         .join(" · ") || ""}
                     </div>
                   </td>
@@ -674,18 +701,20 @@ export function TeamsPage() {
                   <td>
                     <span className="badge">{c.is_active === false ? "archivé" : "actif"}</span>
                   </td>
-                  <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <button type="button" className="secondary" onClick={() => startEditCoach(c)}>
-                      Modifier
-                    </button>
-                    <button type="button" className="secondary" onClick={() => void toggleCoachActive(c)}>
-                      {c.is_active === false ? "Réactiver" : "Archiver"}
-                    </button>
-                    {c.is_active !== false && (
-                      <button type="button" className="danger" onClick={() => void deleteCoach(c)}>
-                        Supprimer
+                  <td>
+                    <div className="row-actions">
+                      <button type="button" className="secondary" onClick={() => startEditCoach(c)}>
+                        Modifier
                       </button>
-                    )}
+                      <button type="button" className="secondary" onClick={() => void toggleCoachActive(c)}>
+                        {c.is_active === false ? "Réactiver" : "Archiver"}
+                      </button>
+                      {c.is_active !== false && (
+                        <button type="button" className="danger" onClick={() => void deleteCoach(c)}>
+                          Supprimer
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

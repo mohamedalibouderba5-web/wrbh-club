@@ -40,6 +40,17 @@ def ensure_parent_account(
     existing = find_user_by_phone(db, normalized, club_id=club_id)
     created = False
     temp_password: str | None = None
+    if not existing:
+        # Téléphone unique global : réutiliser si même club, sinon message clair
+        any_phone = find_user_by_phone(db, normalized, club_id=None)
+        if any_phone is not None:
+            other = getattr(any_phone, "club_id", None)
+            if club_id is not None and other is not None and int(other) != int(club_id):
+                raise ValueError(
+                    "Ce téléphone parent est déjà utilisé dans un autre club — "
+                    "choisissez un autre numéro ou connectez le parent à ce club via la plateforme"
+                )
+            existing = any_phone
     if existing:
         parent = existing
         if parent.role != Role.PARENT and parent.role not in {Role.ADMIN, Role.DIRECTION, Role.STAFF}:

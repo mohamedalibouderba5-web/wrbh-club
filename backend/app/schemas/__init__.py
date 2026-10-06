@@ -588,12 +588,16 @@ class ClubFeeSettingsOut(BaseModel):
     annual_insurance_dzd: Decimal
     inscription_fee_dzd: Decimal
     currency: str = "DZD"
+    min_athlete_age: int = 5
+    max_athlete_age: int = 17
 
 
 class ClubFeeSettingsUpdate(BaseModel):
     monthly_subscription_dzd: Optional[Decimal] = None
     annual_insurance_dzd: Optional[Decimal] = None
     inscription_fee_dzd: Optional[Decimal] = None
+    min_athlete_age: Optional[int] = None
+    max_athlete_age: Optional[int] = None
 
 
 class EquipmentPurchaseCreate(BaseModel):

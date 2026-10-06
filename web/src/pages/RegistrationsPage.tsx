@@ -265,15 +265,16 @@ export function RegistrationsPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setError("");
       const { data, errors } = await loadAllSettled<
         [Season[], Category[], { inscription_fee_dzd: number }, Team[]]
       >([
         () => apiGetFast<Season[]>("/api/v1/seasons", { ttlMs: 120_000 }),
-        () => apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 120_000 }),
+        () => apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 60_000 }),
         () => apiGetFast<{ inscription_fee_dzd: number }>("/api/v1/finance/settings", { ttlMs: 120_000 }).catch(() => ({
           inscription_fee_dzd: 4000,
         })),
-        () => apiGetFast<Team[]>("/api/v1/teams", { ttlMs: 120_000 }),
+        () => apiGetFast<Team[]>("/api/v1/teams", { ttlMs: 60_000 }),
       ]);
       if (cancelled) return;
       const [s, c, fees, tms] = data;
@@ -282,17 +283,42 @@ export function RegistrationsPage() {
         const current = s.find((x) => x.is_current) || s[0];
         if (current) setForm((f) => ({ ...f, season_id: f.season_id || current.id }));
       }
-      if (c) setCats(c);
+      if (c) setCats(Array.isArray(c) ? c : []);
+      else if (errors.length) {
+        // G0-01 : retry unique si catégories absentes (race JWT / cold start)
+        try {
+          const retry = await apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 0 });
+          if (!cancelled && Array.isArray(retry)) setCats(retry);
+        } catch {
+          /* keep empty — message UI ci-dessous */
+        }
+      }
       if (tms) setTeams(tms);
       if (fees?.inscription_fee_dzd != null) {
         setForm((f) => ({ ...f, subscription_fee: String(fees.inscription_fee_dzd) }));
       }
       if (errors.length && !s && !c) setError(errors.join(" · "));
+      setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Recharger catégories quand la saison formulaire change
+  useEffect(() => {
+    if (!form.season_id) return;
+    let cancelled = false;
+    void apiGetFast<Category[]>(`/api/v1/categories?season_id=${form.season_id}`, { ttlMs: 60_000 })
+      .then((rows) => {
+        if (cancelled) return;
+        if (Array.isArray(rows) && rows.length) setCats(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [form.season_id]);
 
   useEffect(() => {
     if (!form.season_id) return;
@@ -791,7 +817,7 @@ export function RegistrationsPage() {
 
   return (
     <div className="split-layout">
-      <form className="card" onSubmit={onSubmit}>
+      <form className="card form-compact" onSubmit={onSubmit}>
         <h3 style={{ marginTop: 0 }}>
           {editId ? `Modifier dossier #${editId}` : t("newRegistration")}
         </h3>
@@ -864,7 +890,20 @@ export function RegistrationsPage() {
             ))}
           </div>
           {!seasonCats.length && cats.length === 0 && (
-            <p className="muted">Catégories indisponibles — reconnectez-vous ou actualisez la page.</p>
+            <p className="muted">
+              Catégories indisponibles —{" "}
+              <button
+                type="button"
+                className="secondary btn-fit"
+                onClick={() => {
+                  void apiGetFast<Category[]>("/api/v1/categories", { ttlMs: 0 })
+                    .then((rows) => setCats(Array.isArray(rows) ? rows : []))
+                    .catch((err) => setError(err instanceof Error ? err.message : "Erreur"));
+                }}
+              >
+                Actualiser
+              </button>
+            </p>
           )}
           {!seasonCats.length && cats.length > 0 && (
             <p className="muted">Aucune catégorie pour cette saison — vérifiez la structure du club.</p>
@@ -1033,18 +1072,17 @@ export function RegistrationsPage() {
         {error && <p style={{ color: "var(--danger, #dc2626)" }}>{error}</p>}
       </form>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      <ExportPanel defaultSeasonId={form.season_id || undefined} />
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <h3 style={{ marginTop: 0 }}>{t("files")}</h3>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+      <div className="card regs-toolbar">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+          <ExportPanel compact defaultSeasonId={form.season_id || undefined} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             {canHardDelete && selectedIds.length > 0 && (
-              <button type="button" className="danger" onClick={() => void deleteSelectedRegs()}>
+              <button type="button" className="danger btn-fit" onClick={() => void deleteSelectedRegs()}>
                 Supprimer ({selectedIds.length})
               </button>
             )}
-            <button type="button" className="secondary" onClick={() => loadRegs()}>
+            <button type="button" className="secondary btn-fit" onClick={() => loadRegs()}>
               {t("retry")}
             </button>
           </div>
@@ -1075,81 +1113,87 @@ export function RegistrationsPage() {
           </div>
         )}
 
-        <div className="cat-chips">
-          <strong>Dossiers</strong>
-          <div className="chips">
-            <button
-              type="button"
-              className={`chip ${listStatus === "active" ? "active" : ""}`}
-              onClick={() => setListStatus("active")}
-            >
-              Actifs
-            </button>
-            <button
-              type="button"
-              className={`chip ${listStatus === "archived" ? "active" : ""}`}
-              onClick={() => setListStatus("archived")}
-            >
-              Archivés
-            </button>
-          </div>
-        </div>
-        <div className="cat-chips">
-          <strong>{t("filterCategory")}</strong>
-          <div className="chips">
-            <button
-              type="button"
-              className={`chip ${listCategoryId === null ? "active" : ""}`}
-              onClick={() => {
-                setListCategoryId(null);
-                setListTeamId(null);
-              }}
-            >
-              {t("allCategories")}
-            </button>
-            {seasonCats.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`chip ${listCategoryId === c.id ? "active" : ""}`}
-                onClick={() => {
-                  setListCategoryId(c.id);
-                  setListTeamId(null);
-                }}
-              >
-                {c.code}
-                <small>
-                  {c.birth_year_min}-{c.birth_year_max}
-                </small>
-              </button>
-            ))}
-          </div>
-        </div>
-        {listTeams.length > 0 && (
+        <div className="regs-filters-block">
           <div className="cat-chips">
-            <strong>Sous-groupe</strong>
+            <strong>Dossiers</strong>
             <div className="chips">
               <button
                 type="button"
-                className={`chip ${listTeamId === null ? "active" : ""}`}
-                onClick={() => setListTeamId(null)}
+                className={`chip ${listStatus === "active" ? "active" : ""}`}
+                onClick={() => setListStatus("active")}
               >
-                Tous les groupes
+                Actifs
               </button>
-              {listTeams.map((t) => (
+              <button
+                type="button"
+                className={`chip ${listStatus === "archived" ? "active" : ""}`}
+                onClick={() => setListStatus("archived")}
+              >
+                Archivés
+              </button>
+            </div>
+          </div>
+          <div className="cat-chips">
+            <strong>{t("filterCategory")}</strong>
+            <div className="chips">
+              <button
+                type="button"
+                className={`chip ${listCategoryId === null ? "active" : ""}`}
+                onClick={() => {
+                  setListCategoryId(null);
+                  setListTeamId(null);
+                }}
+              >
+                {t("allCategories")}
+              </button>
+              {seasonCats.map((c) => (
                 <button
-                  key={t.id}
+                  key={c.id}
                   type="button"
-                  className={`chip ${listTeamId === t.id ? "active" : ""}`}
-                  onClick={() => setListTeamId(t.id)}
+                  className={`chip ${listCategoryId === c.id ? "active" : ""}`}
+                  onClick={() => {
+                    setListCategoryId(c.id);
+                    setListTeamId(null);
+                  }}
                 >
-                  {t.code || t.name}
-                  <small>{t.name}</small>
+                  {c.code}
+                  <small>
+                    {c.birth_year_min}-{c.birth_year_max}
+                  </small>
                 </button>
               ))}
             </div>
           </div>
-        )}
+          {listTeams.length > 0 && (
+            <div className="cat-chips">
+              <strong>Sous-groupe</strong>
+              <div className="chips">
+                <button
+                  type="button"
+                  className={`chip ${listTeamId === null ? "active" : ""}`}
+                  onClick={() => setListTeamId(null)}
+                >
+                  Tous les groupes
+                </button>
+                {listTeams.map((tm) => (
+                  <button
+                    key={tm.id}
+                    type="button"
+                    className={`chip ${listTeamId === tm.id ? "active" : ""}`}
+                    onClick={() => setListTeamId(tm.id)}
+                  >
+                    {tm.code || tm.name}
+                    <small>{tm.name}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0, marginBottom: "0.65rem" }}>{t("files")}</h3>
         {(loading || listLoading) && <p className="muted">{t("loading")}</p>}
         {!loading && !listLoading && !displayedRegs.length && !error && <p className="muted">{t("empty")}</p>}
         {error && !displayedRegs.length && (
@@ -1224,7 +1268,7 @@ export function RegistrationsPage() {
                     <span className="avatar placeholder">?</span>
                   )}
                 </td>
-                <td>{r.athlete_name || `#${r.athlete_id}`}</td>
+                <td style={{ minWidth: 140, whiteSpace: "normal" }}>{r.athlete_name || `#${r.athlete_id}`}</td>
                 <td>
                   {r.category_code || "—"}
                   {r.team_code && (
@@ -1258,7 +1302,7 @@ export function RegistrationsPage() {
                       : "—"}
                 </td>
                 <td>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <div className="row-actions">
                     <button type="button" className="secondary" onClick={() => openEdit(r)}>
                       {t("edit")}
                     </button>

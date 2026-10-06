@@ -11,6 +11,7 @@ from app.core.tenant import assert_same_club, get_current_club_id
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.roles import Role, TEAM_COACH_ROLES
+from app.core.scoped import get_scoped, get_scoped_optional
 from app.core.security import hash_password
 from app.models import (
     Announcement,
@@ -48,6 +49,7 @@ from app.schemas import (
     RegistrationCreate,
     RegistrationOut,
     RegistrationUpdate,
+    SeasonCreate,
     SeasonOut,
     TeamCoachAssignIn,
     TeamCoachOut,
@@ -119,6 +121,43 @@ def list_seasons(db: Session = Depends(get_db), user: User = Depends(get_current
     out = [SeasonOut.model_validate(s) for s in rows]
     cache_set(key, out, 120)
     return out
+
+
+@router.post("/seasons", response_model=SeasonOut)
+def create_season(
+    payload: SeasonCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """Crée une saison (historique ou future). Si is_current=True, désactive les autres."""
+    if payload.ends_on < payload.starts_on:
+        raise HTTPException(400, "ends_on doit être ≥ starts_on")
+    exists = (
+        db.query(Season)
+        .filter(Season.club_id == club_id, Season.name == payload.name.strip())
+        .first()
+    )
+    if exists:
+        raise HTTPException(409, "Saison déjà existante")
+    if payload.is_current:
+        db.query(Season).filter(Season.club_id == club_id, Season.is_current.is_(True)).update(
+            {"is_current": False}
+        )
+    season = Season(
+        club_id=club_id,
+        name=payload.name.strip(),
+        starts_on=payload.starts_on,
+        ends_on=payload.ends_on,
+        is_current=payload.is_current,
+        registration_open=payload.registration_open,
+    )
+    db.add(season)
+    db.commit()
+    db.refresh(season)
+    cache_delete_prefix(f"seasons:{club_id}")
+    cache_delete_prefix(f"bootstrap:{club_id}")
+    return SeasonOut.model_validate(season)
 
 
 @router.post("/seasons/{season_id}/archive-roster")
@@ -371,15 +410,13 @@ def list_categories(
     discipline_id: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    club_id: int = Depends(get_current_club_id),
 ):
-    club_id = getattr(user, "club_id", None)
     key = f"categories:{club_id}:{season_id or 'current'}:{discipline_id or 'all'}"
     cached = cache_get(key)
     if cached is not None:
         return cached
-    q = db.query(Category)
-    if club_id:
-        q = q.filter(Category.club_id == club_id)
+    q = db.query(Category).filter(Category.club_id == club_id)
     if season_id:
         q = q.filter(Category.season_id == season_id)
     else:
@@ -389,6 +426,15 @@ def list_categories(
     if discipline_id:
         q = q.filter(Category.discipline_id == discipline_id)
     rows = q.order_by(Category.birth_year_min).all()
+    # G0-01 : si saison courante vide, ne pas renvoyer une liste vide trompeuse —
+    # retomber sur toutes les catégories du club (UI Inscriptions).
+    if not rows and not season_id and not discipline_id:
+        rows = (
+            db.query(Category)
+            .filter(Category.club_id == club_id)
+            .order_by(Category.birth_year_min)
+            .all()
+        )
     disc_ids = {c.discipline_id for c in rows if c.discipline_id}
     discs = {
         d.id: d
@@ -509,7 +555,12 @@ def list_teams_with_coaches(
     _: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.COACH)),
     club_id: int = Depends(get_current_club_id),
 ):
-    """Vue équipes + coachs (saison courante du club)."""
+    """Vue équipes + coachs (saison courante du club).
+
+    Si le filtre saison renvoie 0 alors que le club a des équipes (catégories
+    orphelines / autre saison), on retombe sur toutes les équipes du club —
+    évite l’UI « Aucune équipe » alors que GET /teams compte N > 0.
+    """
     cur = _current_season(db, club_id)
     q = db.query(Team).filter(Team.club_id == club_id)
     cats: dict[int, Category] = {}
@@ -519,6 +570,24 @@ def list_teams_with_coaches(
         if cats:
             q = q.filter(Team.category_id.in_(list(cats.keys())))
     teams = q.order_by(Team.name).all()
+    if not teams:
+        # G0-03 : fallback — équipes club sans filtre saison
+        teams = (
+            db.query(Team).filter(Team.club_id == club_id).order_by(Team.name).all()
+        )
+        if teams and not cats:
+            cat_ids = {t.category_id for t in teams if t.category_id}
+            if cat_ids:
+                cats = {
+                    c.id: c
+                    for c in db.query(Category).filter(Category.id.in_(cat_ids)).all()
+                }
+        elif teams:
+            # Compléter codes catégorie hors saison courante
+            missing = {t.category_id for t in teams if t.category_id and t.category_id not in cats}
+            if missing:
+                for c in db.query(Category).filter(Category.id.in_(missing)).all():
+                    cats[c.id] = c
     return [
         TeamWithCoachesOut(
             id=t.id,
@@ -606,6 +675,7 @@ def assign_team_coaches(
         entity="team",
         entity_id=team_id,
         user_id=user.id,
+        club_id=club_id,
         detail=",".join(f"{u}:{l}" for u, l in cleaned),
         commit=True,
     )
@@ -1020,7 +1090,7 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
         _cf(db.query(func.count(Athlete.id)).filter(Athlete.birth_date.is_(None))).scalar() or 0
     )
 
-    # Une seule lecture légère (id, status, année) pour classer par catégories
+    # H313-02 : compter les inscriptions réelles par catégorie (pas l'âge × tous les sports)
     light = _cf(db.query(Athlete.id, Athlete.status, Athlete.birth_date)).all()
     cats_out = []
     classified_active: set[int] = set()
@@ -1028,29 +1098,54 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
         cat_rows = (
             db.query(Category)
             .filter(Category.season_id == season.id)
-            .order_by(Category.birth_year_min)
+            .order_by(Category.discipline_id, Category.birth_year_min)
             .all()
         )
+        disc_map = {
+            d.id: d
+            for d in db.query(Discipline).filter(Discipline.club_id == club_id).all()
+        } if club_id else {
+            d.id: d for d in db.query(Discipline).all()
+        }
+        reg_q = (
+            db.query(Registration.category_id, Registration.athlete_id)
+            .filter(
+                Registration.season_id == season.id,
+                Registration.category_id.isnot(None),
+                Registration.status != "archived",
+            )
+        )
+        if club_id:
+            reg_q = reg_q.filter(Registration.club_id == club_id)
+        reg_by_cat: dict[int, set[int]] = {}
+        for cid, aid in reg_q.all():
+            if cid is None:
+                continue
+            reg_by_cat.setdefault(int(cid), set()).add(int(aid))
+            classified_active.add(int(aid))
+
         for cat in cat_rows:
+            members = len(reg_by_cat.get(cat.id, set()))
             birth_count = 0
-            for aid, status, bdate in light:
+            for _aid, _status, bdate in light:
                 if bdate is None:
                     continue
-                y = bdate.year
-                if cat.birth_year_min <= y <= cat.birth_year_max:
+                if cat.birth_year_min <= bdate.year <= cat.birth_year_max:
                     birth_count += 1
-                    if status == "Active":
-                        classified_active.add(aid)
+            disc = disc_map.get(cat.discipline_id)
             cats_out.append(
                 {
                     "code": cat.code,
                     "name": cat.name,
                     "name_ar": cat.name_ar,
+                    "discipline_id": cat.discipline_id,
+                    "discipline_code": disc.code if disc else None,
+                    "discipline_name": disc.name if disc else None,
                     "birth_years": f"{cat.birth_year_min}-{cat.birth_year_max}",
-                    "members": birth_count,
+                    "members": members,
                     "by_birth_year": birth_count,
-                    "by_membership": 0,
-                    "by_registration": 0,
+                    "by_membership": members,
+                    "by_registration": members,
                 }
             )
 
@@ -1068,12 +1163,14 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
     regs_pending = regs_q.scalar() or 0
     parents = parents_q.scalar() or 0
     today = date.today()
-    soon = today + timedelta(days=30)
+    # G1-03 : uniquement les docs qui expirent bientôt (pas toutes les licences déjà périmées)
+    soon = today + timedelta(days=14)
     lic_exp = (
         _cf(
             db.query(func.count(Athlete.id)).filter(
                 Athlete.status == "Active",
                 Athlete.license_valid_until.isnot(None),
+                Athlete.license_valid_until >= today,
                 Athlete.license_valid_until <= soon,
             )
         ).scalar()
@@ -1084,6 +1181,7 @@ def club_stats(db: Session = Depends(get_db), user: User = Depends(get_current_u
             db.query(func.count(Athlete.id)).filter(
                 Athlete.status == "Active",
                 Athlete.medical_cert_valid_until.isnot(None),
+                Athlete.medical_cert_valid_until >= today,
                 Athlete.medical_cert_valid_until <= soon,
             )
         ).scalar()
@@ -1158,19 +1256,41 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
     season = _current_season(db, club_id)
     categories: list[dict] = []
     if season:
-        light = _ath(db.query(Athlete.birth_date)).all()
+        # H313-02 : inscriptions réelles par catégorie (+ sport), pas âge dupliqué
+        disc_map = {
+            d.id: d
+            for d in (
+                db.query(Discipline).filter(Discipline.club_id == club_id).all()
+                if club_id
+                else db.query(Discipline).all()
+            )
+        }
+        reg_q = db.query(Registration.category_id, func.count(func.distinct(Registration.athlete_id))).filter(
+            Registration.season_id == season.id,
+            Registration.category_id.isnot(None),
+            Registration.status != "archived",
+        )
+        if club_id:
+            reg_q = reg_q.filter(Registration.club_id == club_id)
+        reg_counts = {int(cid): int(cnt) for cid, cnt in reg_q.group_by(Registration.category_id).all() if cid}
         for cat in (
             db.query(Category)
             .filter(Category.season_id == season.id)
-            .order_by(Category.birth_year_min)
+            .order_by(Category.discipline_id, Category.birth_year_min)
             .all()
         ):
-            n = sum(
-                1
-                for (bdate,) in light
-                if bdate and cat.birth_year_min <= bdate.year <= cat.birth_year_max
+            disc = disc_map.get(cat.discipline_id)
+            n = reg_counts.get(cat.id, 0)
+            label = f"{disc.code} · {cat.code}" if disc and disc.code not in (cat.code or "") else cat.code
+            categories.append(
+                {
+                    "code": cat.code,
+                    "name": label,
+                    "members": n,
+                    "discipline_code": disc.code if disc else None,
+                    "discipline_name": disc.name if disc else None,
+                }
             )
-            categories.append({"code": cat.code, "name": cat.name, "members": n})
 
     # --- Inscriptions par mois ---
     regs_series = [0] * len(months)
@@ -1287,9 +1407,11 @@ def club_analytics(db: Session = Depends(get_db), user: User = Depends(get_curre
 athletes_router = APIRouter(prefix="/athletes", tags=["athletes"])
 
 
-def _parent_athlete_ids(db: Session, user: User) -> set[int]:
-    rows = db.query(ParentChild.athlete_id).filter(ParentChild.parent_id == user.id).all()
-    return {r[0] for r in rows}
+def _parent_athlete_ids(db: Session, user: User, club_id: int | None = None) -> set[int]:
+    q = db.query(ParentChild.athlete_id).filter(ParentChild.parent_id == user.id)
+    if club_id is not None:
+        q = q.filter(ParentChild.club_id == club_id)
+    return {r[0] for r in q.all()}
 
 
 def _norm_name(name: str | None) -> str:
@@ -1298,18 +1420,21 @@ def _norm_name(name: str | None) -> str:
     return " ".join(str(name).strip().lower().split())
 
 
-def _find_duplicate_athlete(db: Session, full_name: str | None, birth_date) -> Athlete | None:
-    """Cherche un athlète avec même nom (normalisé) et même date de naissance."""
+def _find_duplicate_athlete(
+    db: Session, full_name: str | None, birth_date, club_id: int | None = None
+) -> Athlete | None:
+    """Cherche un athlète avec même nom (normalisé) et même date de naissance **dans le club**."""
     norm = _norm_name(full_name)
     if not norm or not birth_date:
         return None
-    candidates = (
+    q = (
         db.query(Athlete)
         .filter(Athlete.birth_date == birth_date)
         .filter(func.lower(Athlete.full_name).like(f"%{norm.split()[0]}%"))
-        .all()
     )
-    for a in candidates:
+    if club_id is not None:
+        q = q.filter(Athlete.club_id == club_id)
+    for a in q.all():
         if _norm_name(a.full_name) == norm:
             return a
     return None
@@ -1436,8 +1561,8 @@ def _to_athlete_out(
     today = date.today()
     lic_until = getattr(athlete, "license_valid_until", None)
     med_until = getattr(athlete, "medical_cert_valid_until", None)
-    lic_soon = bool(lic_until and 0 <= (lic_until - today).days <= 30)
-    med_soon = bool(med_until and 0 <= (med_until - today).days <= 30)
+    lic_soon = bool(lic_until and 0 <= (lic_until - today).days <= 14)
+    med_soon = bool(med_until and 0 <= (med_until - today).days <= 14)
     return AthleteOut(
         id=athlete.id,
         legacy_number=athlete.legacy_number,
@@ -1497,7 +1622,7 @@ def list_athletes(
     sort: str = Query("recent"),
     order: str = Query("desc"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(40, ge=1, le=200),
+    limit: int = Query(40, ge=1, le=500),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     club_id: int = Depends(get_current_club_id),
@@ -1545,6 +1670,7 @@ def list_athletes(
                 Athlete.license_status,
                 Athlete.medical_cert_date,
                 Athlete.medical_cert_valid_until,
+                Athlete.notes,
                 Athlete.photo_path,
                 Athlete.blood_type,
             )
@@ -1554,7 +1680,7 @@ def list_athletes(
     # (tolère les anciennes lignes NULL pendant la migration)
     query = query.filter(Athlete.club_id == club_id)
     if user.role == Role.PARENT:
-        ids = _parent_athlete_ids(db, user)
+        ids = _parent_athlete_ids(db, user, club_id)
         query = query.filter(Athlete.id.in_(ids or {-1}))
     if status == "all":
         pass  # tous statuts y compris archives
@@ -1636,10 +1762,22 @@ def list_athletes(
 
     out: list[AthleteOut] = []
     today = date.today()
+    cats_by_id = {c.id: c for c in cats}
     for athlete, phone in rows:
-        cid, ccode = _cat_for_birth(cats, athlete.birth_date)
-        lp = last_pay.get(athlete.id)
         reg = reg_by_athlete.get(athlete.id)
+        # NC-03 : privilégier la catégorie d'inscription saison (multisport)
+        if reg and reg.category_id and reg.category_id in cats_by_id:
+            cat = cats_by_id[reg.category_id]
+            cid, ccode = cat.id, cat.code
+        elif reg and reg.category_id:
+            cat = db.get(Category, reg.category_id)
+            if cat:
+                cid, ccode = cat.id, cat.code
+            else:
+                cid, ccode = _cat_for_birth(cats, athlete.birth_date)
+        else:
+            cid, ccode = _cat_for_birth(cats, athlete.birth_date)
+        lp = last_pay.get(athlete.id)
         lic_until = getattr(athlete, "license_valid_until", None)
         med_until = getattr(athlete, "medical_cert_valid_until", None)
         out.append(
@@ -1659,9 +1797,9 @@ def list_athletes(
                 license_status=getattr(athlete, "license_status", None),
                 medical_cert_date=getattr(athlete, "medical_cert_date", None),
                 medical_cert_valid_until=med_until,
-                license_expiring_soon=bool(lic_until and 0 <= (lic_until - today).days <= 30),
-                medical_expiring_soon=bool(med_until and 0 <= (med_until - today).days <= 30),
-                notes=None,
+                license_expiring_soon=bool(lic_until and 0 <= (lic_until - today).days <= 14),
+                medical_expiring_soon=bool(med_until and 0 <= (med_until - today).days <= 14),
+                notes=athlete.notes,
                 photo_path=enrich_media_path(athlete.photo_path),
                 blood_type=getattr(athlete, "blood_type", None),
                 parent_phone=phone,
@@ -1675,6 +1813,139 @@ def list_athletes(
     return out
 
 
+@athletes_router.post("/import")
+def import_athletes_csv(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """G1-06 : import CSV athlètes v1.
+
+    Body JSON : ``{"csv": "full_name,birth_date,birth_place,parent_phone\\n..." }``
+    Colonnes acceptées (en-tête flexible) : full_name|nom, birth_date|naissance,
+    birth_place|lieu, parent_phone|telephone, notes, blood_type|groupe.
+    """
+    import csv
+    import io
+    from datetime import datetime as _dt
+
+    raw = (payload or {}).get("csv") or (payload or {}).get("text") or ""
+    if not isinstance(raw, str) or not raw.strip():
+        raise HTTPException(400, "Champ csv requis (texte CSV avec en-tête)")
+    reader = csv.DictReader(io.StringIO(raw.strip()))
+    if not reader.fieldnames:
+        raise HTTPException(400, "CSV sans en-tête")
+
+    def _col(*names: str) -> str | None:
+        lower = { (h or "").strip().lower(): h for h in (reader.fieldnames or []) }
+        for n in names:
+            if n in lower:
+                return lower[n]
+        return None
+
+    k_name = _col("full_name", "nom", "name", "athlète", "athlete")
+    k_birth = _col("birth_date", "naissance", "date_naissance", "dob")
+    k_place = _col("birth_place", "lieu", "lieu_naissance")
+    k_phone = _col("parent_phone", "telephone", "téléphone", "phone", "tel")
+    k_notes = _col("notes", "note")
+    k_blood = _col("blood_type", "groupe", "blood")
+    if not k_name:
+        raise HTTPException(400, "Colonne nom / full_name obligatoire")
+
+    created = 0
+    skipped = 0
+    errors: list[str] = []
+    for i, row in enumerate(reader, start=2):
+        if created + skipped >= 500:
+            errors.append(f"Limite 500 lignes — arrêt ligne {i}")
+            break
+        name = (row.get(k_name) or "").strip()
+        if not name:
+            skipped += 1
+            continue
+        birth = None
+        if k_birth and (row.get(k_birth) or "").strip():
+            raw_b = (row.get(k_birth) or "").strip()
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+                try:
+                    birth = _dt.strptime(raw_b, fmt).date()
+                    break
+                except ValueError:
+                    continue
+            if birth is None:
+                errors.append(f"Ligne {i}: date invalide « {raw_b} »")
+                skipped += 1
+                continue
+        try:
+            if birth:
+                validate_club_age(birth, required=True, db=db, club_id=club_id)
+        except ValueError as exc:
+            errors.append(f"Ligne {i}: {exc}")
+            skipped += 1
+            continue
+        phone = (row.get(k_phone) or "").strip() if k_phone else ""
+        if phone:
+            try:
+                validate_dz_mobile(phone, required=True)
+            except Exception as exc:
+                errors.append(f"Ligne {i}: téléphone — {exc}")
+                skipped += 1
+                continue
+        dup = _find_duplicate_athlete(db, name, birth, club_id=club_id)
+        if dup:
+            skipped += 1
+            continue
+        blood = (row.get(k_blood) or "").strip() or None if k_blood else None
+        try:
+            if blood:
+                blood = validate_blood_type(blood)
+        except ValueError as exc:
+            errors.append(f"Ligne {i}: {exc}")
+            skipped += 1
+            continue
+        athlete = Athlete(
+            club_id=club_id,
+            full_name=name,
+            birth_date=birth,
+            birth_place=((row.get(k_place) or "").strip() or None) if k_place else None,
+            notes=((row.get(k_notes) or "").strip() or None) if k_notes else None,
+            blood_type=blood,
+            status="Active",
+        )
+        db.add(athlete)
+        db.flush()
+        write_audit(
+            db,
+            action="import",
+            entity="athlete",
+            entity_id=athlete.id,
+            user_id=user.id,
+            club_id=club_id,
+            detail=f"csv:{name}",
+        )
+        if phone:
+            try:
+                ensure_parent_account(
+                    db,
+                    phone=phone,
+                    full_name=None,
+                    athlete_id=athlete.id,
+                    club_id=club_id,
+                )
+            except Exception:
+                pass
+        created += 1
+    db.commit()
+    _bust_club_caches()
+    return {
+        "created": created,
+        "skipped": skipped,
+        "errors": errors[:40],
+        "error_count": len(errors),
+    }
+
+
 @athletes_router.post("", response_model=AthleteOut)
 def create_athlete(
     payload: AthleteCreate,
@@ -1682,7 +1953,7 @@ def create_athlete(
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
     club_id: int = Depends(get_current_club_id),
 ):
-    dup = _find_duplicate_athlete(db, payload.full_name, payload.birth_date)
+    dup = _find_duplicate_athlete(db, payload.full_name, payload.birth_date, club_id=club_id)
     if dup:
         raise HTTPException(
             409,
@@ -1690,7 +1961,7 @@ def create_athlete(
             f"Doublon évité.",
         )
     try:
-        validate_club_age(payload.birth_date, required=True)
+        validate_club_age(payload.birth_date, required=True, db=db, club_id=club_id)
         if payload.parent_phone:
             validate_dz_mobile(payload.parent_phone, required=True)
         if payload.blood_type is not None:
@@ -1710,6 +1981,7 @@ def create_athlete(
         entity="athlete",
         entity_id=athlete.id,
         user_id=user.id,
+        club_id=club_id,
         detail=athlete.full_name,
     )
     if payload.parent_phone:
@@ -1748,11 +2020,11 @@ def archive_lookup(
 ):
     """Propose la reprise d'un joueur déjà en archive (même nom + date de naissance).
     Les infos identité sont renvoyées ; téléphone parent et catégorie restent à saisir manuellement."""
-    athlete = _find_duplicate_athlete(db, full_name, birth_date)
+    athlete = _find_duplicate_athlete(db, full_name, birth_date, club_id=club_id)
     if not athlete:
         return {"found": False}
     assert_same_club(athlete, club_id)
-    if user.role == Role.PARENT and athlete.id not in _parent_athlete_ids(db, user):
+    if user.role == Role.PARENT and athlete.id not in _parent_athlete_ids(db, user, club_id):
         # Parent : seulement si déjà lié, sinon on laisse créer (pas d'info archive)
         link = db.query(ParentChild).filter_by(parent_id=user.id, athlete_id=athlete.id).first()
         if not link and athlete.status not in _ARCHIVED_ATHLETE_STATUSES:
@@ -1797,7 +2069,7 @@ def get_athlete(
     if not athlete:
         raise HTTPException(404, "Athlète introuvable")
     assert_same_club(athlete, club_id)
-    if user.role == Role.PARENT and athlete_id not in _parent_athlete_ids(db, user):
+    if user.role == Role.PARENT and athlete_id not in _parent_athlete_ids(db, user, club_id):
         raise HTTPException(403, "Accès refusé")
     return _to_athlete_out(db, athlete)
 
@@ -1829,7 +2101,7 @@ def update_athlete(
     birth = data.get("birth_date", athlete.birth_date)
     try:
         if "birth_date" in data:
-            validate_club_age(birth, required=True)
+            validate_club_age(birth, required=True, db=db, club_id=club_id)
         if payload.parent_phone:
             validate_dz_mobile(payload.parent_phone, required=True)
         if "blood_type" in data:
@@ -1870,6 +2142,7 @@ def update_athlete(
         entity="athlete",
         entity_id=athlete.id,
         user_id=user.id,
+        club_id=club_id,
         detail=f"status={athlete.status}",
     )
     db.commit()
@@ -1942,8 +2215,9 @@ def cleanup_test_batch(
     confirm: bool = Query(False, description="Doit être true"),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN)),
+    club_id: int = Depends(get_current_club_id),
 ):
-    """Supprime les données de test. En production : ALLOW_TEST_CLEANUP=true + confirm=true."""
+    """Purge données de test — **uniquement le club courant**. Prod : ALLOW_TEST_CLEANUP + confirm."""
     if not confirm:
         raise HTTPException(400, "Ajoutez ?confirm=true pour confirmer la purge des tests.")
     if settings.is_production and not settings.allow_test_cleanup:
@@ -1954,46 +2228,80 @@ def cleanup_test_batch(
     athletes = (
         db.query(Athlete)
         .filter(
-            (Athlete.notes.contains(marker))
-            | (Athlete.full_name.contains("[TEST]"))
-            | (Athlete.full_name.contains("[VERIFY]"))
-            | (Athlete.notes.contains("VERIFY"))
+            Athlete.club_id == club_id,
+            (
+                (Athlete.notes.contains(marker))
+                | (Athlete.full_name.contains("[TEST]"))
+                | (Athlete.full_name.contains("[VERIFY]"))
+                | (Athlete.notes.contains("VERIFY"))
+            ),
         )
         .all()
     )
     ids = [a.id for a in athletes]
     deleted_events = 0
-    # events titled with marker
-    events = db.query(Event).filter(Event.title.contains(marker)).all()
+    events = (
+        db.query(Event)
+        .filter(Event.club_id == club_id, Event.title.contains(marker))
+        .all()
+    )
     for ev in events:
         db.query(Attendance).filter(Attendance.event_id == ev.id).delete(synchronize_session=False)
         db.query(Convocation).filter(Convocation.event_id == ev.id).delete(synchronize_session=False)
         db.delete(ev)
         deleted_events += 1
     for athlete_id in ids:
-        for model in (Attendance, Convocation, FeeInstallment, Payment, TeamMembership, ParentChild, EmergencyContact, Registration):
-            db.query(model).filter(getattr(model, "athlete_id") == athlete_id).delete(synchronize_session=False)
+        for model in (
+            Attendance,
+            Convocation,
+            FeeInstallment,
+            Payment,
+            TeamMembership,
+            ParentChild,
+            EmergencyContact,
+            Registration,
+        ):
+            q = db.query(model).filter(getattr(model, "athlete_id") == athlete_id)
+            if hasattr(model, "club_id"):
+                q = q.filter(model.club_id == club_id)
+            q.delete(synchronize_session=False)
         ath = db.get(Athlete, athlete_id)
-        if ath:
+        if ath and ath.club_id == club_id:
             db.delete(ath)
-    # test parent users by phone prefix 069911
-    parents = db.query(User).filter(User.role == Role.PARENT, User.phone.like("069911%")).all()
+    parents = (
+        db.query(User)
+        .filter(
+            User.club_id == club_id,
+            User.role == Role.PARENT,
+            User.phone.like("069911%"),
+        )
+        .all()
+    )
     parent_ids = [p.id for p in parents]
     if parent_ids:
-        db.query(Notification).filter(Notification.user_id.in_(parent_ids)).delete(synchronize_session=False)
-        db.query(ParentChild).filter(ParentChild.parent_id.in_(parent_ids)).delete(synchronize_session=False)
+        db.query(Notification).filter(
+            Notification.club_id == club_id, Notification.user_id.in_(parent_ids)
+        ).delete(synchronize_session=False)
+        db.query(ParentChild).filter(
+            ParentChild.club_id == club_id, ParentChild.parent_id.in_(parent_ids)
+        ).delete(synchronize_session=False)
     for p in parents:
         db.delete(p)
-    anns = db.query(Announcement).filter(Announcement.title.contains(marker)).all()
+    anns = (
+        db.query(Announcement)
+        .filter(Announcement.club_id == club_id, Announcement.title.contains(marker))
+        .all()
+    )
     for a in anns:
         db.delete(a)
-    # staff notifications created by the test batch (cancel / status)
-    db.query(Notification).filter(Notification.title.contains(marker) | Notification.body.contains(marker)).delete(
-        synchronize_session=False
-    )
+    db.query(Notification).filter(
+        Notification.club_id == club_id,
+        Notification.title.contains(marker) | Notification.body.contains(marker),
+    ).delete(synchronize_session=False)
     db.commit()
     return {
         "marker": marker,
+        "club_id": club_id,
         "athletes_deleted": len(ids),
         "athlete_ids": ids,
         "events_deleted": deleted_events,
@@ -2007,32 +2315,45 @@ def backfill_fees(
     confirm: bool = Query(False),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(Role.ADMIN)),
+    club_id: int = Depends(get_current_club_id),
 ):
     if not confirm:
         raise HTTPException(400, "Ajoutez ?confirm=true")
     regs = (
         db.query(Registration)
-        .filter(Registration.status == "approved", Registration.subscription_fee.isnot(None))
+        .filter(
+            Registration.club_id == club_id,
+            Registration.status == "approved",
+            Registration.subscription_fee.isnot(None),
+        )
         .all()
     )
     created = 0
     for reg in regs:
         before = (
             db.query(FeeInstallment)
-            .filter(FeeInstallment.registration_id == reg.id, FeeInstallment.label == "inscription")
+            .filter(
+                FeeInstallment.registration_id == reg.id,
+                FeeInstallment.label == "inscription",
+                FeeInstallment.club_id == club_id,
+            )
             .count()
         )
         ensure_subscription_installment(db, reg)
         db.flush()
         after = (
             db.query(FeeInstallment)
-            .filter(FeeInstallment.registration_id == reg.id, FeeInstallment.label == "inscription")
+            .filter(
+                FeeInstallment.registration_id == reg.id,
+                FeeInstallment.label == "inscription",
+                FeeInstallment.club_id == club_id,
+            )
             .count()
         )
         if after > before:
             created += 1
     db.commit()
-    return {"registrations": len(regs), "installments_created": created}
+    return {"club_id": club_id, "registrations": len(regs), "installments_created": created}
 
 
 @router.post("/system/prune-old-teams")
@@ -2220,7 +2541,7 @@ def list_registrations(
     sort: str = Query("recent"),
     order: str = Query("desc"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF, Role.PARENT)),
     club_id: int = Depends(get_current_club_id),
@@ -2244,7 +2565,7 @@ def list_registrations(
     if category_id:
         q = q.filter(Registration.category_id == category_id)
     if user.role == Role.PARENT:
-        ids = _parent_athlete_ids(db, user)
+        ids = _parent_athlete_ids(db, user, club_id)
         q = q.filter(Registration.athlete_id.in_(ids or {-1}))
 
     desc = order.lower() != "asc"
@@ -2324,10 +2645,9 @@ def next_kit_number(
     club_id: int = Depends(get_current_club_id),
 ):
     """Prochain n° maillot/sac pour la catégorie (à imprimer sur équipement + sac)."""
-    cat = db.get(Category, category_id)
-    if not cat:
-        raise HTTPException(404, "Catégorie introuvable")
-    if cat.season_id != season_id:
+    season = get_scoped(db, Season, season_id, club_id)
+    cat = get_scoped(db, Category, category_id, club_id)
+    if cat.season_id != season.id:
         raise HTTPException(400, "Catégorie hors saison")
     n = _next_kit_number(db, season_id=season_id, category_id=category_id, club_id=club_id)
     return {
@@ -2349,40 +2669,43 @@ def create_registration(
     parent_meta: dict = {}
     birth = payload.athlete.birth_date if payload.athlete else None
 
-    season = db.get(Season, payload.season_id)
-    if not season:
-        raise HTTPException(400, "Saison introuvable")
+    season = get_scoped(db, Season, payload.season_id, club_id)
     if not season.registration_open and user.role not in {Role.ADMIN, Role.DIRECTION}:
         raise HTTPException(403, "Inscriptions fermées pour cette saison")
 
     category_id = payload.category_id
-    cat: Category | None = db.get(Category, category_id) if category_id else None
-    if category_id and not cat:
-        raise HTTPException(400, "Catégorie introuvable")
+    cat: Category | None = get_scoped_optional(db, Category, category_id, club_id)
     if cat and cat.season_id != payload.season_id:
         raise HTTPException(400, "Catégorie hors saison sélectionnée")
+    if getattr(payload, "team_id", None):
+        team = get_scoped(db, Team, payload.team_id, club_id)
+        if cat and team.category_id != cat.id:
+            raise HTTPException(400, "Équipe hors catégorie sélectionnée")
 
     # Parent : soit nouvel athlète, soit athlète déjà lié — jamais d'IDOR
     if user.role == Role.PARENT and athlete_id and not payload.athlete:
-        if athlete_id not in _parent_athlete_ids(db, user):
+        if athlete_id not in _parent_athlete_ids(db, user, club_id):
             raise HTTPException(403, "Athlète non lié à votre compte")
 
     if payload.athlete:
         try:
-            validate_club_age(payload.athlete.birth_date, required=True)
+            validate_club_age(payload.athlete.birth_date, required=True, db=db, club_id=club_id)
             validate_category_for_birth(payload.athlete.birth_date, cat)
             if payload.athlete.blood_type is not None:
                 payload.athlete.blood_type = validate_blood_type(payload.athlete.blood_type)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        # Anti-doublon : même nom + date de naissance déjà en base
-        existing_dup = _find_duplicate_athlete(db, payload.athlete.full_name, payload.athlete.birth_date)
+        # Anti-doublon : même nom + date de naissance déjà en base **du club**
+        existing_dup = _find_duplicate_athlete(
+            db, payload.athlete.full_name, payload.athlete.birth_date, club_id=club_id
+        )
         if existing_dup:
             dup_reg = (
                 db.query(Registration)
                 .filter(
                     Registration.athlete_id == existing_dup.id,
                     Registration.season_id == payload.season_id,
+                    Registration.club_id == club_id,
                 )
                 .first()
             )
@@ -2396,14 +2719,12 @@ def create_registration(
             athlete_id = existing_dup.id
             birth = existing_dup.birth_date
             if user.role == Role.PARENT and not db.query(ParentChild).filter_by(
-                parent_id=user.id, athlete_id=existing_dup.id
+                parent_id=user.id, athlete_id=existing_dup.id, club_id=club_id
             ).first():
                 db.add(ParentChild(club_id=club_id, parent_id=user.id, athlete_id=existing_dup.id))
         elif athlete_id:
             # Réinscription explicite (archive) : ne pas créer un second dossier joueur
-            existing = db.get(Athlete, athlete_id)
-            if not existing:
-                raise HTTPException(400, "Athlète archive introuvable")
+            existing = get_scoped(db, Athlete, athlete_id, club_id)
             birth = existing.birth_date or payload.athlete.birth_date
         else:
             athlete_data = payload.athlete.model_dump(exclude={"parent_phone", "parent_name"})
@@ -2421,16 +2742,14 @@ def create_registration(
     if not athlete_id:
         raise HTTPException(400, "Athlète requis")
 
-    athlete = db.get(Athlete, athlete_id)
-    if not athlete:
-        raise HTTPException(400, "Athlète introuvable")
+    athlete = get_scoped(db, Athlete, athlete_id, club_id)
     birth = birth or athlete.birth_date
     # Réinscription depuis archive → réactiver le joueur
     if athlete.status in _ARCHIVED_ATHLETE_STATUSES:
         athlete.status = "Active"
 
     try:
-        validate_club_age(birth, required=True)
+        validate_club_age(birth, required=True, db=db, club_id=club_id)
         if cat:
             validate_category_for_birth(birth, cat)
     except ValueError as exc:
@@ -2438,7 +2757,11 @@ def create_registration(
 
     dup = (
         db.query(Registration)
-        .filter(Registration.athlete_id == athlete_id, Registration.season_id == payload.season_id)
+        .filter(
+            Registration.athlete_id == athlete_id,
+            Registration.season_id == payload.season_id,
+            Registration.club_id == club_id,
+        )
         .first()
     )
     if dup:
@@ -2614,8 +2937,21 @@ def create_registration(
         entity="registration",
         entity_id=reg.id,
         user_id=user.id,
+        club_id=club_id,
         detail=f"athlete={athlete_id} season={payload.season_id} status={reg.status}",
     )
+    try:
+        from app.services.broadcast import fanout_registration
+
+        ath = db.get(Athlete, athlete_id)
+        fanout_registration(
+            db,
+            club_id=club_id,
+            athlete_name=ath.full_name if ath else f"#{athlete_id}",
+            status=reg.status,
+        )
+    except Exception:
+        pass
     db.commit()
     db.refresh(reg)
     _bust_club_caches()
@@ -2637,7 +2973,7 @@ def approve_registration(
     cat = db.get(Category, reg.category_id) if reg.category_id else None
     if athlete:
         try:
-            validate_club_age(athlete.birth_date, required=True)
+            validate_club_age(athlete.birth_date, required=True, db=db, club_id=club_id)
             validate_category_for_birth(athlete.birth_date, cat)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -2680,6 +3016,7 @@ def approve_registration(
         entity="registration",
         entity_id=reg.id,
         user_id=user.id,
+        club_id=club_id,
         detail=f"athlete={reg.athlete_id}",
     )
     db.commit()
@@ -2741,7 +3078,7 @@ def update_registration(
     birth = data.get("birth_date", athlete.birth_date)
     try:
         if "birth_date" in data or "category_id" in data:
-            validate_club_age(birth, required=True)
+            validate_club_age(birth, required=True, db=db, club_id=club_id)
             if cat:
                 validate_category_for_birth(birth, cat)
         if payload.parent_phone:
@@ -3052,16 +3389,28 @@ def deliver_kit(
     def _assign(kind: str, item_id: int | None, already: bool) -> bool:
         if already:
             return True
-        item = db.get(InventoryItem, item_id) if item_id else _find_stock_item(db, club_id, kind)
-        if not item:
+        if item_id:
+            item = (
+                db.query(InventoryItem)
+                .filter(InventoryItem.id == item_id, InventoryItem.club_id == club_id)
+                .with_for_update()
+                .first()
+            )
+        else:
+            item = _find_stock_item(db, club_id, kind)
+            if item:
+                item = (
+                    db.query(InventoryItem)
+                    .filter(InventoryItem.id == item.id, InventoryItem.club_id == club_id)
+                    .with_for_update()
+                    .first()
+                )
+        if not item or item.quantity < 1:
             raise HTTPException(
-                400,
+                409 if item else 400,
                 f"Stock insuffisant pour {'maillot' if kind == 'jersey' else 'sac'} — "
                 f"ajoutez un achat dans Matériel (type {kind}).",
             )
-        assert_same_club(item, club_id)
-        if item.quantity < 1:
-            raise HTTPException(400, f"Stock épuisé : {item.name}")
         item.quantity -= 1
         db.add(
             InventoryAssignment(
