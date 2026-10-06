@@ -242,9 +242,13 @@ export function RegistrationsPage() {
         if (!isNetworkError(err)) {
           setError(err instanceof Error ? err.message : "Erreur");
         }
+        // G0-01 polish : ne pas vider une liste déjà affichée
         if (!append) {
-          setRegs([]);
-          setHasMore(false);
+          setRegs((prev) => {
+            if (prev.length) return prev;
+            setHasMore(false);
+            return [];
+          });
         }
       } finally {
         setListLoading(false);
@@ -264,7 +268,8 @@ export function RegistrationsPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setLoading(true);
+      // G0-01 polish : ne pas bloquer tout l’écran si on a déjà des dossiers
+      if (!regs.length) setLoading(true);
       setError("");
       const { data, errors } = await loadAllSettled<
         [Season[], Category[], { inscription_fee_dzd: number }, Team[]]
@@ -303,6 +308,7 @@ export function RegistrationsPage() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
   }, []);
 
   // Recharger catégories quand la saison formulaire change
@@ -1083,7 +1089,7 @@ export function RegistrationsPage() {
               </button>
             )}
             <button type="button" className="secondary btn-fit" onClick={() => loadRegs()}>
-              {t("retry")}
+              {error ? t("retry") : t("refresh")}
             </button>
           </div>
         </div>
@@ -1194,13 +1200,21 @@ export function RegistrationsPage() {
 
       <div className="card">
         <h3 style={{ marginTop: 0, marginBottom: "0.65rem" }}>{t("files")}</h3>
-        {(loading || listLoading) && <p className="muted">{t("loading")}</p>}
+        {(loading || listLoading) && !displayedRegs.length && <p className="muted">{t("loading")}</p>}
         {!loading && !listLoading && !displayedRegs.length && !error && <p className="muted">{t("empty")}</p>}
         {error && !displayedRegs.length && (
           <p style={{ color: "var(--danger, #dc2626)" }}>
             {error}{" "}
             <button type="button" onClick={() => loadRegs()}>
               {t("retry")}
+            </button>
+          </p>
+        )}
+        {error && displayedRegs.length > 0 && (
+          <p className="muted" style={{ color: "var(--danger, #dc2626)" }}>
+            {error} —{" "}
+            <button type="button" className="secondary btn-fit" onClick={() => loadRegs()}>
+              {t("refresh")}
             </button>
           </p>
         )}

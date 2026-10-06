@@ -76,7 +76,7 @@ function dictToSeries(d: Record<string, number> | undefined, selected: string[],
 /** G0-06 — clés API techniques → libellés FR / AR */
 function metricLabel(key: string, ar: boolean): string {
   const fr: Record<string, string> = {
-    Active: "Actif",
+    Active: "Actifs",
     Suspended: "Suspendu",
     Abandonne: "Abandonné",
     Left: "Parti",

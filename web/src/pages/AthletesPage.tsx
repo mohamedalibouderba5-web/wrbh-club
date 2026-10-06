@@ -56,6 +56,24 @@ type PaymentRow = {
 const PAGE = 40;
 const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
+function athleteStatusLabel(status: string, ar = false): string {
+  const fr: Record<string, string> = {
+    Active: "Actif",
+    Suspended: "Suspendu",
+    Abandonne: "Abandonné",
+    Left: "Parti",
+    Inactif: "Inactif",
+  };
+  const arMap: Record<string, string> = {
+    Active: "نشط",
+    Suspended: "موقوف",
+    Abandonne: "منسحب",
+    Left: "غادر",
+    Inactif: "غير نشط",
+  };
+  return (ar ? arMap[status] : fr[status]) || status;
+}
+
 export function AthletesPage() {
   const { t, lang } = useI18n();
   const { role } = useAuth();
@@ -579,9 +597,10 @@ export function AthletesPage() {
           />
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">Actifs</option>
-            <option value="Active">Active</option>
-            <option value="Abandonne">Archives (Abandonne)</option>
-            <option value="Inactif">Inactif</option>
+            <option value="Active">Actifs</option>
+            <option value="Abandonne">Archives (abandonnés)</option>
+            <option value="Inactif">Inactifs</option>
+            <option value="Suspended">Suspendus</option>
             <option value="all">Tous</option>
           </select>
           <div style={{ display: "flex", gap: 6 }}>
@@ -686,7 +705,7 @@ export function AthletesPage() {
                 </td>
                 <td>{formatDateFr(r.birth_date)}</td>
                 <td>
-                  <span className="badge">{r.status}</span>
+                  <span className="badge">{athleteStatusLabel(r.status, lang === "ar")}</span>
                   {(r.license_expiring_soon || r.medical_expiring_soon) && (
                     <span className="badge" style={{ marginLeft: 4, background: "#b45309", color: "#fff" }}>
                       {r.license_expiring_soon ? t("licenseExpiring") : t("medicalExpiring")}
@@ -804,7 +823,7 @@ export function AthletesPage() {
                       }`
                     : "—"}
                 </span>
-                <span className="badge">{r.status}</span>
+                <span className="badge">{athleteStatusLabel(r.status, lang === "ar")}</span>
                 {(r.license_expiring_soon || r.medical_expiring_soon) && (
                   <span className="badge" style={{ background: "#b45309", color: "#fff" }}>
                     {r.license_expiring_soon ? t("licenseExpiring") : t("medicalExpiring")}
@@ -915,9 +934,10 @@ export function AthletesPage() {
           <div className="field">
             <label>{t("status")}</label>
             <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
-              <option value="Active">Active</option>
-              <option value="Abandonne">Abandonne</option>
+              <option value="Active">Actif</option>
+              <option value="Abandonne">Abandonné</option>
               <option value="Inactif">Inactif</option>
+              <option value="Suspended">Suspendu</option>
             </select>
           </div>
           <div className="field">

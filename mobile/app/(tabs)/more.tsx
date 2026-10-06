@@ -1,5 +1,5 @@
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/context/AuthContext";
 import { useI18n } from "../../src/context/I18nContext";
@@ -24,10 +24,11 @@ type Item = {
     | "platform";
   subtitleFr: string;
   subtitleAr: string;
-  route?: string;
+  route?: Href;
   url?: string;
   icon: keyof typeof Ionicons.glyphMap;
   roles?: string[] | null;
+  testID?: string;
 };
 
 const ITEMS: Item[] = [
@@ -38,6 +39,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/platform",
     icon: "globe",
     roles: ["superadmin"],
+    testID: "more-platform",
   },
   {
     key: "athletes",
@@ -46,6 +48,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/athletes",
     icon: "people",
     roles: ["admin", "direction", "staff", "coach"],
+    testID: "more-athletes",
   },
   {
     key: "registrations",
@@ -53,7 +56,8 @@ const ITEMS: Item[] = [
     subtitleAr: "التسجيلات الجديدة والتحقق",
     route: "/(tabs)/registrations",
     icon: "document-text",
-    roles: ["admin", "direction", "staff", "coach", "parent"],
+    roles: ["admin", "direction", "staff", "parent"],
+    testID: "more-registrations",
   },
   {
     key: "teams",
@@ -62,6 +66,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/teams",
     icon: "football",
     roles: ["admin", "direction", "staff", "coach"],
+    testID: "more-teams",
   },
   {
     key: "users",
@@ -70,14 +75,16 @@ const ITEMS: Item[] = [
     route: "/(tabs)/users",
     icon: "shield-checkmark",
     roles: ["admin", "direction"],
+    testID: "more-users",
   },
   {
     key: "payments",
-    subtitleFr: "Cotisations, recettes et dépenses",
-    subtitleAr: "الاشتراكات والإيرادات والمصاريف",
+    subtitleFr: "Finance — cotisations, recettes et dépenses",
+    subtitleAr: "المالية — الاشتراكات والإيرادات والمصاريف",
     route: "/(tabs)/payments",
     icon: "cash",
     roles: ["admin", "direction", "staff"],
+    testID: "more-payments",
   },
   {
     key: "inventory",
@@ -86,6 +93,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/inventory",
     icon: "cube",
     roles: ["admin", "direction", "staff"],
+    testID: "more-inventory",
   },
   {
     key: "history",
@@ -94,6 +102,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/history",
     icon: "time",
     roles: ["admin", "direction", "staff"],
+    testID: "more-history",
   },
   {
     key: "agenda",
@@ -102,6 +111,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/agenda",
     icon: "calendar",
     roles: null,
+    testID: "more-agenda",
   },
   {
     key: "messages",
@@ -110,6 +120,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/messages",
     icon: "chatbubbles",
     roles: null,
+    testID: "more-messages",
   },
   {
     key: "feedback",
@@ -118,6 +129,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/feedback",
     icon: "chatbubble-ellipses",
     roles: null,
+    testID: "more-feedback",
   },
   {
     key: "profile",
@@ -126,6 +138,7 @@ const ITEMS: Item[] = [
     route: "/(tabs)/profile",
     icon: "person-circle",
     roles: null,
+    testID: "more-profile",
   },
   {
     key: "pricing",
@@ -134,6 +147,7 @@ const ITEMS: Item[] = [
     url: `${WEB_BASE}/pricing`,
     icon: "pricetag",
     roles: null,
+    testID: "more-pricing",
   },
   {
     key: "guide",
@@ -142,16 +156,81 @@ const ITEMS: Item[] = [
     route: "/(tabs)/guide",
     icon: "book",
     roles: null,
+    testID: "more-guide",
   },
 ];
+
+function MoreRow({
+  item,
+  title,
+  subtitle,
+}: {
+  item: Item;
+  title: string;
+  subtitle: string;
+}) {
+  const router = useRouter();
+  const content = (
+    <>
+      <View style={styles.iconWrap}>
+        <Ionicons name={item.icon} size={26} color={colors.blue} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.sub}>{subtitle}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+    </>
+  );
+
+  // G2-01 : router.push explicite (fiable Automator/Nox) — Link asChild seul restait fragile
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      onPress={() => {
+        if (item.route) {
+          router.push(item.route);
+          return;
+        }
+        if (item.url) void Linking.openURL(item.url);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      testID={item.testID}
+      hitSlop={12}
+      android_ripple={{ color: "#c7d2fe" }}
+      delayPressIn={0}
+    >
+      {content}
+    </Pressable>
+  );
+}
 
 export default function MoreScreen() {
   const { role, fullName } = useAuth();
   const { t, lang } = useI18n();
   const visible = ITEMS.filter((i) => !i.roles || (role && i.roles.includes(role)));
+  const hint =
+    role === "parent"
+      ? lang === "ar"
+        ? "تسجيلات أطفالكم، الجدول، الرسائل والملف الشخصي."
+        : "Inscriptions de vos enfants, agenda, messages et profil."
+      : role === "coach"
+        ? lang === "ar"
+          ? "اللاعبون والفرق والجدول والرسائل — بدون مالية ولا عتاد."
+          : "Athlètes, équipes, agenda et messages — pas de finance ni matériel."
+        : role === "superadmin"
+          ? lang === "ar"
+            ? "لوحة المنصة وتعليق الأندية."
+            : "Console plateforme et gestion des clubs."
+          : t("moreHint");
 
   return (
-    <ScrollView style={styles.page} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 48 }}>
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 48 }}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={styles.h}>{t("moreTitle")}</Text>
       <Text style={styles.muted}>
         {fullName || "—"} · {role || "—"}
@@ -159,29 +238,16 @@ export default function MoreScreen() {
 
       <View style={styles.hint}>
         <Ionicons name="information-circle" size={20} color={colors.blue} />
-        <Text style={styles.hintText}>{t("moreHint")}</Text>
+        <Text style={styles.hintText}>{hint}</Text>
       </View>
 
       {visible.map((item) => (
-        <Pressable
-          key={(item.route || item.url || "") + item.key}
-          style={styles.card}
-          onPress={() => {
-            if (item.url) void Linking.openURL(item.url);
-            else if (item.route) router.push(item.route as never);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={t(item.key)}
-        >
-          <View style={styles.iconWrap}>
-            <Ionicons name={item.icon} size={26} color={colors.blue} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{t(item.key)}</Text>
-            <Text style={styles.sub}>{lang === "ar" ? item.subtitleAr : item.subtitleFr}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-        </Pressable>
+        <MoreRow
+          key={item.key}
+          item={item}
+          title={t(item.key)}
+          subtitle={lang === "ar" ? item.subtitleAr : item.subtitleFr}
+        />
       ))}
     </ScrollView>
   );
@@ -203,11 +269,14 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.card,
     borderRadius: 16,
-    padding: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+    minHeight: 72,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
+  cardPressed: { opacity: 0.85, backgroundColor: "#f1f5f9" },
   iconWrap: {
     width: 48,
     height: 48,

@@ -10,13 +10,11 @@
 **Date ordre :** 2026-10-01 (maj)  
 **Version API cible :** ≥ **1.18.0**
 
-> **ORDRE ACTIF (2026-10-06, 17h00) — priorité développeur app :**  
-> **`docs/ORDRE_DEV_APP_ANDROID.md` §9sexies** (fiabilité globale 06/10 — après lot site G0/G1/NC).  
-> P0 : G2-01 Plus nav · NC-01 notes · NC-03 catégorie inscription · G0-06 i18n Accueil.  
-> P1 : G1-05 âge club · G1-06 import CSV · G1-02 GET /payments.  
-> Sources : `ORDRE_AMELIORATION_GLOBALE_2026-10-06` · `NadiConnect_Ameliorations_2026-10-06`.  
-> (§9quater / §9quinquies déjà livrés en 1.16–1.17 — ne pas refaire.)  
-> (Ancien lot A/B/C dans `ORDRE_APP_ANDROID.md` reste la base.)
+> **ORDRE ACTIF (2026-10-06, 17h55) — priorité développeur app :**  
+> **`docs/ORDRE_DEV_APP_ANDROID.md` §9sexies** + fix **G2-01** (`router.push` Plus, plus seulement Link).  
+> Rebuild APK ≥ **1.18.1** puis Nox 6/6 : Athlètes / Matériel / Historique / Comptes / Finance / Annonces.  
+> Web reste G0-05/06 livré en parallèle — site = vérité.  
+> (P2 G2-02…G2-05 après G2-01 clos.)
 
 > **ORDRE ACTIF historique (2026-10-01) :**  
 > **`docs/ORDRE_APP_ANDROID.md`** Lot A → B → C.
@@ -263,6 +261,7 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-06 17h25 | (sync vérif ordre) | Contrôle prod : G0/G1 annoncés livrés **non visibles** sur API/web (`ui-density`) ; Nox encore **1.17.0**. G2-01 **ouvert**. Voir `VERIF_ORDRE_AMELIORATION_2026-10-06_FR_AR.md` |
 | 2026-10-06 17h00 | (site G0/G1/NC) | Site a livré lot fiabilité 06/10 (G0-01…06, NC-01/02/03/09, G1-02/03/05/06/07). **À AJOUTER app :** **§9sexies** (notes GET, catégorie inscription, âge club, import CSV, Plus G2-01, i18n Accueil). |
 | 2026-10-06 17h15 | **1.18.0** | **§9sexies** : Plus `Link`+testID (G2-01) ; notes athlète GET+no wipe (NC-01) ; Cat. inscription (NC-03) ; libellés Suspendu/Payé/… (G0-06) ; âge finance/settings (G1-05) ; Import CSV (G1-06) ; deep links `/accounts`→Comptes ; Maestro `login_tabs.yaml`. vc22 HTTPS |
+| 2026-10-06 17h55 | (reste à régler) | Retest : G2-01 encore partiel Automator. **Fix code :** Plus utilise `router.push` (plus Link seul). **À FAIRE :** rebuild APK **1.18.1** + Nox 6/6. Source `RESTE_A_REGLER_FIABILITE_100.md`. |
 
 ---
 
@@ -275,7 +274,7 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 
 | # | **À AJOUTER** | API / détail |
 |---|----------------|--------------|
-| **G2-01** | Navigation **Plus** fiable → Athlètes, Matériel, Historique, Comptes | Automator/Nox : 6/6 ; corriger taps qui restent sur Plus |
+| **G2-01** | Navigation **Plus** fiable → Athlètes, Matériel, Historique, Comptes | **`router.push(route)`** sur chaque ligne Plus (pas seulement Link) ; Automator/Nox **6/6** ; rebuild **1.18.1** |
 | **NC-01** | Notes athlète à la relecture | `GET /api/v1/athletes` renvoie `notes` — initialiser édition avec `athlete.notes` ; ne jamais PATCH notes vides si champ non touché |
 | **NC-03** | Catégorie = inscription saison | Afficher `category_code` de l’inscription courante (multisport) |
 | **G0-06** | Filtres Accueil FR/AR | `Active`→Actif, `Suspended`→Suspendu, `training`→Entraînement, `paid`/`due`→Payé/Dû |
@@ -300,13 +299,13 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 
 ### Checklist
 
-- [x] G2-01 Plus → 6 écrans *(Link asChild + testID + hit targets)*
+- [ ] G2-01 Plus → 6 écrans *(code `router.push` 17h55 — **rebuild 1.18.1** + Nox)*
 - [x] NC-01 notes formulaire *(GET détail + notesTouched)*
 - [x] NC-03 category_code inscription *(affichage Cat. code)*
 - [x] G0-06 libellés Accueil *(Suspended→Suspendu, income/expense…)*
 - [x] G1-05 plage âge + message
 - [x] G1-06 écran import CSV
-- [x] Rebuild APK + ligne journal §9 *(1.18.0)*
+- [ ] Rebuild APK **1.18.1** + ligne journal §9
 
 ---
 
