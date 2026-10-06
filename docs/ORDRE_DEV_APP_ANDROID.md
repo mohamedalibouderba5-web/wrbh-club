@@ -10,14 +10,13 @@
 **Date ordre :** 2026-10-01 (maj)  
 **Version API cible :** ≥ **1.18.0**
 
-> **ORDRE ACTIF (2026-10-06, 17h55) — priorité développeur app :**  
-> **`docs/ORDRE_DEV_APP_ANDROID.md` §9sexies** + fix **G2-01** (`router.push` Plus, plus seulement Link).  
-> Rebuild APK ≥ **1.18.1** puis Nox 6/6 : Athlètes / Matériel / Historique / Comptes / Finance / Annonces.  
-> Web reste G0-05/06 livré en parallèle — site = vérité.  
-> (P2 G2-02…G2-05 après G2-01 clos.)
+> **ORDRE ACTIF (2026-10-07) — priorité développeur app :**  
+> **§9septies — Fix Impayés Accueil (tous clubs)** → rebuild APK **1.18.2** (vc24) + recette WRBH + 2ᵉ club.  
+> Code déjà dans `main` (`8352b5d`) : Accueil staff ne doit **plus** afficher 0 alors que Paiements a un reste.  
+> Prérequis site/API : déployer `8352b5d` (champ `unpaid_count` sur `GET /api/v1/dashboard`).  
+> (P2 G2-03…G2-05 après.)
 
-> **ORDRE ACTIF historique (2026-10-01) :**  
-> **`docs/ORDRE_APP_ANDROID.md`** Lot A → B → C.
+> **ORDRE ACTIF historique :** §9sexies (1.18.1) · Lot A→B→C.
 
 ---
 
@@ -264,6 +263,45 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-06 17h55 | (reste à régler) | Retest : G2-01 encore partiel Automator. **Fix code :** Plus utilise `router.push` (plus Link seul). **À FAIRE :** rebuild APK **1.18.1** + Nox 6/6. Source `RESTE_A_REGLER_FIABILITE_100.md`. |
 | 2026-10-06 18h00 | **1.18.1** | **§9sexies clos** : G2-01 `router.push`+rAF Plus ; NC-06 profil AR/RTL ; NC-07/10 déjà ; Maestro login_tabs. vc23 HTTPS |
 | 2026-10-06 22h20 | **1.18.2** | **Fix Impayés Accueil** : appelait `/finance/dashboard` (404) → 0 ; + utilisait `overdue_count` seul. Désormais `/dashboard` + `unpaid_count` / meta `due,partial,overdue` (WRBH = 32 / 135k DZD). API `unpaid_count` sur `/dashboard`. vc24 |
+| 2026-10-07 00h20 | (ordre actif) | **§9septies** publié : rebuild + publier APK **1.18.2** ; recette Impayés Accueil = Paiements (tous clubs). |
+
+---
+
+## 9septies. À AJOUTER — Fix Impayés Accueil (2026-10-07) — **ORDRE ACTIF OBLIGATOIRE**
+
+**Bug (tous clubs, pas seulement WRBH) :** Accueil staff/admin affiche **0 Impayés** alors que l’onglet **Paiements** montre un reste réel.  
+**Preuve WRBH :** 32 échéances / 135 000 DZD ouvertes ; `overdue_count` = 0 ; ancienne URL `/api/v1/finance/dashboard` = 404.
+
+### Ce qu’il faut FAIRE (app)
+
+| # | **À AJOUTER / CORRIGER** | Détail |
+|---|--------------------------|--------|
+| **IMP-01** | Accueil Impayés = échéances **ouvertes** | Compter `due` + `partial` + `overdue` — **pas** seulement `overdue` |
+| **IMP-02** | Appeler le bon endpoint finance | `GET /api/v1/dashboard` (jamais `/api/v1/finance/dashboard`) |
+| **IMP-03** | Utiliser `unpaid_count` API | Champ `unpaid_count` sur `/dashboard` ; fallback `GET /api/v1/installments/meta?status=due,partial,overdue` → `total` |
+| **IMP-04** | Rebuild APK **1.18.2** (vc24) | Publier `wrbh-club-1.18.2.apk` + UpdateGate |
+| **IMP-05** | Recette téléphone (pas seulement Nox) | Club **WRBH** + un 2ᵉ club (ex. Sisi) : Accueil Impayés **=** nb / logique de l’onglet Paiements « À payer » |
+
+### Code déjà prêt (ne pas réinventer)
+
+- Fichier : `mobile/app/(tabs)/index.tsx` (commit `8352b5d`)  
+- API : `backend/app/api/finance.py` → `unpaid_count`  
+- Versions : `mobile/app.json` **1.18.2** / `versionCode` **24**
+
+### Checklist développeur app
+
+- [ ] Pull `main` (≥ `8352b5d`)  
+- [ ] Confirmer Accueil utilise `/api/v1/dashboard` + `unpaid_count` / meta  
+- [ ] Build APK **1.18.2** vc24  
+- [ ] Déposer APK sur prod (`/wrbh-club-1.18.2.apk`) + env `ANDROID_*`  
+- [ ] Recette WRBH : Accueil Impayés ≠ 0 si Paiements a un reste  
+- [ ] Recette 2ᵉ club : même règle  
+- [ ] Ligne journal §9 quand APK installé sur téléphone réel  
+
+### Hors scope app (site / ops)
+
+- Déployer API `8352b5d` sur Hetzner si pas encore live (`git_sha` health).  
+- Web carte Impayés déjà corrigée dans le même commit.
 
 ---
 

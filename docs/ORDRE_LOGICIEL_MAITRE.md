@@ -380,6 +380,7 @@ Page `/history` :
 | 2026-10-06 17h55 | **Reste à régler** (`RESTE_A_REGLER_FIABILITE_100`) : G0-05 Actualiser Inscriptions ; G0-06 filtre Actifs ; G0-01 polish cache ; G2-01 Plus=`router.push`. Déployer web + rebuild APK 1.18.1 | **G2-01** rebuild + Nox 6/6 |
 | 2026-10-06 18h00 | **App 1.18.1** : G2-01 Plus `router.push` renforcé ; profil AR/RTL (NC-06) ; §9sexies checklist close | Installer 1.18.1 ; Nox Plus→6 écrans |
 | 2026-10-06 22h20 | **Fix Impayés Accueil (WRBH)** : app appelait `/api/v1/finance/dashboard` **404** → affichait 0 ; + `overdue_count` seul (0) alors que **32** échéances / **135 000 DZD** en due+partial. API `unpaid_count` sur `/dashboard` ; web carte Impayés ; app **1.18.2** | Rebuild APK **1.18.2** ; Accueil Impayés = nb échéances ouvertes |
+| 2026-10-07 00h20 | **Ordre app §9septies** : bug Impayés Accueil = **tous clubs** ; code `8352b5d` prêt ; développeur app = rebuild/publier **1.18.2** + recette WRBH + 2ᵉ club | **§9septies** `ORDRE_DEV_APP_ANDROID.md` |
 
 ---
 
