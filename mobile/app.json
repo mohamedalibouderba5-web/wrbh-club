@@ -2,7 +2,7 @@
   "expo": {
     "name": "Nadi Connect",
     "slug": "wrbh-club",
-    "version": "1.9.0",
+    "version": "1.18.2",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "scheme": "wrbh",
@@ -23,8 +23,7 @@
         "backgroundColor": "#1E3A8A"
       },
       "package": "dz.wrbh.club",
-      "versionCode": 12,
-      "usesCleartextTraffic": true,
+      "versionCode": 24,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.CAMERA",
@@ -71,8 +70,8 @@
       "expo-font"
     ],
     "extra": {
-      "apiUrl": "http://46.224.38.201:8081",
-      "webUrl": "http://46.224.38.201:8080"
+      "apiUrl": "https://api.nadi-connect.com",
+      "webUrl": "https://nadi-connect.com"
     }
   }
 }

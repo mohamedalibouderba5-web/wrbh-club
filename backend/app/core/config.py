@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     max_athlete_age: int = 17
     # Pagination listes
     default_page_size: int = 50
-    max_page_size: int = 200
+    max_page_size: int = 500  # clubs ~300+ joueurs (demande CS Sisi Blida)
     allow_test_cleanup: bool = False
     sentry_dsn: str = ""
     # B3 : plafond par compte (strict) + plafond IP large (NAT club / stand salon)
@@ -45,15 +45,15 @@ class Settings(BaseSettings):
     app_version: str = "1.18.0"
     git_sha: str = ""  # injecté au déploiement (env GIT_SHA)
     # Mise à jour APK mobile (publié via env Render)
-    android_app_version: str = "1.13.0"
-    android_version_code: int = 16
-    android_apk_url: str = "https://nadi-connect.com/wrbh-club-1.13.0.apk"
+    android_app_version: str = "1.18.2"
+    android_version_code: int = 24
+    android_apk_url: str = "https://nadi-connect.com/wrbh-club-1.18.2.apk"
     android_force_update: bool = False
     android_release_notes: str = (
-        "Nadi Connect 1.13: HTTPS nadi-connect.com / api.nadi-connect.com, cleartext désactivé, lien Découvrir le site."
+        "Nadi Connect 1.18.2: Accueil Impayés corrigé (due+partial+overdue, WRBH)."
     )
     android_release_notes_ar: str = (
-        "Nadi Connect 1.13: اتصال آمن عبر nadi-connect.com، بدون HTTP، رابط اكتشاف الموقع."
+        "نادي كونكت 1.18.2: إصلاح عدد المستحقات غير المدفوعة في الصفحة الرئيسية."
     )
 
     @property

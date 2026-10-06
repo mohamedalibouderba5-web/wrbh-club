@@ -378,6 +378,8 @@ Page `/history` :
 | 2026-10-06 17h25 | **Vérif prod post-« livraison » G0/G1** : malgré journal 17h00, **prod ne montre pas** les FAIT. API `git_sha=ui-density` : `GET /payments` **405**, `/athletes/import` **405**, settings **sans** âge, adulte **400**, `/health` web HTML, `/accounts` page vide, Équipes « Aucune », filtres EN, Réessayer. Nox encore **1.17.0** (pas 1.18.0). Rapport `VERIF_ORDRE_AMELIORATION_2026-10-06_FR_AR.md` · ordre corrigé (réalis. ≈15–25 %) | **Ne pas** marquer G2-01 clos tant que 1.18.0 non installé Nox ; **redéployer** API+web puis re-vérifier |
 | 2026-10-06 17h30 | **Prod Hetzner redéployée** commit **`9c736a0`** (push GitHub + tarball VPS). Preuve live : API `git_sha=9c736a0` · web `/health`=`{"status":"ok","app":"Nadi Connect"}` · guide 200. **Règle confirmée :** chaque lot amélioration = code + **mise en ligne** | App : §9sexies + APK ≥1.18 si pas encore sur Nox |
 | 2026-10-06 17h55 | **Reste à régler** (`RESTE_A_REGLER_FIABILITE_100`) : G0-05 Actualiser Inscriptions ; G0-06 filtre Actifs ; G0-01 polish cache ; G2-01 Plus=`router.push`. Déployer web + rebuild APK 1.18.1 | **G2-01** rebuild + Nox 6/6 |
+| 2026-10-06 18h00 | **App 1.18.1** : G2-01 Plus `router.push` renforcé ; profil AR/RTL (NC-06) ; §9sexies checklist close | Installer 1.18.1 ; Nox Plus→6 écrans |
+| 2026-10-06 22h20 | **Fix Impayés Accueil (WRBH)** : app appelait `/api/v1/finance/dashboard` **404** → affichait 0 ; + `overdue_count` seul (0) alors que **32** échéances / **135 000 DZD** en due+partial. API `unpaid_count` sur `/dashboard` ; web carte Impayés ; app **1.18.2** | Rebuild APK **1.18.2** ; Accueil Impayés = nb échéances ouvertes |
 
 ---
 

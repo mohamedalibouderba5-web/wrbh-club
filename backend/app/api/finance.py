@@ -1249,6 +1249,14 @@ def finance_dashboard(
     if season_id:
         overdue_q = overdue_q.filter(FeeInstallment.season_id == season_id)
     overdue_count = overdue_q.scalar() or 0
+    # Impayés = due + partial + overdue (pas seulement overdue — bug Accueil app)
+    unpaid_q = db.query(func.count(FeeInstallment.id)).filter(
+        FeeInstallment.status.in_(["due", "partial", "overdue"]),
+        _cf(FeeInstallment),
+    )
+    if season_id:
+        unpaid_q = unpaid_q.filter(FeeInstallment.season_id == season_id)
+    unpaid_count = unpaid_q.scalar() or 0
     fees = get_fee_settings(db, club_id=club_id)
     season_name = None
     if season_id:
@@ -1264,6 +1272,7 @@ def finance_dashboard(
         "ledger_expense": float(expense or 0),
         "coach_payroll_total": float(payroll or 0),
         "overdue_count": int(overdue_count),
+        "unpaid_count": int(unpaid_count),
         "monthly_subscription_dzd": float(fees["monthly_subscription_dzd"]),
         "annual_insurance_dzd": float(fees["annual_insurance_dzd"]),
         "inscription_fee_dzd": float(fees["inscription_fee_dzd"]),

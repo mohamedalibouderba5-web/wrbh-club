@@ -262,6 +262,8 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-06 17h00 | (site G0/G1/NC) | Site a livré lot fiabilité 06/10 (G0-01…06, NC-01/02/03/09, G1-02/03/05/06/07). **À AJOUTER app :** **§9sexies** (notes GET, catégorie inscription, âge club, import CSV, Plus G2-01, i18n Accueil). |
 | 2026-10-06 17h15 | **1.18.0** | **§9sexies** : Plus `Link`+testID (G2-01) ; notes athlète GET+no wipe (NC-01) ; Cat. inscription (NC-03) ; libellés Suspendu/Payé/… (G0-06) ; âge finance/settings (G1-05) ; Import CSV (G1-06) ; deep links `/accounts`→Comptes ; Maestro `login_tabs.yaml`. vc22 HTTPS |
 | 2026-10-06 17h55 | (reste à régler) | Retest : G2-01 encore partiel Automator. **Fix code :** Plus utilise `router.push` (plus Link seul). **À FAIRE :** rebuild APK **1.18.1** + Nox 6/6. Source `RESTE_A_REGLER_FIABILITE_100.md`. |
+| 2026-10-06 18h00 | **1.18.1** | **§9sexies clos** : G2-01 `router.push`+rAF Plus ; NC-06 profil AR/RTL ; NC-07/10 déjà ; Maestro login_tabs. vc23 HTTPS |
+| 2026-10-06 22h20 | **1.18.2** | **Fix Impayés Accueil** : appelait `/finance/dashboard` (404) → 0 ; + utilisait `overdue_count` seul. Désormais `/dashboard` + `unpaid_count` / meta `due,partial,overdue` (WRBH = 32 / 135k DZD). API `unpaid_count` sur `/dashboard`. vc24 |
 
 ---
 
@@ -299,13 +301,17 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 
 ### Checklist
 
-- [ ] G2-01 Plus → 6 écrans *(code `router.push` 17h55 — **rebuild 1.18.1** + Nox)*
+- [x] G2-01 Plus → 6 écrans *(router.push + rAF ; APK **1.18.1**)*
 - [x] NC-01 notes formulaire *(GET détail + notesTouched)*
 - [x] NC-03 category_code inscription *(affichage Cat. code)*
 - [x] G0-06 libellés Accueil *(Suspended→Suspendu, income/expense…)*
 - [x] G1-05 plage âge + message
 - [x] G1-06 écran import CSV
-- [ ] Rebuild APK **1.18.1** + ligne journal §9
+- [x] NC-06 i18n AR profil
+- [x] NC-07 validation inscription
+- [x] NC-10 libellés Achats
+- [x] G2-02 Maestro `mobile/maestro/login_tabs.yaml`
+- [x] Rebuild APK **1.18.1** + ligne journal §9
 
 ---
 

@@ -26,6 +26,7 @@ type Dash = {
   ledger_expense: number;
   coach_payroll_total: number;
   overdue_count: number;
+  unpaid_count?: number;
 };
 
 type ClubStats = {
@@ -499,8 +500,8 @@ function StaffDashboardPage() {
           <span>{t("pendingRegs")}</span>
         </div>
         <div className="card stat">
-          <strong>{finance?.overdue_count ?? "—"}</strong>
-          <span>{t("overdueFees")}</span>
+          <strong>{finance?.unpaid_count ?? finance?.overdue_count ?? "—"}</strong>
+          <span>{lang === "ar" ? "مستحقات غير مدفوعة" : "Impayés"}</span>
         </div>
         <div className="card stat" style={{ borderColor: (stats?.license_expiring_count || stats?.medical_expiring_count) ? "#b45309" : undefined }}>
           <strong>

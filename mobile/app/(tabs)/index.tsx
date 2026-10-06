@@ -4,7 +4,14 @@ import { router, useFocusEffect } from "expo-router";
 import { api, wakeServer } from "../../src/api/client";
 import { mediaUrl } from "../../src/config";
 import { useAuth } from "../../src/context/AuthContext";
-import { colors, fmtDate, sessionBadge, statusLabel } from "../../src/theme";
+import { useI18n } from "../../src/context/I18nContext";
+import {
+  fetchUnreadCount,
+  notifKindLabel,
+  openNotification,
+  type NotifRow,
+} from "../../src/notifications";
+import { colors, fmtDate, fmtMoney, sessionBadge, statusLabel } from "../../src/theme";
 
 type Child = {
   id: number;
@@ -40,28 +47,23 @@ type Home = {
   announcements: { id: number; title: string; title_ar?: string; body: string }[];
 };
 
-type Notif = {
-  id: number;
-  title: string;
-  body?: string;
-  kind?: string;
-  is_read?: boolean;
-  created_at?: string;
-};
-
-const NOTIF_KIND: Record<string, string> = {
-  session_create: "Nouvelle séance",
-  session_start: "Séance démarrée",
-  session_end: "Séance terminée",
-  attendance: "Présence",
-  cancel: "Annulation",
-  reminder: "Rappel",
+type FinanceDash = {
+  cotisations_due: number;
+  cotisations_paid: number;
+  ledger_income: number;
+  ledger_expense: number;
+  overdue_count: number;
+  /** Échéances due+partial+overdue (aligné onglet Paiements) */
+  unpaid_count?: number;
 };
 
 export default function HomeScreen() {
   const { fullName, role } = useAuth();
+  const { t } = useI18n();
   const [home, setHome] = useState<Home | null>(null);
-  const [notifs, setNotifs] = useState<Notif[]>([]);
+  const [notifs, setNotifs] = useState<NotifRow[]>([]);
+  const [unread, setUnread] = useState(0);
+  const [finance, setFinance] = useState<FinanceDash | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState("");
 
@@ -70,18 +72,52 @@ export default function HomeScreen() {
     setErr("");
     try {
       await wakeServer().catch(() => undefined);
-      const [h, n] = await Promise.all([
+      const staff = role === "admin" || role === "direction" || role === "staff";
+      const [h, n, count, fin, unpaidMeta] = await Promise.all([
         api<Home>("/api/v1/mobile/home"),
-        api<Notif[]>("/api/v1/notifications").catch(() => [] as Notif[]),
+        api<NotifRow[]>("/api/v1/notifications?limit=8").catch(() => [] as NotifRow[]),
+        fetchUnreadCount(),
+        staff
+          ? // Chemin réel = /api/v1/dashboard (pas /finance/dashboard — 404 → 0 fantôme)
+            api<FinanceDash>("/api/v1/dashboard").catch(() => null)
+          : Promise.resolve(null),
+        staff
+          ? api<{ total: number; remaining_sum: number }>(
+              "/api/v1/installments/meta?status=due,partial,overdue",
+            ).catch(() => null)
+          : Promise.resolve(null),
       ]);
       setHome(h);
       setNotifs(Array.isArray(n) ? n.slice(0, 6) : []);
+      setUnread(count);
+      // Impayés Accueil = nb échéances due+partial+overdue (aligné onglet Paiements)
+      if (fin) {
+        setFinance({
+          ...fin,
+          unpaid_count: fin.unpaid_count ?? unpaidMeta?.total ?? 0,
+          cotisations_due:
+            Number(fin.cotisations_due) > 0
+              ? fin.cotisations_due
+              : unpaidMeta?.remaining_sum ?? fin.cotisations_due,
+        });
+      } else if (unpaidMeta) {
+        setFinance({
+          cotisations_due: unpaidMeta.remaining_sum,
+          cotisations_paid: 0,
+          ledger_income: 0,
+          ledger_expense: 0,
+          overdue_count: 0,
+          unpaid_count: unpaidMeta.total,
+        });
+      } else {
+        setFinance(null);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Erreur accueil");
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [role]);
 
   useFocusEffect(
     useCallback(() => {
@@ -90,7 +126,22 @@ export default function HomeScreen() {
   );
 
   const isParent = role === "parent";
-  const isCoach = role === "coach" || role === "admin" || role === "staff" || role === "direction";
+  const isPureCoach = role === "coach";
+  const isAdminDir = role === "admin" || role === "direction";
+  const isStaffOnly = role === "staff";
+  const isStaffOps = isAdminDir || isStaffOnly;
+  const spaceTitle = isParent
+    ? t("parentSpace")
+    : isPureCoach
+      ? t("coachSpace")
+      : isStaffOps
+        ? t("staffSpace")
+        : "";
+  const spaceHint = isParent
+    ? t("parentSpaceHint")
+    : isPureCoach
+      ? t("coachSpaceHint")
+      : "";
 
   return (
     <ScrollView
@@ -98,92 +149,182 @@ export default function HomeScreen() {
       contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.blue} />}
     >
-      <Text style={styles.h1}>Salam, {home?.full_name || fullName}</Text>
-      <Text style={styles.ar}>{home?.club_name_ar || "نادي كونكت"}</Text>
-      <Text style={styles.muted}>
-        {home?.club_name || "Nadi Connect"} · {statusLabel(role || "") || role}
+      <Text style={styles.brand}>Nadi Connect</Text>
+      <Text style={styles.h1}>
+        {t("hello")}, {home?.full_name || fullName}
       </Text>
+      <Text style={styles.ar}>{home?.club_name_ar || "نادي · تسيير ومتابعة النوادي الرياضية في الجزائر"}</Text>
+      <Text style={styles.muted}>
+        {home?.club_name || "Club"} · {statusLabel(role || "") || role}
+        {spaceTitle ? ` · ${spaceTitle}` : ""}
+      </Text>
+      {!!spaceHint && <Text style={styles.muted}>{spaceHint}</Text>}
       {!!err && <Text style={styles.err}>{err}</Text>}
 
       <View style={styles.row}>
         <Pressable style={styles.stat} onPress={() => router.push(isParent ? "/(tabs)/profile" : "/(tabs)/agenda")}>
           <Text style={styles.statN}>{isParent ? home?.children_count ?? "—" : home?.upcoming_events?.length ?? "—"}</Text>
-          <Text style={styles.statL}>{isParent ? "Enfants" : "Séances"}</Text>
+          <Text style={styles.statL}>{isParent ? t("children") : t("sessions")}</Text>
         </Pressable>
-        <Pressable style={styles.stat} onPress={() => router.push("/(tabs)/agenda")}>
-          <Text style={styles.statN}>{home?.pending_convocations ?? "—"}</Text>
-          <Text style={styles.statL}>Convocations</Text>
+        <Pressable style={styles.stat} onPress={() => router.push("/(tabs)/messages")}>
+          <Text style={styles.statN}>{unread > 0 ? unread : (home?.pending_convocations ?? "—")}</Text>
+          <Text style={styles.statL}>{unread > 0 ? t("notifications") : t("convocations")}</Text>
         </Pressable>
         <Pressable
           style={styles.stat}
           onPress={() =>
             router.push(
-              role === "admin" || role === "direction" || role === "staff"
+              isStaffOps
                 ? "/(tabs)/payments"
                 : isParent
                   ? "/(tabs)/profile"
-                  : "/(tabs)/agenda",
+                  : "/(tabs)/teams",
             )
           }
         >
-          <Text style={styles.statN}>{home?.unpaid_installments ?? "—"}</Text>
-          <Text style={styles.statL}>{isParent ? "À suivre" : "Impayés"}</Text>
+          <Text style={styles.statN}>
+            {isPureCoach
+              ? "—"
+              : isStaffOps && finance
+                ? finance.unpaid_count ?? 0
+                : home?.unpaid_installments ?? "—"}
+          </Text>
+          <Text style={styles.statL}>
+            {isParent ? t("toFollow") : isPureCoach ? t("teams") : t("unpaid")}
+          </Text>
         </Pressable>
       </View>
+
+      {isAdminDir && finance && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Tableau de bord — direction</Text>
+          <View style={styles.kpiRow}>
+            <View style={styles.kpi}>
+              <Text style={styles.kpiN}>{fmtMoney(finance.cotisations_paid)}</Text>
+              <Text style={styles.kpiL}>Cotisations encaissées</Text>
+            </View>
+            <View style={styles.kpi}>
+              <Text style={styles.kpiN}>{fmtMoney(finance.cotisations_due)}</Text>
+              <Text style={styles.kpiL}>Reste à encaisser</Text>
+            </View>
+          </View>
+          <View style={styles.kpiRow}>
+            <View style={styles.kpi}>
+              <Text style={styles.kpiN}>{home?.upcoming_events?.length ?? 0}</Text>
+              <Text style={styles.kpiL}>Séances à venir</Text>
+            </View>
+            <View style={styles.kpi}>
+              <Text style={styles.kpiN}>{unread}</Text>
+              <Text style={styles.kpiL}>Notifs non lues</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {isStaffOnly && finance && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Tableau de bord — compta</Text>
+          <View style={styles.kpiRow}>
+            <View style={styles.kpi}>
+              <Text style={styles.kpiN}>{fmtMoney(finance.ledger_income)}</Text>
+              <Text style={styles.kpiL}>Recettes ledger</Text>
+            </View>
+            <View style={styles.kpi}>
+              <Text style={styles.kpiN}>{fmtMoney(finance.ledger_expense)}</Text>
+              <Text style={styles.kpiL}>Dépenses</Text>
+            </View>
+          </View>
+          <View style={styles.kpiRow}>
+            <View style={styles.kpi}>
+              <Text style={styles.kpiN}>{fmtMoney(finance.cotisations_due)}</Text>
+              <Text style={styles.kpiL}>Échéances dues</Text>
+            </View>
+            <View style={styles.kpi}>
+              <Text style={styles.kpiN}>{finance.overdue_count}</Text>
+              <Text style={styles.kpiL}>En retard</Text>
+            </View>
+          </View>
+        </View>
+      )}
 
       <View style={styles.shortcuts}>
         <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/agenda")}>
-          <Text style={styles.shortcutT}>Agenda</Text>
+          <Text style={styles.shortcutT}>{t("agenda")}</Text>
         </Pressable>
-        {(role === "admin" || role === "direction" || role === "staff") && (
+        {isStaffOps && (
           <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/payments")}>
-            <Text style={styles.shortcutT}>Paiements</Text>
+            <Text style={styles.shortcutT}>{t("payments")}</Text>
+          </Pressable>
+        )}
+        {isPureCoach && (
+          <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/teams")}>
+            <Text style={styles.shortcutT}>{t("teams")}</Text>
           </Pressable>
         )}
         <Pressable style={styles.shortcut} onPress={() => router.push("/(tabs)/messages")}>
-          <Text style={styles.shortcutT}>Messages</Text>
+          <Text style={styles.shortcutT}>{t("messages")}</Text>
         </Pressable>
         <Pressable style={[styles.shortcut, styles.shortcutGold]} onPress={() => router.push("/(tabs)/more")}>
-          <Text style={[styles.shortcutT, { color: colors.navy }]}>Plus ☰</Text>
+          <Text style={[styles.shortcutT, { color: colors.navy }]}>{t("more")}</Text>
         </Pressable>
       </View>
 
-      {isCoach && (
+      {isPureCoach && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Espace coach / staff</Text>
-          <Text style={styles.muted}>
-            Ouvrez l’onglet Plus (barre du bas) pour Athlètes, Inscriptions, Équipes, Matériel, Historique et Finance.
-          </Text>
+          <Text style={styles.cardTitle}>{t("coachSpace")}</Text>
+          <Text style={styles.muted}>{t("coachSpaceHint")}</Text>
           <View style={[styles.shortcuts, { marginTop: 10, flexWrap: "wrap" }]}>
             <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/athletes")}>
-              <Text style={styles.shortcutT}>Athlètes</Text>
-            </Pressable>
-            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/registrations")}>
-              <Text style={styles.shortcutT}>Inscriptions</Text>
+              <Text style={styles.shortcutT}>{t("athletes")}</Text>
             </Pressable>
             <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/teams")}>
-              <Text style={styles.shortcutT}>Équipes</Text>
+              <Text style={styles.shortcutT}>{t("teams")}</Text>
             </Pressable>
-            {(role === "admin" || role === "direction" || role === "staff") && (
-              <>
-                <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/inventory")}>
-                  <Text style={styles.shortcutT}>Matériel</Text>
-                </Pressable>
-                <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/history")}>
-                  <Text style={styles.shortcutT}>Historique</Text>
-                </Pressable>
-              </>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/agenda")}>
+              <Text style={styles.shortcutT}>{t("agenda")}</Text>
+            </Pressable>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/messages")}>
+              <Text style={styles.shortcutT}>{t("messages")}</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {isStaffOps && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{t("staffSpace")}</Text>
+          <View style={[styles.shortcuts, { marginTop: 10, flexWrap: "wrap" }]}>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/athletes")}>
+              <Text style={styles.shortcutT}>{t("athletes")}</Text>
+            </Pressable>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/registrations")}>
+              <Text style={styles.shortcutT}>{t("registrations")}</Text>
+            </Pressable>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/teams")}>
+              <Text style={styles.shortcutT}>{t("teams")}</Text>
+            </Pressable>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/payments")}>
+              <Text style={styles.shortcutT}>{t("payments")}</Text>
+            </Pressable>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/inventory")}>
+              <Text style={styles.shortcutT}>{t("inventory")}</Text>
+            </Pressable>
+            <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/history")}>
+              <Text style={styles.shortcutT}>{t("history")}</Text>
+            </Pressable>
+            {(role === "admin" || role === "direction") && (
+              <Pressable style={[styles.shortcut, styles.shortcutHalf]} onPress={() => router.push("/(tabs)/users")}>
+                <Text style={styles.shortcutT}>{t("users")}</Text>
+              </Pressable>
             )}
-            <Pressable style={[styles.shortcut, styles.shortcutHalf, styles.shortcutGold]} onPress={() => router.push("/(tabs)/more")}>
-              <Text style={[styles.shortcutT, { color: colors.navy }]}>Tout voir</Text>
-            </Pressable>
           </View>
         </View>
       )}
 
       {isParent && (
         <>
-          <Text style={styles.section}>Mes enfants / أبنائي</Text>
+          <Text style={styles.section}>{t("parentSpace")} / أبنائي</Text>
+          <Text style={styles.muted}>{t("parentSpaceHint")}</Text>
           {(home?.children || []).map((c) => {
             const photo = mediaUrl(c.photo_path);
             return (
@@ -205,11 +346,11 @@ export default function HomeScreen() {
               </Pressable>
             );
           })}
-          {!home?.children?.length && <Text style={styles.muted}>Aucun enfant lié — contactez le club</Text>}
+          {!home?.children?.length && <Text style={styles.muted}>{t("noChildren")}</Text>}
         </>
       )}
 
-      <Text style={styles.section}>Planning (30 jours) / برنامج الشهر</Text>
+      <Text style={styles.section}>{t("planning")}</Text>
       {(home?.upcoming_events || []).map((e) => {
         const badge = sessionBadge(e.session_status, e.is_cancelled);
         const place = e.location_text || e.location;
@@ -228,34 +369,40 @@ export default function HomeScreen() {
           </Pressable>
         );
       })}
-      {!home?.upcoming_events?.length && <Text style={styles.muted}>Aucun événement à venir</Text>}
+      {!home?.upcoming_events?.length && <Text style={styles.muted}>{t("noEvents")}</Text>}
 
       {isParent && (
         <Pressable style={[styles.shortcut, { marginTop: 4 }]} onPress={() => router.push("/(tabs)/profile")}>
-          <Text style={styles.shortcutT}>Préférences suivi parental</Text>
+          <Text style={styles.shortcutT}>{t("parentalPrefs")}</Text>
         </Pressable>
       )}
 
-      {(isParent || notifs.length > 0) && (
-        <>
-          <Text style={styles.section}>Notifications / الإشعارات</Text>
-          {notifs.map((n) => (
-            <Pressable key={n.id} style={[styles.card, !n.is_read && styles.unread]} onPress={() => router.push("/(tabs)/messages")}>
-              <Text style={styles.badge}>{NOTIF_KIND[n.kind || ""] || n.kind || "Info"}</Text>
-              <Text style={styles.cardTitle}>{n.title}</Text>
-              {!!n.body && (
-                <Text style={styles.muted} numberOfLines={2}>
-                  {n.body}
-                </Text>
-              )}
-              {!!n.created_at && <Text style={styles.muted}>{fmtDate(n.created_at)}</Text>}
-            </Pressable>
-          ))}
-          {!notifs.length && <Text style={styles.muted}>Aucune notification récente</Text>}
-        </>
-      )}
+      <Text style={styles.section}>
+        {t("notifications")}
+        {unread > 0 ? ` (${unread})` : ""}
+      </Text>
+      {notifs.map((n) => (
+        <Pressable
+          key={n.id}
+          style={[styles.card, !n.is_read && styles.unread]}
+          onPress={async () => {
+            await openNotification(n);
+            void load();
+          }}
+        >
+          <Text style={styles.badge}>{notifKindLabel(n.kind)}</Text>
+          <Text style={styles.cardTitle}>{n.title}</Text>
+          {!!n.body && (
+            <Text style={styles.muted} numberOfLines={2}>
+              {n.body}
+            </Text>
+          )}
+          {!!n.created_at && <Text style={styles.muted}>{fmtDate(n.created_at)}</Text>}
+        </Pressable>
+      ))}
+      {!notifs.length && <Text style={styles.muted}>{t("noNotifs")}</Text>}
 
-      <Text style={styles.section}>Annonces</Text>
+      <Text style={styles.section}>{t("announcements")}</Text>
       {(home?.announcements || []).map((a) => (
         <Pressable key={a.id} style={styles.card} onPress={() => router.push("/(tabs)/messages")}>
           <Text style={styles.cardTitle}>{a.title}</Text>
@@ -265,10 +412,10 @@ export default function HomeScreen() {
           </Text>
         </Pressable>
       ))}
-      {!home?.announcements?.length && <Text style={styles.muted}>Aucune annonce récente</Text>}
+      {!home?.announcements?.length && <Text style={styles.muted}>{t("noAnnouncements")}</Text>}
 
       <Pressable style={styles.wake} onPress={load}>
-        <Text style={styles.wakeText}>Actualiser / Réveiller le serveur</Text>
+        <Text style={styles.wakeText}>{t("refresh")}</Text>
       </Pressable>
     </ScrollView>
   );
@@ -276,6 +423,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.bg },
+  brand: { fontSize: 13, fontWeight: "800", color: colors.gold, letterSpacing: 0.3, marginBottom: 2 },
   h1: { fontSize: 22, fontWeight: "800", color: colors.blue },
   ar: { color: colors.muted, textAlign: "left" },
   muted: { color: colors.muted, marginTop: 2, lineHeight: 19 },
@@ -321,6 +469,16 @@ const styles = StyleSheet.create({
   pill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
   pillT: { fontSize: 11, fontWeight: "800" },
   unread: { borderColor: colors.gold, borderWidth: 1.5 },
+  kpiRow: { flexDirection: "row", gap: 8, marginTop: 8 },
+  kpi: {
+    flex: 1,
+    backgroundColor: colors.softGray,
+    borderRadius: 12,
+    padding: 10,
+    alignItems: "center",
+  },
+  kpiN: { fontWeight: "800", color: colors.blue, fontSize: 14, textAlign: "center" },
+  kpiL: { color: colors.muted, fontSize: 11, marginTop: 4, textAlign: "center" },
   wake: { marginVertical: 16, alignItems: "center" },
   wakeText: { color: colors.blue, fontWeight: "700" },
 });
