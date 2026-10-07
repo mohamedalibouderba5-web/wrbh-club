@@ -127,7 +127,7 @@ export function FinancePage() {
     insurance: "1500",
     inscription: "4000",
     minAge: "5",
-    maxAge: "17",
+    maxAge: "55",
   });
   const [cats, setCats] = useState<Category[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -224,7 +224,7 @@ export function FinancePage() {
         insurance: String(s.annual_insurance_dzd),
         inscription: String(s.inscription_fee_dzd),
         minAge: String(s.min_athlete_age ?? 5),
-        maxAge: String(s.max_athlete_age ?? 17),
+        maxAge: String(s.max_athlete_age ?? 55),
       });
       setPay((prev) => ({
         ...prev,
@@ -498,10 +498,10 @@ export function FinancePage() {
         insurance: String(s.annual_insurance_dzd),
         inscription: String(s.inscription_fee_dzd),
         minAge: String(s.min_athlete_age ?? 5),
-        maxAge: String(s.max_athlete_age ?? 17),
+        maxAge: String(s.max_athlete_age ?? 55),
       });
       toast(
-        `Constantes enregistrées — assurance ${Number(s.annual_insurance_dzd).toLocaleString()} DZD · âge ${s.min_athlete_age ?? 5}–${s.max_athlete_age ?? 17} ans`,
+        `Constantes enregistrées — assurance ${Number(s.annual_insurance_dzd).toLocaleString()} DZD · âge ${s.min_athlete_age ?? 5}–${s.max_athlete_age ?? 55} ans`,
         "success",
       );
       onTypeChange(pay.payment_type);

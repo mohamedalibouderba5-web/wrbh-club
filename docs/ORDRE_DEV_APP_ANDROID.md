@@ -10,13 +10,12 @@
 **Date ordre :** 2026-10-01 (maj)  
 **Version API cible :** ≥ **1.18.0**
 
-> **ORDRE ACTIF (2026-10-07) — priorité développeur app :**  
-> **§9septies — Fix Impayés Accueil (tous clubs)** → rebuild APK **1.18.2** (vc24) + recette WRBH + 2ᵉ club.  
-> Code déjà dans `main` (`8352b5d`) : Accueil staff ne doit **plus** afficher 0 alors que Paiements a un reste.  
-> Prérequis site/API : déployer `8352b5d` (champ `unpaid_count` sur `GET /api/v1/dashboard`).  
-> (P2 G2-03…G2-05 après.)
+> **ORDRE ACTIF (2026-10-07 03h35) — priorité développeur app :**  
+> **Build + publier APK 1.18.3** (code A1–A3 + Impayés déjà dans `more.tsx` / Accueil).  
+> Recette Nox/téléphone : Plus → Matériel / Historique / Annonces + Accueil Impayés.  
+> P2 G2-03…G2-05 **après** score ≥ 90 % (post-deploy site).
 
-> **ORDRE ACTIF historique :** §9sexies (1.18.1) · Lot A→B→C.
+> **ORDRE ACTIF historique :** §9septies (1.18.2 Impayés) · §9sexies (1.18.1) · Lot A→B→C.
 
 ---
 
@@ -264,10 +263,44 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-06 18h00 | **1.18.1** | **§9sexies clos** : G2-01 `router.push`+rAF Plus ; NC-06 profil AR/RTL ; NC-07/10 déjà ; Maestro login_tabs. vc23 HTTPS |
 | 2026-10-06 22h20 | **1.18.2** | **Fix Impayés Accueil** : appelait `/finance/dashboard` (404) → 0 ; + utilisait `overdue_count` seul. Désormais `/dashboard` + `unpaid_count` / meta `due,partial,overdue` (WRBH = 32 / 135k DZD). API `unpaid_count` sur `/dashboard`. vc24 |
 | 2026-10-07 00h20 | (ordre actif) | **§9septies** publié : rebuild + publier APK **1.18.2** ; recette Impayés Accueil = Paiements (tous clubs). |
+| 2026-10-07 00h30 | **1.18.2** | **§9septies** : Accueil Impayés via `/dashboard` + `unpaid_count` / meta due+partial+overdue. vc24 HTTPS publié |
+| 2026-10-07 03h00 | (ordre actif) | **§9octies** : après rejeu Nox 11/14 — **À AJOUTER** Plus → Matériel / Historique / Annonces stables ; APK ≥1.18.3 si correctif. Source `ORDRE_AMELIORATION_DEV_2026-10-07_FR_AR.md`. |
+| 2026-10-07 03h05 | (sync ordre) | Rejeu 1.18.2 : Athlètes/Inscriptions/Comptes OK ; Matériel/Historique Plus encore NON. **À AJOUTER** A1–A3 + APK ≥1.18.3 ; sync W1/W3 site avant écrans vides. |
+| 2026-10-07 03h35 | **1.18.3** code | A1–A3 : Plus Matériel/Historique/Annonces (titres QA, testID, push) ; sync site W1–W5. **À FAIRE ops :** build APK vc25 + deploy VPS. |
 
 ---
 
-## 9septies. À AJOUTER — Fix Impayés Accueil (2026-10-07) — **ORDRE ACTIF OBLIGATOIRE**
+## 9octies. À AJOUTER — Nav Plus Matériel / Historique / Annonces (2026-10-07) — **ORDRE ACTIF APP**
+
+**Contexte QA Nox 07/10 :** login + onglets OK ; Plus→Athlètes/Inscriptions/Équipes/Comptes/Finance **OK** ; **FAIL** Plus→**Matériel**, **Historique**, **Annonces** (tap/land). Score app ≈ **79 %** ; cible globale ≥ **90 %**.
+
+### Ce qu’il faut AJOUTER / CORRIGER (app)
+
+| # | **À AJOUTER** | Détail | API / écran |
+|---|---------------|--------|-------------|
+| **NAV-01** | Entrée **Matériel** dans Plus (scroll si besoin) | `router.push` fiable → inventaire ; testID Automator | `GET /api/v1/inventory/items` |
+| **NAV-02** | Entrée **Historique** dans Plus | Land journal / corbeille | `GET /api/v1/audit` |
+| **NAV-03** | Entrée **Annonces** dans Plus | Land fil (même données site) | `GET /api/v1/announcements` |
+| **NAV-04** | Labels FR + AR visibles | Texte exact pour taps QA : `Matériel`, `Historique`, `Annonces` | `more.tsx` / i18n |
+| **NAV-05** | Rebuild APK **≥ 1.18.3** si code change | UpdateGate + install Nox/téléphone | `app.json` versionCode++ |
+| **NAV-06** | Recette | Plus → 3 écrans land + données (Sisi ou WRBH) | Preuve dump / capture |
+
+### Checklist développeur app
+
+- [x] Matériel visible + land depuis Plus *(code 1.18.3)*  
+- [x] Historique visible + land depuis Plus *(code)*  
+- [x] Annonces visible + land depuis Plus *(entrée dédiée)*  
+- [ ] APK **1.18.3** publié + install Nox/téléphone  
+- [ ] Ligne journal §9 après install  
+
+
+### Dépendance site
+
+Attendre / synchroniser W1 (Historique web) et W3 (fil Annonces) du doc `ORDRE_AMELIORATION_DEV_2026-10-07_FR_AR.md` pour ne pas afficher des écrans vides alors que l’API a des données.
+
+---
+
+## 9septies. À AJOUTER — Fix Impayés Accueil (2026-10-07) — **publier / recette téléphone**
 
 **Bug (tous clubs, pas seulement WRBH) :** Accueil staff/admin affiche **0 Impayés** alors que l’onglet **Paiements** montre un reste réel.  
 **Preuve WRBH :** 32 échéances / 135 000 DZD ouvertes ; `overdue_count` = 0 ; ancienne URL `/api/v1/finance/dashboard` = 404.
@@ -290,13 +323,12 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 
 ### Checklist développeur app
 
-- [ ] Pull `main` (≥ `8352b5d`)  
-- [ ] Confirmer Accueil utilise `/api/v1/dashboard` + `unpaid_count` / meta  
-- [ ] Build APK **1.18.2** vc24  
-- [ ] Déposer APK sur prod (`/wrbh-club-1.18.2.apk`) + env `ANDROID_*`  
-- [ ] Recette WRBH : Accueil Impayés ≠ 0 si Paiements a un reste  
-- [ ] Recette 2ᵉ club : même règle  
-- [ ] Ligne journal §9 quand APK installé sur téléphone réel  
+- [x] Confirmer Accueil utilise `/api/v1/dashboard` + `unpaid_count` / meta  
+- [x] Build APK **1.18.2** vc24  
+- [x] Déposer APK sur prod (`/wrbh-club-1.18.2.apk`) + env `ANDROID_*`  
+- [ ] Recette WRBH téléphone : Accueil Impayés ≠ 0 si Paiements a un reste  
+- [ ] Recette 2ᵉ club (Sisi) : même règle  
+- [x] Ligne journal §9 (publication APK)  
 
 ### Hors scope app (site / ops)
 

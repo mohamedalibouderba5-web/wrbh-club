@@ -381,6 +381,10 @@ Page `/history` :
 | 2026-10-06 18h00 | **App 1.18.1** : G2-01 Plus `router.push` renforcé ; profil AR/RTL (NC-06) ; §9sexies checklist close | Installer 1.18.1 ; Nox Plus→6 écrans |
 | 2026-10-06 22h20 | **Fix Impayés Accueil (WRBH)** : app appelait `/api/v1/finance/dashboard` **404** → affichait 0 ; + `overdue_count` seul (0) alors que **32** échéances / **135 000 DZD** en due+partial. API `unpaid_count` sur `/dashboard` ; web carte Impayés ; app **1.18.2** | Rebuild APK **1.18.2** ; Accueil Impayés = nb échéances ouvertes |
 | 2026-10-07 00h20 | **Ordre app §9septies** : bug Impayés Accueil = **tous clubs** ; code `8352b5d` prêt ; développeur app = rebuild/publier **1.18.2** + recette WRBH + 2ᵉ club | **§9septies** `ORDRE_DEV_APP_ANDROID.md` |
+| 2026-10-07 03h35 | **Lot W1–W5 + A1–A3** (ordre 07/10) : Historique Actualiser ; équipes skeleton ; Annonces fil ; import CSV multipart+OpenAPI ; âge Finance max 55 ; Plus Matériel/Historique/Annonces ; APK cible **1.18.3**. P2 reporté (≥90 %) | Deploy VPS + build APK 1.18.3 ; impact Android §9octies |
+| 2026-10-07 00h30 | **App 1.18.2 + API** : Impayés Accueil corrigés (`unpaid_count` due+partial+overdue) ; UpdateGate **1.18.2**/vc24 | Installer 1.18.2 ; vérifier Accueil ≠ 0 si Paiements a un reste |
+| 2026-10-07 03h00 | **Ordre amélioration dev** post-rejeu % (score **≈ 85 %**) : W1 Historique=`/audit` ; W2 G0-03b skeleton équipes ; W3 fil Annonces=API ; W4 CSV import OpenAPI ; puis A1–A3 Plus Matériel/Historique/Annonces. Doc `ORDRE_AMELIORATION_DEV_2026-10-07_FR_AR.md` | **§9octies** — nav Plus Matériel/Historique/Annonces + APK ≥1.18.3 si besoin |
+| 2026-10-07 03h05 | **Ordre dev resync** score **≈ 84 %** (tableau modules) : + **W5** Finance UI âge max = settings API ; app Nox **1.18.2**. Doc `ORDRE_AMELIORATION_DEV_2026-10-07_FR_AR.md` | App : attendre W1/W3 avant A2/A3 ; A4 APK ≥1.18.3 |
 
 ---
 

@@ -45,15 +45,15 @@ class Settings(BaseSettings):
     app_version: str = "1.18.0"
     git_sha: str = ""  # injecté au déploiement (env GIT_SHA)
     # Mise à jour APK mobile (publié via env Render)
-    android_app_version: str = "1.18.2"
-    android_version_code: int = 24
-    android_apk_url: str = "https://nadi-connect.com/wrbh-club-1.18.2.apk"
+    android_app_version: str = "1.18.3"
+    android_version_code: int = 25
+    android_apk_url: str = "https://nadi-connect.com/wrbh-club-1.18.3.apk"
     android_force_update: bool = False
     android_release_notes: str = (
-        "Nadi Connect 1.18.2: Accueil Impayés corrigé (due+partial+overdue, WRBH)."
+        "Nadi Connect 1.18.3: Plus→Matériel/Historique/Annonces stables ; Impayés Accueil."
     )
     android_release_notes_ar: str = (
-        "نادي كونكت 1.18.2: إصلاح عدد المستحقات غير المدفوعة في الصفحة الرئيسية."
+        "نادي كونكت 1.18.3: قائمة Plus → معدات/سجل/إعلانات مستقرة."
     )
 
     @property

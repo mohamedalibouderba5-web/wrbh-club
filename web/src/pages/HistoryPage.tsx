@@ -33,12 +33,14 @@ export function HistoryPage() {
   const [error, setError] = useState("");
 
   async function load(filterEntity = entity) {
-    setLoading(true);
+    const hadRows = rows.length > 0;
+    setLoading(!hadRows);
     setError("");
     try {
       const trashOnly = filterEntity === "trash";
       const q = new URLSearchParams({ limit: trashOnly ? "120" : "80" });
       if (filterEntity && !trashOnly) q.set("entity", filterEntity);
+      // W1 : même contrat que l’API audit (liste plate)
       const data = await api<AuditRow[]>(`/api/v1/audit?${q}`);
       const list = Array.isArray(data) ? data : [];
       setRows(
@@ -48,7 +50,7 @@ export function HistoryPage() {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
-      setRows([]);
+      if (!hadRows) setRows([]);
     } finally {
       setLoading(false);
     }
@@ -119,11 +121,18 @@ export function HistoryPage() {
           <option value="trash">{ar ? "سلة فقط (حذف/أرشفة)" : "Corbeille seule (delete/archive)"}</option>
         </select>
         <button type="button" className="secondary" onClick={() => void load()}>
-          {t("retry")}
+          {error && !rows.length ? t("retry") : t("refresh")}
         </button>
       </div>
-      {loading && <p className="muted">{t("loading")}</p>}
-      {error && <p className="error">{error}</p>}
+      {loading && !rows.length && <p className="muted">{t("loading")}</p>}
+      {error && (
+        <p className="error">
+          {error}{" "}
+          <button type="button" className="secondary btn-fit" onClick={() => void load()}>
+            {t("retry")}
+          </button>
+        </p>
+      )}
       {!loading && !rows.length && !error && <p className="muted">{t("empty")}</p>}
       <table>
         <thead>

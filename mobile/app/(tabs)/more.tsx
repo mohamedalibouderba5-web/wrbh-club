@@ -15,6 +15,7 @@ type Item = {
     | "payments"
     | "inventory"
     | "history"
+    | "announcements"
     | "agenda"
     | "messages"
     | "feedback"
@@ -29,8 +30,12 @@ type Item = {
   icon: keyof typeof Ionicons.glyphMap;
   roles?: string[] | null;
   testID?: string;
+  /** Titre forcé FR (QA Automator) */
+  titleFr?: string;
+  titleAr?: string;
 };
 
+/** Ordre staff : Matériel / Historique / Annonces tôt dans la liste (A1–A3 / Nox) */
 const ITEMS: Item[] = [
   {
     key: "platform",
@@ -88,6 +93,8 @@ const ITEMS: Item[] = [
   },
   {
     key: "inventory",
+    titleFr: "Matériel",
+    titleAr: "المعدات",
     subtitleFr: "Stock, achats et prêts",
     subtitleAr: "المخزون والمشتريات والإعارات",
     route: "/(tabs)/inventory",
@@ -97,12 +104,25 @@ const ITEMS: Item[] = [
   },
   {
     key: "history",
+    titleFr: "Historique",
+    titleAr: "السجل",
     subtitleFr: "Journal d’audit du club",
     subtitleAr: "سجل تدقيق النادي",
     route: "/(tabs)/history",
     icon: "time",
     roles: ["admin", "direction", "staff"],
     testID: "more-history",
+  },
+  {
+    key: "announcements",
+    titleFr: "Annonces",
+    titleAr: "الإعلانات",
+    subtitleFr: "Fil d’annonces du club",
+    subtitleAr: "شريط إعلانات النادي",
+    route: "/(tabs)/messages",
+    icon: "megaphone",
+    roles: ["admin", "direction", "staff", "coach", "parent"],
+    testID: "more-announcements",
   },
   {
     key: "agenda",
@@ -115,8 +135,8 @@ const ITEMS: Item[] = [
   },
   {
     key: "messages",
-    subtitleFr: "Annonces du club",
-    subtitleAr: "إعلانات النادي",
+    subtitleFr: "Messages et notifications",
+    subtitleAr: "الرسائل والإشعارات",
     route: "/(tabs)/messages",
     icon: "chatbubbles",
     roles: null,
@@ -152,7 +172,7 @@ const ITEMS: Item[] = [
   {
     key: "guide",
     subtitleFr: "Mode d’emploi Nadi Connect",
-    subtitleAr: "دليل استخدام Nadi Connect",
+    subtitleAr: "دليل استخدام نادي كونكت",
     route: "/(tabs)/guide",
     icon: "book",
     roles: null,
@@ -172,32 +192,44 @@ function MoreRow({
   const router = useRouter();
   const content = (
     <>
-      <View style={styles.iconWrap}>
+      <View style={styles.iconWrap} pointerEvents="none">
         <Ionicons name={item.icon} size={26} color={colors.blue} />
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} pointerEvents="none">
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.sub}>{subtitle}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} pointerEvents="none" />
     </>
   );
 
-  // G2-01 : router.push explicite (fiable Automator/Nox) — Link asChild seul restait fragile
+  // G2-01 / A1–A3 : router.push + zone tactile large (Automator/Nox)
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => {
-        if (item.route) {
-          router.push(item.route);
+        if (item.url) {
+          void Linking.openURL(item.url);
           return;
         }
-        if (item.url) void Linking.openURL(item.url);
+        if (!item.route) return;
+        const href = item.route as Href;
+        requestAnimationFrame(() => {
+          try {
+            router.push(href);
+          } catch {
+            try {
+              router.navigate(href);
+            } catch {
+              /* ignore */
+            }
+          }
+        });
       }}
       accessibilityRole="button"
       accessibilityLabel={title}
       testID={item.testID}
-      hitSlop={12}
+      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
       android_ripple={{ color: "#c7d2fe" }}
       delayPressIn={0}
     >
@@ -210,6 +242,11 @@ export default function MoreScreen() {
   const { role, fullName } = useAuth();
   const { t, lang } = useI18n();
   const visible = ITEMS.filter((i) => !i.roles || (role && i.roles.includes(role)));
+  // Éviter doublon Messages / Annonces pour staff (Annonces suffit)
+  const filtered =
+    role === "admin" || role === "direction" || role === "staff"
+      ? visible.filter((i) => i.key !== "messages")
+      : visible.filter((i) => i.key !== "announcements");
   const hint =
     role === "parent"
       ? lang === "ar"
@@ -228,8 +265,9 @@ export default function MoreScreen() {
   return (
     <ScrollView
       style={styles.page}
-      contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 48 }}
+      contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 56 }}
       keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
     >
       <Text style={styles.h}>{t("moreTitle")}</Text>
       <Text style={styles.muted}>
@@ -241,14 +279,20 @@ export default function MoreScreen() {
         <Text style={styles.hintText}>{hint}</Text>
       </View>
 
-      {visible.map((item) => (
-        <MoreRow
-          key={item.key}
-          item={item}
-          title={t(item.key)}
-          subtitle={lang === "ar" ? item.subtitleAr : item.subtitleFr}
-        />
-      ))}
+      {filtered.map((item) => {
+        const title =
+          lang === "ar"
+            ? item.titleAr || t(item.key)
+            : item.titleFr || t(item.key);
+        return (
+          <MoreRow
+            key={item.key}
+            item={item}
+            title={title}
+            subtitle={lang === "ar" ? item.subtitleAr : item.subtitleFr}
+          />
+        );
+      })}
     </ScrollView>
   );
 }
@@ -269,9 +313,9 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.card,
     borderRadius: 16,
-    paddingVertical: 16,
+    paddingVertical: 18,
     paddingHorizontal: 14,
-    minHeight: 72,
+    minHeight: 76,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

@@ -2,7 +2,8 @@ from calendar import month_abbr
 from datetime import date, datetime, timedelta, timezone
 from time import monotonic
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import extract, func, or_
 from sqlalchemy.orm import Session, load_only
 
@@ -1813,24 +1814,32 @@ def list_athletes(
     return out
 
 
-@athletes_router.post("/import")
-def import_athletes_csv(
-    payload: dict,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
-    club_id: int = Depends(get_current_club_id),
-):
-    """G1-06 : import CSV athlètes v1.
+class AthleteImportBody(BaseModel):
+    """Body JSON pour import CSV (alternative au multipart)."""
 
-    Body JSON : ``{"csv": "full_name,birth_date,birth_place,parent_phone\\n..." }``
-    Colonnes acceptées (en-tête flexible) : full_name|nom, birth_date|naissance,
-    birth_place|lieu, parent_phone|telephone, notes, blood_type|groupe.
-    """
+    csv: str = Field(..., description="Contenu CSV texte avec en-tête")
+    text: str | None = Field(None, description="Alias de csv")
+
+
+class AthleteImportResult(BaseModel):
+    created: int
+    skipped: int
+    errors: list[str]
+    error_count: int
+
+
+def _parse_athletes_csv_text(
+    raw: str,
+    *,
+    db: Session,
+    user: User,
+    club_id: int,
+) -> AthleteImportResult:
+    """G1-06 cœur : parse CSV → crée athlètes."""
     import csv
     import io
     from datetime import datetime as _dt
 
-    raw = (payload or {}).get("csv") or (payload or {}).get("text") or ""
     if not isinstance(raw, str) or not raw.strip():
         raise HTTPException(400, "Champ csv requis (texte CSV avec en-tête)")
     reader = csv.DictReader(io.StringIO(raw.strip()))
@@ -1838,7 +1847,7 @@ def import_athletes_csv(
         raise HTTPException(400, "CSV sans en-tête")
 
     def _col(*names: str) -> str | None:
-        lower = { (h or "").strip().lower(): h for h in (reader.fieldnames or []) }
+        lower = {(h or "").strip().lower(): h for h in (reader.fieldnames or [])}
         for n in names:
             if n in lower:
                 return lower[n]
@@ -1938,12 +1947,72 @@ def import_athletes_csv(
         created += 1
     db.commit()
     _bust_club_caches()
-    return {
-        "created": created,
-        "skipped": skipped,
-        "errors": errors[:40],
-        "error_count": len(errors),
-    }
+    return AthleteImportResult(
+        created=created,
+        skipped=skipped,
+        errors=errors[:40],
+        error_count=len(errors),
+    )
+
+
+@athletes_router.post(
+    "/import",
+    response_model=AthleteImportResult,
+    summary="Import CSV athlètes (JSON ou multipart)",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": AthleteImportBody.model_json_schema(),
+                    "example": {
+                        "csv": "full_name,birth_date,parent_phone\nAli Test,2015-05-01,0555123456\n"
+                    },
+                },
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "file": {"type": "string", "format": "binary"},
+                            "csv": {"type": "string", "format": "binary"},
+                        },
+                    }
+                },
+            }
+        }
+    },
+)
+async def import_athletes_csv(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.ADMIN, Role.DIRECTION, Role.STAFF)),
+    club_id: int = Depends(get_current_club_id),
+):
+    """G1-06 : import CSV athlètes.
+
+    - JSON : ``{"csv": "full_name,birth_date,...\\n..." }``
+    - multipart : champ fichier ``file`` ou ``csv``
+    """
+    ct = (request.headers.get("content-type") or "").lower()
+    raw = ""
+    if "multipart/form-data" in ct:
+        form = await request.form()
+        upload = form.get("file") or form.get("csv")
+        if upload is None:
+            raise HTTPException(400, "Fichier CSV requis (champ file ou csv)")
+        if hasattr(upload, "read"):
+            data = await upload.read()
+            raw = data.decode("utf-8-sig", errors="replace") if isinstance(data, (bytes, bytearray)) else str(data)
+        else:
+            raw = str(upload)
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(400, "Body JSON {csv: ...} ou multipart file requis") from None
+        if not isinstance(body, dict):
+            raise HTTPException(400, "Body JSON objet requis")
+        raw = (body.get("csv") or body.get("text") or "") if body else ""
+    return _parse_athletes_csv_text(raw, db=db, user=user, club_id=club_id)
 
 
 @athletes_router.post("", response_model=AthleteOut)

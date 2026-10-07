@@ -90,8 +90,11 @@ export function TeamsPage() {
     coach_id: "",
   });
   const [teamBusy, setTeamBusy] = useState(false);
+  const [teamsLoading, setTeamsLoading] = useState(true);
 
   async function load() {
+    const hadTeams = teams.length > 0;
+    if (!hadTeams) setTeamsLoading(true);
     try {
       const { data, errors } = await loadAllSettled<[TeamRow[], Coach[], Category[], Discipline[], TeamRow[]]>([
         () => api<TeamRow[]>("/api/v1/teams/coaches"),
@@ -129,6 +132,8 @@ export function TeamsPage() {
       else if (errors.length) setMsg("");
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Erreur chargement");
+    } finally {
+      setTeamsLoading(false);
     }
   }
 
@@ -768,7 +773,10 @@ export function TeamsPage() {
                 </button>
               );
             })}
-            {!teams.length && <p className="muted">{t("teamsEmpty")}</p>}
+            {teamsLoading && !teams.length && (
+              <p className="muted">{lang === "ar" ? "جاري تحميل الفرق…" : "Chargement des équipes…"}</p>
+            )}
+            {!teamsLoading && !teams.length && <p className="muted">{t("teamsEmpty")}</p>}
           </div>
         </div>
 
