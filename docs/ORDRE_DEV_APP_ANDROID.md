@@ -10,12 +10,12 @@
 **Date ordre :** 2026-10-01 (maj)  
 **Version API cible :** ≥ **1.18.0**
 
-> **ORDRE ACTIF (2026-10-07 03h35) — priorité développeur app :**  
-> **Build + publier APK 1.18.3** (code A1–A3 + Impayés déjà dans `more.tsx` / Accueil).  
-> Recette Nox/téléphone : Plus → Matériel / Historique / Annonces + Accueil Impayés.  
-> P2 G2-03…G2-05 **après** score ≥ 90 % (post-deploy site).
+> **ORDRE ACTIF (2026-10-07 ~12h00) — priorité développeur app :**  
+> **§9nonies — Sync prod site `git_sha=d71f677`** → build / publier APK **1.18.3** (vc25).  
+> Miroir obligatoire des livraisons web W1–W5 + Impayés + Plus Matériel/Historique/Annonces.  
+> Recette téléphone + Nox. P2 seulement après score ≥ 90 %.
 
-> **ORDRE ACTIF historique :** §9septies (1.18.2 Impayés) · §9sexies (1.18.1) · Lot A→B→C.
+> **ORDRE ACTIF historique :** §9octies · §9septies · §9sexies · Lot A→B→C.
 
 ---
 
@@ -267,10 +267,47 @@ Sur le démo judo : disciplines **Judo + Football + Natation** déjà présentes
 | 2026-10-07 03h00 | (ordre actif) | **§9octies** : après rejeu Nox 11/14 — **À AJOUTER** Plus → Matériel / Historique / Annonces stables ; APK ≥1.18.3 si correctif. Source `ORDRE_AMELIORATION_DEV_2026-10-07_FR_AR.md`. |
 | 2026-10-07 03h05 | (sync ordre) | Rejeu 1.18.2 : Athlètes/Inscriptions/Comptes OK ; Matériel/Historique Plus encore NON. **À AJOUTER** A1–A3 + APK ≥1.18.3 ; sync W1/W3 site avant écrans vides. |
 | 2026-10-07 03h35 | **1.18.3** code | A1–A3 : Plus Matériel/Historique/Annonces (titres QA, testID, push) ; sync site W1–W5. **À FAIRE ops :** build APK vc25 + deploy VPS. |
+| 2026-10-07 12h00 | (sync prod) | Site/API **live** `git_sha=d71f677` (W1–W5 + Impayés). **ORDRE §9nonies** : build APK **1.18.3** pour miroir app. |
 
 ---
 
-## 9octies. À AJOUTER — Nav Plus Matériel / Historique / Annonces (2026-10-07) — **ORDRE ACTIF APP**
+## 9nonies. À AJOUTER — Sync Android = prod site `d71f677` (2026-10-07) — **ORDRE ACTIF OBLIGATOIRE**
+
+**Site = vérité** déployé : `https://api.nadi-connect.com/health` → `git_sha=d71f677`.  
+L’app **doit** offrir les **mêmes** capacités (pas de parcours inventé).
+
+### Fonctionnalités à synchroniser (déjà dans le code app `main` — à **publier**)
+
+| # | Feature site live | **À AJOUTER / PUBLIER** dans l’app | API / fichier |
+|---|-------------------|-------------------------------------|---------------|
+| **S1** | Impayés Accueil = échéances ouvertes | Accueil staff : `unpaid_count` via `GET /api/v1/dashboard` (+ meta) | `index.tsx` |
+| **S2** | Historique journal | Plus → **Historique** land `GET /api/v1/audit` | `history.tsx` · `more.tsx` |
+| **S3** | Annonces fil | Plus → **Annonces** land fil `GET /api/v1/announcements` | `messages.tsx` (onglet annonces) |
+| **S4** | Matériel inventaire | Plus → **Matériel** land inventaire | `inventory.tsx` |
+| **S5** | Âge club (settings) | Afficher plage âge si message erreur / finance | `GET /finance/settings` |
+| **S6** | Import CSV (optionnel v1.18.3) | Si écran import : JSON `POST /athletes/import` ou fichier `POST /athletes/import/file` | Athlètes |
+
+### Build & publication (obligatoire)
+
+| # | Action | Preuve |
+|---|--------|--------|
+| **B1** | Pull `main` (≥ `d71f677`) | — |
+| **B2** | APK **1.18.3** · `versionCode` **25** | `app.json` |
+| **B3** | Publier `wrbh-club-1.18.3.apk` sur prod + UpdateGate | URL `/wrbh-club-1.18.3.apk` |
+| **B4** | Recette téléphone + Nox | Plus → Matériel / Historique / Annonces ; Accueil Impayés ≠ 0 si Paiements a un reste (WRBH + Sisi) |
+
+### Checklist
+
+- [ ] APK 1.18.3 installé  
+- [ ] S1 Impayés Accueil OK  
+- [ ] S2–S4 Plus 3 écrans OK  
+- [ ] Journal §9 ligne « 1.18.3 publié »  
+
+**P2** (G2-03 familial / G2-04 QR / G2-05 Feedback) : **après** score global ≥ 90 %.
+
+---
+
+## 9octies. À AJOUTER — Nav Plus Matériel / Historique / Annonces (2026-10-07) — **intégré §9nonies**
 
 **Contexte QA Nox 07/10 :** login + onglets OK ; Plus→Athlètes/Inscriptions/Équipes/Comptes/Finance **OK** ; **FAIL** Plus→**Matériel**, **Historique**, **Annonces** (tap/land). Score app ≈ **79 %** ; cible globale ≥ **90 %**.
 
